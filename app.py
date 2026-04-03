@@ -3,7 +3,7 @@ import requests
 from datetime import datetime, timedelta
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="NBA Master AI 2026", page_icon="🏀", layout="wide")
+st.set_page_config(page_title="NBA Master AI Predictor", page_icon="🏀", layout="wide")
 
 st.sidebar.title("⚙️ System Tools")
 if st.sidebar.button("🔄 Force Data Refresh"):
@@ -12,7 +12,6 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. THE 5-ON-5 STARTING ROSTER DATABASE
-# Ratings scale: 70 (Bench level) to 99 (Generational Superstar)
 # ─────────────────────────────────────────────────────────────────────────────
 STARTING_FIVES = {
     'BOS': {
@@ -50,13 +49,29 @@ STARTING_FIVES = {
         'PF': {'name': 'Caleb Martin', 'off': 76, 'def': 81},
         'C':  {'name': 'Joel Embiid', 'off': 97, 'def': 88}
     },
-    'DET': {
-        'PG': {'name': 'Cade Cunningham', 'off': 86, 'def': 78},
-        'SG': {'name': 'Jaden Ivey', 'off': 81, 'def': 75},
-        'SF': {'name': 'Ausar Thompson', 'off': 74, 'def': 89},
-        'PF': {'name': 'Tobias Harris', 'off': 81, 'def': 77},
-        'C':  {'name': 'Jalen Duren', 'off': 80, 'def': 81}
+    'DAL': {
+        'PG': {'name': 'Luka Doncic', 'off': 97, 'def': 76},
+        'SG': {'name': 'Kyrie Irving', 'off': 92, 'def': 75},
+        'SF': {'name': 'P.J. Washington', 'off': 78, 'def': 84},
+        'PF': {'name': 'Derrick Jones Jr.', 'off': 75, 'def': 85},
+        'C':  {'name': 'Dereck Lively II', 'off': 77, 'def': 86}
+    },
+    'OKC': {
+        'PG': {'name': 'SGA', 'off': 96, 'def': 86},
+        'SG': {'name': 'Josh Giddey', 'off': 81, 'def': 76},
+        'SF': {'name': 'Lu Dort', 'off': 76, 'def': 92},
+        'PF': {'name': 'Jalen Williams', 'off': 86, 'def': 84},
+        'C':  {'name': 'Chet Holmgren', 'off': 85, 'def': 89}
     }
+}
+
+# The Failsafe: If a live game features a team not in the dictionary above, use this.
+DEFAULT_ROSTER = {
+    'PG': {'name': 'Starting PG', 'off': 80, 'def': 80},
+    'SG': {'name': 'Starting SG', 'off': 80, 'def': 80},
+    'SF': {'name': 'Starting SF', 'off': 80, 'def': 80},
+    'PF': {'name': 'Starting PF', 'off': 80, 'def': 80},
+    'C':  {'name': 'Starting C',  'off': 80, 'def': 80}
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,38 +80,91 @@ STARTING_FIVES = {
 ESPN_TO_STD = {'GS': 'GSW', 'SA': 'SAS', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHAR': 'CHA', 'BKLN': 'BKN'}
 def norm(abbr): return ESPN_TO_STD.get(abbr, abbr)
 
-BACKUP_STANDINGS = {
-    'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-8', 'away_record': '26-13'},
-    'BOS': {'wins': 51, 'losses': 25, 'record': '51-25', 'win_pct': 0.671, 'home_record': '28-10', 'away_record': '23-15'},
-    'NYK': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '27-11', 'away_record': '22-17'},
-    'PHI': {'wins': 42, 'losses': 34, 'record': '42-34', 'win_pct': 0.552, 'home_record': '24-15', 'away_record': '18-19'},
-    'MIN': {'wins': 46, 'losses': 29, 'record': '46-29', 'win_pct': 0.613, 'home_record': '25-12', 'away_record': '21-17'},
-    'MIL': {'wins': 30, 'losses': 46, 'record': '30-46', 'win_pct': 0.394, 'home_record': '19-20', 'away_record': '11-26'},
-}
-
 @st.cache_data(ttl=300)
 def get_daily_slate():
-    # Force Custom Demo Slate to guarantee we see our programmed 5-on-5 logic
-    return [
-        {'h': 'NYK', 'a': 'BOS', 'h_name': 'Knicks', 'a_name': 'Celtics', 'time': '7:30 PM', 'venue': 'MSG'},
-        {'h': 'MIN', 'a': 'MIL', 'h_name': 'Timberwolves', 'a_name': 'Bucks', 'time': '8:00 PM', 'venue': 'Target Center'},
-        {'h': 'PHI', 'a': 'DET', 'h_name': '76ers', 'a_name': 'Pistons', 'time': '7:00 PM', 'venue': 'Wells Fargo Center'},
-    ]
+    now_est = datetime.utcnow() - timedelta(hours=4)
+    # Pull a 3 day window to prevent timezone drop-offs
+    yest_str = (now_est - timedelta(days=1)).strftime('%Y%m%d')
+    tom_str = (now_est + timedelta(days=1)).strftime('%Y%m%d')
+    
+    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={yest_str}-{tom_str}"
+    
+    try:
+        data = requests.get(url, timeout=6).json()
+        games = []
+        target_date = now_est.strftime('%Y-%m-%d')
+        
+        for event in data.get('events', []):
+            dt_utc = datetime.strptime(event['date'], '%Y-%m-%dT%H:%MZ')
+            dt_est = dt_utc - timedelta(hours=4)
+            
+            # Only pull games happening TODAY
+            if dt_est.strftime('%Y-%m-%d') != target_date:
+                continue
+
+            comp = event['competitions'][0]
+            home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
+            away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            
+            if home and away:
+                games.append({
+                    'h': norm(home['team']['abbreviation']), 'a': norm(away['team']['abbreviation']),
+                    'h_name': home['team']['displayName'], 'a_name': away['team']['displayName'],
+                    'time': dt_est.strftime('%I:%M %p ET').lstrip('0'),
+                    'venue': comp.get('venue', {}).get('fullName', 'Arena')
+                })
+        
+        if games: return games
+    except: pass
+    
+    return [] # Return empty if no games are scheduled today
 
 @st.cache_data(ttl=600)
-def get_standings(): return BACKUP_STANDINGS
+def get_standings():
+    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/standings"
+    try:
+        data = requests.get(url, timeout=5).json()
+        result = {}
+        for conf in data.get('children', []):
+            for entry in conf.get('standings', {}).get('entries', []):
+                abbr = norm(entry['team']['abbreviation'])
+                stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
+                def get_rec(k): return stats.get(k, {}).get('summary') or stats.get(k, {}).get('displayValue', '0-0')
+                
+                wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
+                if wins + losses > 0:
+                    result[abbr] = {
+                        'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}",
+                        'win_pct': wins / (wins + losses),
+                        'home_record': get_rec('home'), 'away_record': get_rec('away'),
+                    }
+        if len(result) > 10: return result
+    except: pass
+    return {}
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    # Embiid injured to demonstrate the Matchup Voiding logic
-    return {'PHI': ['Joel Embiid (Doubtful - Knee)']}
+    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news"
+    try:
+        news = {}
+        articles = requests.get(url, timeout=5).json().get('articles', [])
+        for art in articles:
+            hl = art.get('headline', '')
+            if 'out' in hl.lower() or 'injury' in hl.lower() or 'questionable' in hl.lower():
+                for cat in art.get('categories', []):
+                    if cat.get('type') == 'team':
+                        abbr = norm(cat.get('teamAbbrev', ''))
+                        if abbr: news.setdefault(abbr, []).append(hl)
+        if len(news) > 0: return {k: v[:2] for k, v in news.items()}
+    except: pass
+    return {}
 
 def is_active(player_name, team_injuries):
     last_name = player_name.split()[-1]
     return not any(last_name in inj for inj in team_injuries)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. THE 5-ON-5 PREDICTION ENGINE
+# 3. THE LIVE 5-ON-5 PREDICTION ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries):
     h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
@@ -107,7 +175,7 @@ def predict_game(h, a, standings, injuries):
     matchup_logs = []
     total = 0.0
     
-    # Base Factors
+    # 1. Base Factors
     total += 3.5
     factors.append({"icon": "🏠", "name": "Home Court", "adj": 3.5, "why": "Standard home boost."})
     
@@ -116,53 +184,50 @@ def predict_game(h, a, standings, injuries):
     factors.append({"icon": "📊", "name": "Team Form Edge", "adj": base_adj, "why": f"Overall record disparity ({h_std['record']} vs {a_std['record']})."})
 
     # --- 5-ON-5 POSITIONAL MATCHUP ENGINE ---
-    # We scale the matchup math by 0.15 so a +10 advantage equals +1.5 win probability points.
     SCALING_FACTOR = 0.15 
     
-    h_roster = STARTING_FIVES.get(h)
-    a_roster = STARTING_FIVES.get(a)
+    # Use real roster if we have it, otherwise use the league average DEFAULT_ROSTER
+    h_roster = STARTING_FIVES.get(h, DEFAULT_ROSTER)
+    a_roster = STARTING_FIVES.get(a, DEFAULT_ROSTER)
     
-    if h_roster and a_roster:
-        positions = ['PG', 'SG', 'SF', 'PF', 'C']
+    positions = ['PG', 'SG', 'SF', 'PF', 'C']
+    
+    for pos in positions:
+        hp = h_roster[pos]
+        ap = a_roster[pos]
         
-        for pos in positions:
-            hp = h_roster[pos]
-            ap = a_roster[pos]
-            
-            # 1. Injury Check
-            if not is_active(hp['name'], h_inj) or not is_active(ap['name'], a_inj):
-                matchup_logs.append({
-                    "pos": pos, "matchup": f"⚠️ {hp['name']} vs {ap['name']}",
-                    "math": "Matchup Voided due to Injury Report. Bench logic applied.",
-                    "adj": 0.0, "color": "#888888"
-                })
-                continue
-                
-            # 2. Calculate the Math
-            # How many points Home Offense creates against Away Defense
-            h_score = max(0, hp['off'] - ap['def'])
-            # How many points Away Offense creates against Home Defense
-            a_score = max(0, ap['off'] - hp['def'])
-            
-            # The Net difference scaled down for the probability engine
-            net_edge = (h_score - a_score) * SCALING_FACTOR
-            total += net_edge
-            
-            # Format the math for the UI
-            math_str = f"(H_OFF {hp['off']} - A_DEF {ap['def']}) vs (A_OFF {ap['off']} - H_DEF {hp['def']})"
-            color = "#28a745" if net_edge > 0 else "#dc3545" if net_edge < 0 else "#888888"
-            
+        # Injury Check
+        if not is_active(hp['name'], h_inj) or not is_active(ap['name'], a_inj):
             matchup_logs.append({
-                "pos": pos, "matchup": f"**{hp['name']}** ({h}) vs **{ap['name']}** ({a})",
-                "math": math_str, "adj": net_edge, "color": color
+                "pos": pos, "matchup": f"⚠️ {hp['name']} vs {ap['name']}",
+                "math": "Matchup Voided due to Injury Report.",
+                "adj": 0.0, "color": "#888888"
             })
+            continue
             
-    else:
-        factors.append({"icon": "⚠️", "name": "Rosters Missing", "adj": 0.0, "why": "Full 5-on-5 data not available for these teams."})
+        # The Math
+        h_score = max(0, hp['off'] - ap['def'])
+        a_score = max(0, ap['off'] - hp['def'])
+        net_edge = (h_score - a_score) * SCALING_FACTOR
+        total += net_edge
+        
+        math_str = f"(H_OFF {hp['off']} - A_DEF {ap['def']}) vs (A_OFF {ap['off']} - H_DEF {hp['def']})"
+        color = "#28a745" if net_edge > 0 else "#dc3545" if net_edge < 0 else "#888888"
+        
+        matchup_logs.append({
+            "pos": pos, "matchup": f"**{hp['name']}** ({h}) vs **{ap['name']}** ({a})",
+            "math": math_str, "adj": net_edge, "color": color
+        })
 
     # Injury Adjustments
-    if h_inj: total -= 4.0; factors.append({"icon": "🤕", "name": "Team Injury Impact", "adj": -4.0, "why": f"{h} missing rotation players."})
-    if a_inj: total += 4.0; factors.append({"icon": "🤕", "name": "Team Injury Impact", "adj": 4.0, "why": f"{a} missing rotation players."})
+    if h_inj: total -= 4.0; factors.append({"icon": "🤕", "name": "Injury Impact", "adj": -4.0, "why": f"{h} missing rotation players."})
+    if a_inj: total += 4.0; factors.append({"icon": "🤕", "name": "Injury Impact", "adj": 4.0, "why": f"{a} missing rotation players."})
+
+    # Tanking Check
+    if h_std['win_pct'] < 0.36 and h_std['wins'] + h_std['losses'] > 15:
+        total -= 8.0; factors.append({"icon": "🎯", "name": "Tanking Penalty", "adj": -8.0, "why": f"{h} win rate critically low."})
+    elif a_std['win_pct'] < 0.36 and a_std['wins'] + a_std['losses'] > 15:
+        total += 8.0; factors.append({"icon": "🎯", "name": "Tanking Boost", "adj": 8.0, "why": f"{a} win rate critically low."})
 
     prob = max(5.0, min(95.0, 50.0 + total))
     return {
@@ -174,12 +239,19 @@ def predict_game(h, a, standings, injuries):
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🏀 NBA Master AI Predictor (5-on-5 Edition)")
+st.title("🏀 Live NBA Predictor (5-on-5 Edition)")
 st.divider()
 
-slate = get_daily_slate()
-standings = get_standings()
-injuries = get_injuries()
+with st.spinner("📡 Syncing Live ESPN Data..."):
+    slate = get_daily_slate()
+    standings = get_standings()
+    injuries = get_injuries()
+
+if not slate:
+    st.success("✅ No games scheduled for today! Check back tomorrow.")
+    st.stop()
+
+st.subheader(f"Today's Live Matchups ({len(slate)} Games)")
 
 for game in slate:
     h, a = game['h'], game['a']
@@ -191,13 +263,13 @@ for game in slate:
 
     with st.expander(header):
         st.markdown(f"### 🏆 {pred['winner']} WINS ({conf:.1f}%)")
+        st.caption(f"📍 {game['venue']} | 🕐 {game['time']}")
         
-        # --- NEW 5-ON-5 MATCHUP BOARD ---
+        # --- 5-ON-5 MATCHUP BOARD ---
         if pred['matchups']:
             st.markdown("#### ⚔️ Starting 5 Positional Matchups")
             st.write("Calculated by: `(Home OFF - Away DEF) - (Away OFF - Home DEF) * Scaling Factor`")
             
-            # Create a clean UI table for the matchups
             for m in pred['matchups']:
                 c1, c2, c3 = st.columns([1, 6, 2])
                 c1.markdown(f"**{m['pos']}**")
