@@ -11,30 +11,29 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. 2026 PLAYER MATCHUP DATABASE (Star vs. Stopper Engine)
+# 1. 2026 PLAYER MATCHUP DATABASE (With POSITIONAL ZONING)
 # ─────────────────────────────────────────────────────────────────────────────
-# Offensive points added per 100 possessions by the team's primary star
+# Zones: 'Perimeter' (Guards), 'Wing' (Forwards), 'Paint' (Bigs)
 OFFENSIVE_STARS = {
-    'OKC': {'name': 'Shai Gilgeous-Alexander', 'impact': 8.5},
-    'DEN': {'name': 'Nikola Jokic', 'impact': 9.0},
-    'LAL': {'name': 'Luka Doncic', 'impact': 8.8},
-    'NYK': {'name': 'Jalen Brunson', 'impact': 7.2},
-    'MIN': {'name': 'Anthony Edwards', 'impact': 6.5},
-    'MIL': {'name': 'Giannis Antetokounmpo', 'impact': 8.0},
-    'PHI': {'name': 'Tyrese Maxey', 'impact': 6.0},
-    'HOU': {'name': 'Kevin Durant', 'impact': 7.0},
-    'BOS': {'name': 'Jayson Tatum', 'impact': 6.8}
+    'OKC': {'name': 'Shai Gilgeous-Alexander', 'impact': 8.5, 'zone': 'Perimeter'},
+    'DEN': {'name': 'Nikola Jokic', 'impact': 9.0, 'zone': 'Paint'},
+    'LAL': {'name': 'Luka Doncic', 'impact': 8.8, 'zone': 'Perimeter'},
+    'NYK': {'name': 'Jalen Brunson', 'impact': 7.2, 'zone': 'Perimeter'},
+    'MIN': {'name': 'Anthony Edwards', 'impact': 6.5, 'zone': 'Wing'},
+    'MIL': {'name': 'Giannis Antetokounmpo', 'impact': 8.0, 'zone': 'Paint'},
+    'PHI': {'name': 'Tyrese Maxey', 'impact': 6.0, 'zone': 'Perimeter'},
+    'HOU': {'name': 'Kevin Durant', 'impact': 7.0, 'zone': 'Wing'},
+    'BOS': {'name': 'Jayson Tatum', 'impact': 6.8, 'zone': 'Wing'}
 }
 
-# Defensive points saved per 100 possessions by elite 1-on-1 stoppers
 ELITE_STOPPERS = {
-    'BOS': {'name': 'Jrue Holiday', 'stopper_rating': 4.5},
-    'MIN': {'name': 'Rudy Gobert', 'stopper_rating': 5.2},
-    'OKC': {'name': 'Lu Dort', 'stopper_rating': 4.0},
-    'NOP': {'name': 'Herb Jones', 'stopper_rating': 4.2},
-    'SAS': {'name': 'Victor Wembanyama', 'stopper_rating': 5.5},
-    'MIA': {'name': 'Bam Adebayo', 'stopper_rating': 4.8},
-    'NYK': {'name': 'OG Anunoby', 'stopper_rating': 3.9}
+    'BOS': {'name': 'Jrue Holiday', 'stopper_rating': 4.5, 'zone': 'Perimeter'},
+    'MIN': {'name': 'Rudy Gobert', 'stopper_rating': 5.2, 'zone': 'Paint'},
+    'OKC': {'name': 'Lu Dort', 'stopper_rating': 4.0, 'zone': 'Perimeter'},
+    'NOP': {'name': 'Herb Jones', 'stopper_rating': 4.2, 'zone': 'Wing'},
+    'SAS': {'name': 'Victor Wembanyama', 'stopper_rating': 5.5, 'zone': 'Paint'},
+    'MIA': {'name': 'Bam Adebayo', 'stopper_rating': 4.8, 'zone': 'Paint'},
+    'NYK': {'name': 'OG Anunoby', 'stopper_rating': 3.9, 'zone': 'Wing'}
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +54,13 @@ BACKUP_STANDINGS = {
     'MIN': {'wins': 46, 'losses': 29, 'record': '46-29', 'win_pct': 0.613, 'home_record': '25-12', 'away_record': '21-17', 'point_diff': 3.5},
     'UTA': {'wins': 21, 'losses': 56, 'record': '21-56', 'win_pct': 0.272, 'home_record': '13-26', 'away_record': '8-30', 'point_diff': -11.0},
     'DAL': {'wins': 24, 'losses': 52, 'record': '24-52', 'win_pct': 0.315, 'home_record': '14-24', 'away_record': '10-28', 'point_diff': -5.2},
+    'MEM': {'wins': 35, 'losses': 41, 'record': '35-41', 'win_pct': 0.460, 'home_record': '20-18', 'away_record': '15-23', 'point_diff': 0.2},
+    'SAC': {'wins': 38, 'losses': 39, 'record': '38-39', 'win_pct': 0.493, 'home_record': '22-17', 'away_record': '16-22', 'point_diff': -0.8},
+    'NOP': {'wins': 28, 'losses': 48, 'record': '28-48', 'win_pct': 0.368, 'home_record': '16-22', 'away_record': '12-26', 'point_diff': -7.5},
+    'CHI': {'wins': 30, 'losses': 47, 'record': '30-47', 'win_pct': 0.389, 'home_record': '18-21', 'away_record': '12-26', 'point_diff': -3.2},
+    'IND': {'wins': 35, 'losses': 42, 'record': '35-42', 'win_pct': 0.454, 'home_record': '20-18', 'away_record': '15-24', 'point_diff': -1.5},
+    'BKN': {'wins': 20, 'losses': 56, 'record': '20-56', 'win_pct': 0.263, 'home_record': '12-26', 'away_record': '8-30', 'point_diff': -11.5},
+    'CHA': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '22-16', 'away_record': '19-20', 'point_diff': 0.5},
 }
 
 BACKUP_INJURIES = {
@@ -77,7 +83,7 @@ TEAM_DATA = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. ROBUST FETCHERS (With Strict Override)
+# 3. ROBUST FETCHERS
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate():
@@ -166,7 +172,7 @@ def get_back_to_back():
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. TRANSPARENT PREDICTION ENGINE (WITH MATCHUPS)
+# 4. TRANSPARENT PREDICTION ENGINE (WITH POSITIONAL ZONING)
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
@@ -191,29 +197,40 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += def_adj
     factors.append({"icon": "🛡️", "name": "Team Defense Matchup", "adj": def_adj, "why": f"{h} def rating: {h_td['def_rtg']} | {a} def rating: {a_td['def_rtg']}"})
 
-    # 4. INDIVIDUAL MATCHUP LOGIC (Star vs Stopper)
+    # 4. INDIVIDUAL POSITIONAL MATCHUP LOGIC (Zone vs Zone)
     matchup_found = False
     
     # Check if Home has a Star and Away has a Stopper
     if h in OFFENSIVE_STARS and a in ELITE_STOPPERS:
         star, stopper = OFFENSIVE_STARS[h], ELITE_STOPPERS[a]
-        penalty = min(star['impact'], stopper['stopper_rating'])
-        total -= penalty
-        factors.append({"icon": "🥷", "name": "Elite Matchup Detected", "adj": -penalty, 
-                        "why": f"{stopper['name']} ({a}) is neutralizing {star['name']} ({h})."})
-        matchup_found = True
+        # ONLY apply if their zones match (e.g., Perimeter vs Perimeter)
+        if star['zone'] == stopper['zone']:
+            penalty = min(star['impact'], stopper['stopper_rating'])
+            total -= penalty
+            factors.append({"icon": "🥷", "name": "Positional Matchup Detected", "adj": -penalty, 
+                            "why": f"{stopper['name']} ({a}) is guarding {star['name']} ({h}) in the {star['zone']}."})
+            matchup_found = True
+        else:
+            factors.append({"icon": "🥷", "name": "Mismatch Escaped", "adj": 0.0, 
+                            "why": f"{stopper['name']} ({a}) is a {stopper['zone']} defender and will not primarily guard {star['name']} ({star['zone']})."})
+            matchup_found = True
         
     # Check if Away has a Star and Home has a Stopper
-    if a in OFFENSIVE_STARS and h in ELITE_STOPPERS:
+    if a in OFFENSIVE_STARS and h in ELITE_STOPPERS and not matchup_found:
         star, stopper = OFFENSIVE_STARS[a], ELITE_STOPPERS[h]
-        penalty = min(star['impact'], stopper['stopper_rating'])
-        total += penalty
-        factors.append({"icon": "🥷", "name": "Elite Matchup Detected", "adj": penalty, 
-                        "why": f"{stopper['name']} ({h}) is neutralizing {star['name']} ({a})."})
-        matchup_found = True
+        if star['zone'] == stopper['zone']:
+            penalty = min(star['impact'], stopper['stopper_rating'])
+            total += penalty
+            factors.append({"icon": "🥷", "name": "Positional Matchup Detected", "adj": penalty, 
+                            "why": f"{stopper['name']} ({h}) is guarding {star['name']} ({a}) in the {star['zone']}."})
+            matchup_found = True
+        else:
+            factors.append({"icon": "🥷", "name": "Mismatch Escaped", "adj": 0.0, 
+                            "why": f"{stopper['name']} ({h}) is a {stopper['zone']} defender and will not primarily guard {star['name']} ({star['zone']})."})
+            matchup_found = True
 
     if not matchup_found:
-        factors.append({"icon": "🥷", "name": "Star vs. Stopper", "adj": 0.0, "why": "No direct elite 1-on-1 matchups identified."})
+        factors.append({"icon": "🥷", "name": "Star vs. Stopper", "adj": 0.0, "why": "No direct 1-on-1 matchups identified."})
 
     # 5. Tanking Logic
     if h_std['win_pct'] < 0.36 and h_std['wins'] + h_std['losses'] > 15:
