@@ -2,85 +2,79 @@ import streamlit as st
 import requests
 from datetime import datetime
 
-# Page Config
 st.set_page_config(page_title="NBA AI 2026", page_icon="🏀")
 
-# --- ACTUAL APRIL 2026 POWER RATINGS ---
+# --- 1. BASE POWER RATINGS (L10 Momentum) ---
 RATINGS = {
+    'BOS': 10.5, 'MIL': -4.2, 'HOU': 12.0, 'UTA': -12.5, 
+    'ATL': 8.8, 'BKN': -6.1, 'MEM': 5.5, 'TOR': -5.8,
     'PHI': 4.2, 'MIN': 1.5, 'CHA': 6.2, 'IND': -3.1,
-    'BKN': -6.1, 'ATL': 8.8, 'NYK': 7.5, 'CHI': -4.8,
-    'MIL': -4.2, 'BOS': 10.5, 'HOU': 12.0, 'UTA': -12.5,
-    'MEM': 5.5, 'TOR': -5.8, 'DAL': -8.2, 'ORL': 3.9,
-    'SAC': 4.1, 'NOP': -5.5
+    'NYK': 7.5, 'CHI': -4.8, 'ORL': 3.9, 'DAL': -8.2,
+    'SAC': 4.1, 'NOP': -5.5, 'WAS': -7.0, 'OKC': 15.7
 }
 
-# --- THE AUTO-FETCHER ---
-@st.cache_data(ttl=300) # Fast refresh for 2026 injury news
-def fetch_games_robust():
+# --- 2. THE "INTELLIGENCE" LAYER (Injuries & Context) ---
+# This is where we tell the code WHY a team might lose despite a good rating
+IMPACT_MODIFIERS = {
+    'MIL': {'penalty': -15.0, 'reason': 'Giannis Antetokounmpo (OUT)'},
+    'MIN': {'penalty': -5.0, 'reason': 'Anthony Edwards (Minutes Restriction)'},
+    'UTA': {'penalty': -10.0, 'reason': 'Official Tanking / Resting Starters'},
+    'DAL': {'penalty': -10.0, 'reason': 'Lottery Mode / 13-game home slide'},
+    'ATL': {'bonus': 5.0, 'reason': 'Post-Trae Trade Defensive Surge'},
+    'WAS': {'bonus': 8.0, 'reason': 'Trae Young / AD Trade Era Debut'}
+}
+
+def fetch_games():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
     try:
         res = requests.get(url).json()
-        events = res.get('events', [])
-        found = []
-        for e in events:
-            teams = e['competitions'][0]['competitors']
-            home = teams[0]['team']['abbreviation']
-            away = teams[1]['team']['abbreviation']
-            found.append({'h': home, 'a': away})
-        return found
-    except:
-        return []
-
-# --- BACKUP SLATE (Only used if API fails) ---
-BACKUP_SLATE = [
-    ('PHI', 'MIN'), ('CHA', 'IND'), ('BKN', 'ATL'), 
-    ('NYK', 'CHI'), ('MIL', 'BOS'), ('HOU', 'UTA'),
-    ('MEM', 'TOR'), ('DAL', 'ORL'), ('SAC', 'NOP')
-]
+        return [{'h': e['competitions'][0]['competitors'][0]['team']['abbreviation'],
+                 'a': e['competitions'][0]['competitors'][1]['team']['abbreviation']} 
+                for e in res.get('events', [])]
+    except: return []
 
 # --- APP UI ---
-st.title("🏀 NBA Master AI")
+st.title("🏀 NBA Smart AI")
 st.write(f"**Scouting Report:** {datetime.now().strftime('%A, %B %d, %Y')}")
 st.divider()
 
-# Get games from API
-games_list = fetch_games_robust()
+live_games = fetch_games()
 
-# If API is being slow/missing games, use our manual 9-game backup
-if len(games_list) < 9:
-    st.caption("🔄 Syncing with 2026 Master Schedule...")
-    final_slate = [{'h': g[0], 'a': g[1]} for g in BACKUP_SLATE]
-else:
-    final_slate = games_list
-
-st.subheader(f"Today's {len(final_slate)} Predictions")
-
-for game in final_slate:
-    h, a = game['h'], game['a']
-    
-    # 2026 MATH LOGIC
-    h_rtg = RATINGS.get(h, 0)
-    a_rtg = RATINGS.get(a, 0)
-    
-    # Prob = Home Edge + (Rating Diff * Weight)
-    prob = 54.5 + ((h_rtg - a_rtg) * 1.9)
-    prob = max(1, min(99, prob)) # Keep between 1-99%
-
-    # Display Result
-    winner = h if prob > 50 else a
-    conf = prob if prob > 50 else (100 - prob)
-    icon = "🔒" if conf > 80 else "🏀"
-
-    with st.expander(f"{icon} {h} vs {a}"):
-        st.write(f"### 🏆 VERDICT: **{winner} WINS**")
-        st.metric("Confidence", f"{conf:.1f}%")
+if live_games:
+    for game in live_games:
+        h, a = game['h'], game['a']
         
-        # Scouting Notes for April 3, 2026
-        st.write("**Model Reasoning:**")
-        if winner == 'BOS': st.info("✅ MIL missing Giannis (Ankle). BOS off 147pt game.")
-        if winner == 'HOU': st.info("✅ Rockets 12.0 Net Rating (Top 3 in West).")
-        if winner == 'ATL': st.info("✅ Hawks #1 Defense since Trae Trade.")
-        st.caption(f"Power Diff: {abs(h_rtg - a_rtg):.1f}")
+        # MATH ENGINE
+        # Start with Home Edge (54.5%) + Rating Diff
+        prob = 54.5 + ((RATINGS.get(h, 0) - RATINGS.get(a, 0)) * 2)
+        
+        # Apply Logic Penalties/Bonuses
+        reasons = []
+        for team in [h, a]:
+            if team in IMPACT_MODIFIERS:
+                mod = IMPACT_MODIFIERS[team]
+                effect = mod.get('penalty', mod.get('bonus', 0))
+                # If it's a penalty for the Home team, prob goes down. 
+                # If it's a penalty for Away, prob goes up for Home.
+                prob += effect if team == h else -effect
+                reasons.append(mod['reason'])
 
-st.divider()
-st.info("💡 Note: Only 'Locks' (80%+) are marked with 🔒. Always check injury reports at 3 PM ET!")
+        # Final Verdict Logic
+        final_prob = max(1, min(99, prob))
+        winner = h if final_prob > 50 else a
+        confidence = final_prob if final_prob > 50 else (100 - final_prob)
+        
+        # UI
+        with st.expander(f"{'🔒' if confidence > 85 else '🏀'} {h} vs {a}"):
+            st.subheader(f"🏆 VERDICT: {winner} WINS")
+            st.metric("Model Confidence", f"{confidence:.1f}%")
+            
+            if reasons:
+                st.write("**Adjustments Applied:**")
+                for r in reasons:
+                    st.info(f"📍 {r}")
+            else:
+                st.write("📊 *Based on pure statistical momentum.*")
+
+else:
+    st.warning("No games found for today.")
