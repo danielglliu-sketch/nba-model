@@ -11,61 +11,44 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. THE 5-ON-5 STARTING ROSTER DATABASE (Player vs Player)
+# 1. THE FULL 30-TEAM STARTING ROSTER DATABASE
 # ─────────────────────────────────────────────────────────────────────────────
 STARTING_FIVES = {
-    'BOS': {
-        'PG': {'name': 'Jrue Holiday', 'off': 82, 'def': 94},
-        'SG': {'name': 'Derrick White', 'off': 84, 'def': 89},
-        'SF': {'name': 'Jaylen Brown', 'off': 89, 'def': 84},
-        'PF': {'name': 'Jayson Tatum', 'off': 94, 'def': 86},
-        'C':  {'name': 'Kristaps Porzingis', 'off': 86, 'def': 82}
-    },
-    'NYK': {
-        'PG': {'name': 'Jalen Brunson', 'off': 95, 'def': 74},
-        'SG': {'name': 'Mikal Bridges', 'off': 85, 'def': 91},
-        'SF': {'name': 'OG Anunoby', 'off': 81, 'def': 93},
-        'PF': {'name': 'Karl-Anthony Towns', 'off': 91, 'def': 79},
-        'C':  {'name': 'Mitchell Robinson', 'off': 75, 'def': 89}
-    },
-    'MIN': {
-        'PG': {'name': 'Mike Conley', 'off': 80, 'def': 79},
-        'SG': {'name': 'Anthony Edwards', 'off': 94, 'def': 86},
-        'SF': {'name': 'Jaden McDaniels', 'off': 77, 'def': 92},
-        'PF': {'name': 'Julius Randle', 'off': 88, 'def': 76},
-        'C':  {'name': 'Rudy Gobert', 'off': 78, 'def': 96}
-    },
-    'MIL': {
-        'PG': {'name': 'Damian Lillard', 'off': 92, 'def': 72},
-        'SG': {'name': 'Gary Trent Jr.', 'off': 79, 'def': 75},
-        'SF': {'name': 'Khris Middleton', 'off': 84, 'def': 78},
-        'PF': {'name': 'Giannis Antetokounmpo', 'off': 96, 'def': 89},
-        'C':  {'name': 'Brook Lopez', 'off': 79, 'def': 86}
-    },
-    'PHI': {
-        'PG': {'name': 'Tyrese Maxey', 'off': 90, 'def': 75},
-        'SG': {'name': 'Kelly Oubre Jr.', 'off': 79, 'def': 76},
-        'SF': {'name': 'Paul George', 'off': 88, 'def': 84},
-        'PF': {'name': 'Caleb Martin', 'off': 76, 'def': 81},
-        'C':  {'name': 'Joel Embiid', 'off': 97, 'def': 88}
-    },
-    'DAL': {
-        'PG': {'name': 'Luka Doncic', 'off': 98, 'def': 77},
-        'SG': {'name': 'Kyrie Irving', 'off': 93, 'def': 76},
-        'SF': {'name': 'Klay Thompson', 'off': 82, 'def': 78},
-        'PF': {'name': 'P.J. Washington', 'off': 79, 'def': 84},
-        'C':  {'name': 'Dereck Lively II', 'off': 78, 'def': 87}
-    },
-    'OKC': {
-        'PG': {'name': 'Shai Gilgeous-Alexander', 'off': 96, 'def': 87},
-        'SG': {'name': 'Alex Caruso', 'off': 76, 'def': 94},
-        'SF': {'name': 'Jalen Williams', 'off': 87, 'def': 85},
-        'PF': {'name': 'Chet Holmgren', 'off': 86, 'def': 90},
-        'C':  {'name': 'Isaiah Hartenstein', 'off': 78, 'def': 88}
-    }
+    # EASTERN CONFERENCE
+    'BOS': {'PG': {'name': 'Jrue Holiday', 'off': 82, 'def': 94}, 'SG': {'name': 'Derrick White', 'off': 84, 'def': 89}, 'SF': {'name': 'Jaylen Brown', 'off': 89, 'def': 84}, 'PF': {'name': 'Jayson Tatum', 'off': 94, 'def': 86}, 'C': {'name': 'Kristaps Porzingis', 'off': 86, 'def': 82}},
+    'NYK': {'PG': {'name': 'Jalen Brunson', 'off': 95, 'def': 74}, 'SG': {'name': 'Mikal Bridges', 'off': 85, 'def': 91}, 'SF': {'name': 'OG Anunoby', 'off': 81, 'def': 93}, 'PF': {'name': 'Karl-Anthony Towns', 'off': 91, 'def': 79}, 'C': {'name': 'Mitchell Robinson', 'off': 75, 'def': 89}},
+    'PHI': {'PG': {'name': 'Tyrese Maxey', 'off': 90, 'def': 75}, 'SG': {'name': 'Kelly Oubre Jr.', 'off': 79, 'def': 76}, 'SF': {'name': 'Paul George', 'off': 88, 'def': 84}, 'PF': {'name': 'Caleb Martin', 'off': 76, 'def': 81}, 'C': {'name': 'Joel Embiid', 'off': 97, 'def': 88}},
+    'MIL': {'PG': {'name': 'Damian Lillard', 'off': 92, 'def': 72}, 'SG': {'name': 'Gary Trent Jr.', 'off': 79, 'def': 75}, 'SF': {'name': 'Khris Middleton', 'off': 84, 'def': 78}, 'PF': {'name': 'Giannis Antetokounmpo', 'off': 96, 'def': 89}, 'C': {'name': 'Brook Lopez', 'off': 79, 'def': 86}},
+    'CLE': {'PG': {'name': 'Darius Garland', 'off': 85, 'def': 74}, 'SG': {'name': 'Donovan Mitchell', 'off': 92, 'def': 76}, 'SF': {'name': 'Max Strus', 'off': 78, 'def': 77}, 'PF': {'name': 'Evan Mobley', 'off': 83, 'def': 89}, 'C': {'name': 'Jarrett Allen', 'off': 82, 'def': 86}},
+    'IND': {'PG': {'name': 'Tyrese Haliburton', 'off': 91, 'def': 74}, 'SG': {'name': 'Andrew Nembhard', 'off': 79, 'def': 81}, 'SF': {'name': 'Aaron Nesmith', 'off': 78, 'def': 84}, 'PF': {'name': 'Pascal Siakam', 'off': 87, 'def': 80}, 'C': {'name': 'Myles Turner', 'off': 82, 'def': 85}},
+    'ORL': {'PG': {'name': 'Jalen Suggs', 'off': 79, 'def': 90}, 'SG': {'name': 'Kentavious Caldwell-Pope', 'off': 78, 'def': 86}, 'SF': {'name': 'Franz Wagner', 'off': 85, 'def': 81}, 'PF': {'name': 'Paolo Banchero', 'off': 89, 'def': 79}, 'C': {'name': 'Wendell Carter Jr.', 'off': 78, 'def': 82}},
+    'MIA': {'PG': {'name': 'Terry Rozier', 'off': 83, 'def': 75}, 'SG': {'name': 'Tyler Herro', 'off': 84, 'def': 73}, 'SF': {'name': 'Jimmy Butler', 'off': 89, 'def': 87}, 'PF': {'name': 'Nikola Jovic', 'off': 78, 'def': 76}, 'C': {'name': 'Bam Adebayo', 'off': 86, 'def': 92}},
+    'CHI': {'PG': {'name': 'Josh Giddey', 'off': 81, 'def': 76}, 'SG': {'name': 'Coby White', 'off': 84, 'def': 74}, 'SF': {'name': 'Zach LaVine', 'off': 85, 'def': 73}, 'PF': {'name': 'Patrick Williams', 'off': 77, 'def': 82}, 'C': {'name': 'Nikola Vucevic', 'off': 82, 'def': 75}},
+    'ATL': {'PG': {'name': 'Trae Young', 'off': 91, 'def': 70}, 'SG': {'name': 'Dyson Daniels', 'off': 75, 'def': 86}, 'SF': {'name': 'Jalen Johnson', 'off': 83, 'def': 82}, 'PF': {'name': 'Zaccharie Risacher', 'off': 76, 'def': 77}, 'C': {'name': 'Clint Capela', 'off': 79, 'def': 81}},
+    'BKN': {'PG': {'name': 'Dennis Schroder', 'off': 80, 'def': 78}, 'SG': {'name': 'Cam Thomas', 'off': 85, 'def': 71}, 'SF': {'name': 'Cameron Johnson', 'off': 81, 'def': 78}, 'PF': {'name': 'Dorian Finney-Smith', 'off': 75, 'def': 83}, 'C': {'name': 'Nic Claxton', 'off': 78, 'def': 87}},
+    'TOR': {'PG': {'name': 'Immanuel Quickley', 'off': 83, 'def': 76}, 'SG': {'name': 'RJ Barrett', 'off': 83, 'def': 75}, 'SF': {'name': 'Scottie Barnes', 'off': 86, 'def': 84}, 'PF': {'name': 'Kelly Olynyk', 'off': 78, 'def': 74}, 'C': {'name': 'Jakob Poeltl', 'off': 78, 'def': 82}},
+    'CHA': {'PG': {'name': 'LaMelo Ball', 'off': 88, 'def': 74}, 'SG': {'name': 'Brandon Miller', 'off': 83, 'def': 78}, 'SF': {'name': 'Miles Bridges', 'off': 84, 'def': 77}, 'PF': {'name': 'Grant Williams', 'off': 76, 'def': 80}, 'C': {'name': 'Mark Williams', 'off': 79, 'def': 83}},
+    'WAS': {'PG': {'name': 'Jordan Poole', 'off': 81, 'def': 72}, 'SG': {'name': 'Bilal Coulibaly', 'off': 75, 'def': 84}, 'SF': {'name': 'Kyle Kuzma', 'off': 84, 'def': 75}, 'PF': {'name': 'Alex Sarr', 'off': 76, 'def': 82}, 'C': {'name': 'Jonas Valanciunas', 'off': 81, 'def': 77}},
+    'DET': {'PG': {'name': 'Cade Cunningham', 'off': 86, 'def': 78}, 'SG': {'name': 'Jaden Ivey', 'off': 81, 'def': 75}, 'SF': {'name': 'Ausar Thompson', 'off': 74, 'def': 89}, 'PF': {'name': 'Tobias Harris', 'off': 81, 'def': 77}, 'C': {'name': 'Jalen Duren', 'off': 80, 'def': 81}},
+
+    # WESTERN CONFERENCE
+    'OKC': {'PG': {'name': 'SGA', 'off': 96, 'def': 87}, 'SG': {'name': 'Alex Caruso', 'off': 76, 'def': 94}, 'SF': {'name': 'Jalen Williams', 'off': 87, 'def': 85}, 'PF': {'name': 'Chet Holmgren', 'off': 86, 'def': 90}, 'C': {'name': 'Isaiah Hartenstein', 'off': 78, 'def': 88}},
+    'DEN': {'PG': {'name': 'Jamal Murray', 'off': 88, 'def': 77}, 'SG': {'name': 'Christian Braun', 'off': 76, 'def': 83}, 'SF': {'name': 'Michael Porter Jr.', 'off': 84, 'def': 78}, 'PF': {'name': 'Aaron Gordon', 'off': 82, 'def': 86}, 'C': {'name': 'Nikola Jokic', 'off': 98, 'def': 81}},
+    'MIN': {'PG': {'name': 'Mike Conley', 'off': 80, 'def': 79}, 'SG': {'name': 'Anthony Edwards', 'off': 94, 'def': 86}, 'SF': {'name': 'Jaden McDaniels', 'off': 77, 'def': 92}, 'PF': {'name': 'Julius Randle', 'off': 88, 'def': 76}, 'C': {'name': 'Rudy Gobert', 'off': 78, 'def': 96}},
+    'DAL': {'PG': {'name': 'Luka Doncic', 'off': 98, 'def': 77}, 'SG': {'name': 'Kyrie Irving', 'off': 93, 'def': 76}, 'SF': {'name': 'Klay Thompson', 'off': 82, 'def': 78}, 'PF': {'name': 'P.J. Washington', 'off': 79, 'def': 84}, 'C': {'name': 'Dereck Lively II', 'off': 78, 'def': 87}},
+    'LAC': {'PG': {'name': 'James Harden', 'off': 89, 'def': 76}, 'SG': {'name': 'Terance Mann', 'off': 77, 'def': 82}, 'SF': {'name': 'Norman Powell', 'off': 83, 'def': 75}, 'PF': {'name': 'Kawhi Leonard', 'off': 92, 'def': 90}, 'C': {'name': 'Ivica Zubac', 'off': 80, 'def': 83}},
+    'PHO': {'PG': {'name': 'Tyus Jones', 'off': 79, 'def': 75}, 'SG': {'name': 'Devin Booker', 'off': 93, 'def': 78}, 'SF': {'name': 'Bradley Beal', 'off': 86, 'def': 76}, 'PF': {'name': 'Kevin Durant', 'off': 94, 'def': 83}, 'C': {'name': 'Jusuf Nurkic', 'off': 80, 'def': 79}},
+    'LAL': {'PG': {'name': 'DAngelo Russell', 'off': 83, 'def': 72}, 'SG': {'name': 'Austin Reaves', 'off': 84, 'def': 76}, 'SF': {'name': 'LeBron James', 'off': 94, 'def': 82}, 'PF': {'name': 'Rui Hachimura', 'off': 80, 'def': 75}, 'C': {'name': 'Anthony Davis', 'off': 91, 'def': 95}},
+    'SAC': {'PG': {'name': 'DeAaron Fox', 'off': 90, 'def': 80}, 'SG': {'name': 'Malik Monk', 'off': 84, 'def': 74}, 'SF': {'name': 'DeMar DeRozan', 'off': 87, 'def': 75}, 'PF': {'name': 'Keegan Murray', 'off': 81, 'def': 83}, 'C': {'name': 'Domantas Sabonis', 'off': 88, 'def': 79}},
+    'NOP': {'PG': {'name': 'Dejounte Murray', 'off': 85, 'def': 84}, 'SG': {'name': 'CJ McCollum', 'off': 84, 'def': 74}, 'SF': {'name': 'Brandon Ingram', 'off': 86, 'def': 77}, 'PF': {'name': 'Zion Williamson', 'off': 90, 'def': 78}, 'C': {'name': 'Daniel Theis', 'off': 74, 'def': 76}},
+    'GSW': {'PG': {'name': 'Stephen Curry', 'off': 95, 'def': 76}, 'SG': {'name': 'Brandin Podziemski', 'off': 79, 'def': 78}, 'SF': {'name': 'Andrew Wiggins', 'off': 80, 'def': 83}, 'PF': {'name': 'Jonathan Kuminga', 'off': 84, 'def': 79}, 'C': {'name': 'Draymond Green', 'off': 76, 'def': 89}},
+    'HOU': {'PG': {'name': 'Fred VanVleet', 'off': 83, 'def': 81}, 'SG': {'name': 'Jalen Green', 'off': 84, 'def': 75}, 'SF': {'name': 'Dillon Brooks', 'off': 76, 'def': 86}, 'PF': {'name': 'Jabari Smith Jr.', 'off': 79, 'def': 82}, 'C': {'name': 'Alperen Sengun', 'off': 87, 'def': 78}},
+    'MEM': {'PG': {'name': 'Ja Morant', 'off': 92, 'def': 76}, 'SG': {'name': 'Marcus Smart', 'off': 78, 'def': 88}, 'SF': {'name': 'Desmond Bane', 'off': 86, 'def': 79}, 'PF': {'name': 'Jaren Jackson Jr.', 'off': 84, 'def': 91}, 'C': {'name': 'Zach Edey', 'off': 77, 'def': 79}},
+    'UTA': {'PG': {'name': 'Keyonte George', 'off': 79, 'def': 73}, 'SG': {'name': 'Collin Sexton', 'off': 84, 'def': 74}, 'SF': {'name': 'Lauri Markkanen', 'off': 88, 'def': 78}, 'PF': {'name': 'Taylor Hendricks', 'off': 75, 'def': 80}, 'C': {'name': 'Walker Kessler', 'off': 75, 'def': 88}},
+    'SAS': {'PG': {'name': 'Chris Paul', 'off': 80, 'def': 77}, 'SG': {'name': 'Devin Vassell', 'off': 84, 'def': 80}, 'SF': {'name': 'Harrison Barnes', 'off': 78, 'def': 76}, 'PF': {'name': 'Jeremy Sochan', 'off': 76, 'def': 84}, 'C': {'name': 'Victor Wembanyama', 'off': 86, 'def': 95}},
+    'POR': {'PG': {'name': 'Anfernee Simons', 'off': 85, 'def': 71}, 'SG': {'name': 'Shaedon Sharpe', 'off': 81, 'def': 74}, 'SF': {'name': 'Deni Avdija', 'off': 79, 'def': 80}, 'PF': {'name': 'Jerami Grant', 'off': 83, 'def': 77}, 'C': {'name': 'Deandre Ayton', 'off': 82, 'def': 79}}
 }
 
-# The Failsafe: Ensures math works even if a team isn't listed above yet
 DEFAULT_ROSTER = {
     'PG': {'name': 'Starting PG', 'off': 80, 'def': 80},
     'SG': {'name': 'Starting SG', 'off': 80, 'def': 80},
@@ -75,43 +58,61 @@ DEFAULT_ROSTER = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE IRONCLAD BACKUP DATABASE & ABBREVIATIONS
+# 2. FULL 30-TEAM STANDINGS & METRICS DATABASE
 # ─────────────────────────────────────────────────────────────────────────────
 ESPN_TO_STD = {'GS': 'GSW', 'SA': 'SAS', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHAR': 'CHA', 'BKLN': 'BKN'}
 def norm(abbr): return ESPN_TO_STD.get(abbr, abbr)
 
 BACKUP_STANDINGS = {
-    'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-8', 'away_record': '26-13', 'point_diff': 7.2},
-    'BOS': {'wins': 51, 'losses': 25, 'record': '51-25', 'win_pct': 0.671, 'home_record': '28-10', 'away_record': '23-15', 'point_diff': 7.2},
-    'NYK': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '27-11', 'away_record': '22-17', 'point_diff': 4.2},
-    'PHI': {'wins': 42, 'losses': 34, 'record': '42-34', 'win_pct': 0.552, 'home_record': '24-15', 'away_record': '18-19', 'point_diff': 0.8},
-    'OKC': {'wins': 60, 'losses': 16, 'record': '60-16', 'win_pct': 0.789, 'home_record': '33-5', 'away_record': '27-11', 'point_diff': 9.8},
-    'SAS': {'wins': 58, 'losses': 18, 'record': '58-18', 'win_pct': 0.763, 'home_record': '32-6', 'away_record': '26-12', 'point_diff': 7.5},
-    'LAL': {'wins': 50, 'losses': 26, 'record': '50-26', 'win_pct': 0.657, 'home_record': '28-11', 'away_record': '22-15', 'point_diff': 4.8},
-    'HOU': {'wins': 47, 'losses': 29, 'record': '47-29', 'win_pct': 0.618, 'home_record': '27-10', 'away_record': '20-19', 'point_diff': 3.8},
-    'MIN': {'wins': 46, 'losses': 29, 'record': '46-29', 'win_pct': 0.613, 'home_record': '25-12', 'away_record': '21-17', 'point_diff': 3.5},
-    'UTA': {'wins': 21, 'losses': 56, 'record': '21-56', 'win_pct': 0.272, 'home_record': '13-26', 'away_record': '8-30', 'point_diff': -11.0},
-    'DAL': {'wins': 24, 'losses': 52, 'record': '24-52', 'win_pct': 0.315, 'home_record': '14-24', 'away_record': '10-28', 'point_diff': -5.2},
-    'MEM': {'wins': 35, 'losses': 41, 'record': '35-41', 'win_pct': 0.460, 'home_record': '20-18', 'away_record': '15-23', 'point_diff': 0.2},
-    'SAC': {'wins': 38, 'losses': 39, 'record': '38-39', 'win_pct': 0.493, 'home_record': '22-17', 'away_record': '16-22', 'point_diff': -0.8},
-    'NOP': {'wins': 28, 'losses': 48, 'record': '28-48', 'win_pct': 0.368, 'home_record': '16-22', 'away_record': '12-26', 'point_diff': -7.5},
-    'CHI': {'wins': 30, 'losses': 47, 'record': '30-47', 'win_pct': 0.389, 'home_record': '18-21', 'away_record': '12-26', 'point_diff': -3.2},
-    'IND': {'wins': 35, 'losses': 42, 'record': '35-42', 'win_pct': 0.454, 'home_record': '20-18', 'away_record': '15-24', 'point_diff': -1.5},
-    'BKN': {'wins': 20, 'losses': 56, 'record': '20-56', 'win_pct': 0.263, 'home_record': '12-26', 'away_record': '8-30', 'point_diff': -11.5},
-    'CHA': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '22-16', 'away_record': '19-20', 'point_diff': 0.5},
+    'BOS': {'wins': 64, 'losses': 18, 'record': '64-18', 'win_pct': 0.780},
+    'NYK': {'wins': 50, 'losses': 32, 'record': '50-32', 'win_pct': 0.610},
+    'PHI': {'wins': 47, 'losses': 35, 'record': '47-35', 'win_pct': 0.573},
+    'CLE': {'wins': 48, 'losses': 34, 'record': '48-34', 'win_pct': 0.585},
+    'MIL': {'wins': 49, 'losses': 33, 'record': '49-33', 'win_pct': 0.598},
+    'ORL': {'wins': 47, 'losses': 35, 'record': '47-35', 'win_pct': 0.573},
+    'IND': {'wins': 47, 'losses': 35, 'record': '47-35', 'win_pct': 0.573},
+    'MIA': {'wins': 46, 'losses': 36, 'record': '46-36', 'win_pct': 0.561},
+    'CHI': {'wins': 39, 'losses': 43, 'record': '39-43', 'win_pct': 0.476},
+    'ATL': {'wins': 36, 'losses': 46, 'record': '36-46', 'win_pct': 0.439},
+    'BKN': {'wins': 32, 'losses': 50, 'record': '32-50', 'win_pct': 0.390},
+    'TOR': {'wins': 25, 'losses': 57, 'record': '25-57', 'win_pct': 0.305},
+    'CHA': {'wins': 21, 'losses': 61, 'record': '21-61', 'win_pct': 0.256},
+    'WAS': {'wins': 15, 'losses': 67, 'record': '15-67', 'win_pct': 0.183},
+    'DET': {'wins': 14, 'losses': 68, 'record': '14-68', 'win_pct': 0.171},
+    
+    'OKC': {'wins': 57, 'losses': 25, 'record': '57-25', 'win_pct': 0.695},
+    'DEN': {'wins': 57, 'losses': 25, 'record': '57-25', 'win_pct': 0.695},
+    'MIN': {'wins': 56, 'losses': 26, 'record': '56-26', 'win_pct': 0.683},
+    'LAC': {'wins': 51, 'losses': 31, 'record': '51-31', 'win_pct': 0.622},
+    'DAL': {'wins': 50, 'losses': 32, 'record': '50-32', 'win_pct': 0.610},
+    'PHO': {'wins': 49, 'losses': 33, 'record': '49-33', 'win_pct': 0.598},
+    'NOP': {'wins': 49, 'losses': 33, 'record': '49-33', 'win_pct': 0.598},
+    'LAL': {'wins': 47, 'losses': 35, 'record': '47-35', 'win_pct': 0.573},
+    'SAC': {'wins': 46, 'losses': 36, 'record': '46-36', 'win_pct': 0.561},
+    'GSW': {'wins': 46, 'losses': 36, 'record': '46-36', 'win_pct': 0.561},
+    'HOU': {'wins': 41, 'losses': 41, 'record': '41-41', 'win_pct': 0.500},
+    'UTA': {'wins': 31, 'losses': 51, 'record': '31-51', 'win_pct': 0.378},
+    'MEM': {'wins': 27, 'losses': 55, 'record': '27-55', 'win_pct': 0.329},
+    'SAS': {'wins': 22, 'losses': 60, 'record': '22-60', 'win_pct': 0.268},
+    'POR': {'wins': 21, 'losses': 61, 'record': '21-61', 'win_pct': 0.256}
 }
 
 TEAM_DATA = {
-    'DET': {'off_rtg': 112.5, 'def_rtg': 108.5}, 'BOS': {'off_rtg': 121.6, 'def_rtg': 107.2},
-    'NYK': {'off_rtg': 115.4, 'def_rtg': 111.2}, 'PHI': {'off_rtg': 115.5, 'def_rtg': 114.2},
-    'ATL': {'off_rtg': 116.5, 'def_rtg': 118.4}, 'MIL': {'off_rtg': 118.6, 'def_rtg': 115.7},
-    'CHI': {'off_rtg': 111.8, 'def_rtg': 114.4}, 'IND': {'off_rtg': 119.0, 'def_rtg': 118.5},
-    'BKN': {'off_rtg': 112.0, 'def_rtg': 116.5}, 'CHA': {'off_rtg': 110.2, 'def_rtg': 119.0},
-    'OKC': {'off_rtg': 119.5, 'def_rtg': 111.0}, 'SAS': {'off_rtg': 110.0, 'def_rtg': 114.5},
-    'LAL': {'off_rtg': 114.5, 'def_rtg': 113.8}, 'HOU': {'off_rtg': 112.0, 'def_rtg': 111.0},
-    'MIN': {'off_rtg': 114.5, 'def_rtg': 108.0}, 'UTA': {'off_rtg': 114.0, 'def_rtg': 120.2},
-    'DAL': {'off_rtg': 117.8, 'def_rtg': 115.5}, 'MEM': {'off_rtg': 106.5, 'def_rtg': 112.0},
-    'SAC': {'off_rtg': 115.0, 'def_rtg': 115.5}, 'NOP': {'off_rtg': 115.0, 'def_rtg': 112.5},
+    'BOS': {'off_rtg': 122.2, 'def_rtg': 110.5}, 'NYK': {'off_rtg': 117.3, 'def_rtg': 111.4},
+    'PHI': {'off_rtg': 116.8, 'def_rtg': 113.2}, 'CLE': {'off_rtg': 114.5, 'def_rtg': 112.1},
+    'MIL': {'off_rtg': 118.4, 'def_rtg': 115.0}, 'ORL': {'off_rtg': 112.9, 'def_rtg': 110.8},
+    'IND': {'off_rtg': 120.5, 'def_rtg': 118.0}, 'MIA': {'off_rtg': 113.3, 'def_rtg': 111.9},
+    'CHI': {'off_rtg': 114.0, 'def_rtg': 115.5}, 'ATL': {'off_rtg': 117.1, 'def_rtg': 118.8},
+    'BKN': {'off_rtg': 113.2, 'def_rtg': 116.1}, 'TOR': {'off_rtg': 112.4, 'def_rtg': 117.8},
+    'CHA': {'off_rtg': 111.0, 'def_rtg': 119.2}, 'WAS': {'off_rtg': 110.5, 'def_rtg': 119.8},
+    'DET': {'off_rtg': 110.0, 'def_rtg': 118.5}, 'OKC': {'off_rtg': 118.5, 'def_rtg': 111.0},
+    'DEN': {'off_rtg': 118.0, 'def_rtg': 112.5}, 'MIN': {'off_rtg': 114.8, 'def_rtg': 108.4},
+    'LAC': {'off_rtg': 117.5, 'def_rtg': 114.0}, 'DAL': {'off_rtg': 117.0, 'def_rtg': 114.5},
+    'PHO': {'off_rtg': 116.5, 'def_rtg': 113.8}, 'NOP': {'off_rtg': 116.0, 'def_rtg': 112.9},
+    'LAL': {'off_rtg': 115.0, 'def_rtg': 114.5}, 'SAC': {'off_rtg': 116.2, 'def_rtg': 115.0},
+    'GSW': {'off_rtg': 116.8, 'def_rtg': 114.2}, 'HOU': {'off_rtg': 113.5, 'def_rtg': 112.8},
+    'UTA': {'off_rtg': 114.2, 'def_rtg': 119.5}, 'MEM': {'off_rtg': 107.5, 'def_rtg': 113.0},
+    'SAS': {'off_rtg': 110.2, 'def_rtg': 115.8}, 'POR': {'off_rtg': 110.0, 'def_rtg': 118.0}
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -133,7 +134,6 @@ def get_daily_slate():
             dt_utc = datetime.strptime(event['date'], '%Y-%m-%dT%H:%MZ')
             dt_est = dt_utc - timedelta(hours=4)
             
-            # Pull only today's live games
             if dt_est.strftime('%Y-%m-%d') != target_date: continue
 
             comp = event['competitions'][0]
@@ -147,7 +147,6 @@ def get_daily_slate():
                     'time': dt_est.strftime('%I:%M %p ET').lstrip('0'),
                     'venue': comp.get('venue', {}).get('fullName', 'Arena')
                 })
-        
         if games: return games
     except: pass
     return []
@@ -169,8 +168,6 @@ def get_standings():
                     result[abbr] = {
                         'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}",
                         'win_pct': wins / (wins + losses),
-                        'home_record': get_rec('home'), 'away_record': get_rec('away'),
-                        'point_diff': float(stats.get('pointdifferential', {}).get('value', 0))
                     }
         if len(result) > 10: return result
     except: pass
@@ -214,10 +211,10 @@ def is_active(player_name, team_injuries):
 # 4. TRANSPARENT PREDICTION ENGINE (WITH 5-ON-5 LOGIC)
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set):
-    h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
-    a_td = TEAM_DATA.get(a, {'off_rtg': 112, 'def_rtg': 115})
-    h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'point_diff': 0})
-    a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'point_diff': 0})
+    h_td = TEAM_DATA.get(h, {'off_rtg': 115, 'def_rtg': 115})
+    a_td = TEAM_DATA.get(a, {'off_rtg': 115, 'def_rtg': 115})
+    h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
+    a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     factors = []
@@ -313,7 +310,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🏀 NBA Master AI Predictor (5-on-5 Edition)")
+st.title("🏀 Live NBA Predictor (Full 30-Team Database)")
 st.divider()
 
 with st.spinner("📡 Syncing Live ESPN Data..."):
@@ -373,9 +370,9 @@ for game in slate:
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"#### 🏠 {game['h_name']}")
-            st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
+            st.write(f"**Record:** {pred['h_std']['record']}")
             for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
         with col2:
             st.markdown(f"#### ✈️ {game['a_name']}")
-            st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
+            st.write(f"**Record:** {pred['a_std']['record']}")
             for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
