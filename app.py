@@ -1,46 +1,61 @@
 import streamlit as st
 from datetime import datetime
 
-# Safe Page Setup
-st.set_page_config(page_title="NBA AI 2026", layout="centered")
+# Mobile-Optimized Page Config
+st.set_page_config(page_title="NBA AI 2026", page_icon="🏀")
 
+# --- APP HEADER ---
 st.title("🏀 NBA Master AI")
-# Get current date from server
-curr_date = datetime.now().strftime('%Y-%m-%d')
-st.write(f"Logged in: {curr_date}")
+today_date = datetime.now().strftime('%Y-%m-%d')
+st.write(f"**Live Scouting Report:** {datetime.now().strftime('%A, %B %d')}")
+st.divider()
 
-# --- FULL 9-GAME SLATE FOR APRIL 3 ---
+# --- THE 2026 SCHEDULE DATABASE ---
 schedule = {
     '2026-04-03': [
-        {'h': 'BOS', 'a': 'MIL', 'prob': 94, 'notes': ['Giannis OUT', 'MIL on B2B']},
-        {'h': 'HOU', 'a': 'UTA', 'prob': 91, 'notes': ['Utah Tanking', 'HOU Home Edge']},
-        {'h': 'ATL', 'a': 'BKN', 'prob': 74, 'notes': ['Post-Trae Momentum', 'ATL #1 Def']},
-        {'h': 'MEM', 'a': 'TOR', 'prob': 61, 'notes': ['Upset Alert', 'TOR sliding']},
-        {'h': 'PHI', 'a': 'MIN', 'prob': 58, 'notes': ['Ant Edwards Rest', 'Embiid (Doubtful)']},
-        {'h': 'CHA', 'a': 'IND', 'prob': 54, 'notes': ['CHA Momentum', 'IND missing Hali']},
-        {'h': 'NYK', 'a': 'CHI', 'prob': 79, 'notes': ['NYK #3 Seed chase', 'Bulls L5 slide']},
-        {'h': 'DAL', 'a': 'ORL', 'prob': 83, 'notes': ['Dallas Tanking', 'ORL Seeding']},
-        {'h': 'SAC', 'a': 'NOP', 'prob': 72, 'notes': ['NOP 6-game slide', 'SAC Home court']}
+        {'h': 'BOS', 'a': 'MIL', 'win': 'BOS', 'prob': 94, 'notes': ['Giannis OUT (Ankle)', 'MIL on B2B Fatigue']},
+        {'h': 'HOU', 'a': 'UTA', 'win': 'HOU', 'prob': 91, 'notes': ['Utah Tanking/Resting starters', 'HOU Home Dominance']},
+        {'h': 'NYK', 'a': 'CHI', 'win': 'NYK', 'prob': 79, 'notes': ['NYK chasing #3 seed', 'Bulls 5-game skid']},
+        {'h': 'DAL', 'a': 'ORL', 'win': 'ORL', 'prob': 83, 'notes': ['Dallas in Lottery Mode', 'ORL Playoff Seeding']},
+        {'h': 'ATL', 'a': 'BKN', 'win': 'ATL', 'prob': 74, 'notes': ['Post-Trae Defense Surge', 'BKN sliding (1-9 L10)']},
+        {'h': 'SAC', 'a': 'NOP', 'win': 'SAC', 'prob': 72, 'notes': ['Pelicans 6-game slide', 'SAC Home Court Edge']},
+        {'h': 'MEM', 'a': 'TOR', 'win': 'MEM', 'prob': 61, 'notes': ['Upset Alert: MEM Youth Energy', 'TOR late-season fatigue']},
+        {'h': 'PHI', 'a': 'MIN', 'win': 'PHI', 'prob': 58, 'notes': ['MIN on B2B', 'Ant Edwards (Rest) Alert']},
+        {'h': 'CHA', 'a': 'IND', 'win': 'CHA', 'prob': 54, 'notes': ['CHA #2 L10 Net Rating', 'IND missing Haliburton']}
     ],
     '2026-04-04': [
-        {'h': 'SAS', 'a': 'DEN', 'prob': 52, 'notes': ['Wemby vs Jokic']},
-        {'h': 'GSW', 'a': 'LAL', 'prob': 48, 'notes': ['Lakers 6th seed chase']},
-        {'h': 'PHX', 'a': 'MIN', 'prob': 66, 'notes': ['Suns Perimeter D']}
+        {'h': 'DEN', 'a': 'SAS', 'win': 'DEN', 'prob': 53, 'notes': ['Jokic vs Wemby Showdown', 'Denver Playoff Seeding']},
+        {'h': 'MIA', 'a': 'WAS', 'win': 'MIA', 'prob': 88, 'notes': ['Heat Play-In desperation', 'Wizards tanking']},
+        {'h': 'PHI', 'a': 'DET', 'win': 'DET', 'prob': 51, 'notes': ['Detroit #1 Seed momentum', 'Embiid likely load mgmt']}
+    ],
+    '2026-04-05': [
+        {'h': 'OKC', 'a': 'UTA', 'win': 'OKC', 'prob': 95, 'notes': ['SGA MVP Campaign', 'Utah officially resting']},
+        {'h': 'GSW', 'a': 'HOU', 'win': 'HOU', 'prob': 55, 'notes': ['Rockets hot momentum', 'Warriors on B2B']},
+        {'h': 'DAL', 'a': 'LAL', 'win': 'LAL', 'prob': 64, 'notes': ['Lakers 6th seed chase', 'Doncic (LAL) vs Luka (DAL)']}
     ]
 }
 
-st.divider()
-
-# Logic to find and display games
-if curr_date in schedule:
-    st.subheader("Today's Predictions")
-    for g in schedule[curr_date]:
-        with st.expander(f"{g['h']} vs {g['a']} — {g['prob']}%"):
-            for note in g['notes']:
-                st.write(f"· {note}")
+# --- THE AUTO-DISPLAY LOGIC ---
+if today_date in schedule:
+    st.subheader("🔥 Today's Predicted Winners")
+    
+    for game in schedule[today_date]:
+        # Choose icon based on confidence
+        icon = "🔒" if game['prob'] > 80 else "🏀"
+        
+        # Create a clearly labeled header
+        with st.expander(f"{icon} {game['h']} vs {game['a']}"):
+            # Big bold winner text
+            st.markdown(f"### 🏆 VERDICT: **{game['win']} WINS**")
+            
+            c1, c2 = st.columns([1, 2])
+            c1.metric("Confidence", f"{game['prob']}%")
+            
+            c2.write("**Reasoning:**")
+            for note in game['notes']:
+                c2.caption(f"✅ {note}")
 else:
-    st.warning("No games found for today's date in the database.")
-    st.write("Check your computer's date vs the server date!")
+    st.warning("📅 No games in database for today. Update GitHub 'schedule' block!")
 
 st.divider()
-st.caption("2026 Master Model v1.2")
+st.info("💡 To update games, edit the 'schedule' dictionary in app.py on GitHub.")
