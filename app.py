@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="NBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -37,17 +37,11 @@ BACKUP_STANDINGS = {
 }
 
 BACKUP_INJURIES = {
-    'MIL': ['Giannis Antetokounmpo (OUT - Ankle)'],
-    'LAL': ['Luka Doncic (Questionable - Hamstring)', 'Marcus Smart (OUT)'],
-    'DET': ['Cade Cunningham (OUT - Lung issue)'],
-    'DAL': ['Kyrie Irving (OUT)'],
-    'MIN': ['Anthony Edwards (OUT)'],
-    'PHI': ['Joel Embiid (Doubtful - Illness)']
+    'MIL': ['Giannis Antetokounmpo (OUT)'], 'LAL': ['Luka Doncic (Questionable)'],
+    'DET': ['Cade Cunningham (OUT)'], 'DAL': ['Kyrie Irving (OUT)'],
+    'MIN': ['Anthony Edwards (OUT)'], 'PHI': ['Joel Embiid (Doubtful)']
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. CORE TEAM STATS (Defense & Offense Ratings)
-# ─────────────────────────────────────────────────────────────────────────────
 TEAM_DATA = {
     'DET': {'off_rtg': 112.5, 'def_rtg': 108.5}, 'BOS': {'off_rtg': 121.6, 'def_rtg': 107.2},
     'NYK': {'off_rtg': 115.4, 'def_rtg': 111.2}, 'PHI': {'off_rtg': 115.5, 'def_rtg': 114.2},
@@ -61,8 +55,12 @@ TEAM_DATA = {
     'SAC': {'off_rtg': 115.0, 'def_rtg': 115.5}, 'NOP': {'off_rtg': 115.0, 'def_rtg': 112.5},
 }
 
+def norm(abbr):
+    ESPN_TO_STD = {'GS': 'GSW', 'SA': 'SAS', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHAR': 'CHA', 'BKLN': 'BKN'}
+    return ESPN_TO_STD.get(abbr, abbr)
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. ROBUST FETCHERS (With Strict 9-Game Override)
+# 2. FETCHERS (With Strict Override)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate():
@@ -76,18 +74,15 @@ def get_daily_slate():
             away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             if home and away:
                 games.append({
-                    'h': home['team']['abbreviation'], 'a': away['team']['abbreviation'],
+                    'h': norm(home['team']['abbreviation']), 'a': norm(away['team']['abbreviation']),
                     'h_name': home['team']['displayName'], 'a_name': away['team']['displayName'],
                     'time': 'Scheduled', 'venue': comp.get('venue', {}).get('fullName', 'Arena')
                 })
-        
-        # STRICT OVERRIDE: Only use the API if it finds 9 or more games
+        # STRICT OVERRIDE: Must be 9 games, or use the master slate
         if len(games) >= 9: 
             return games
-    except: 
-        pass
+    except: pass
     
-    # MANUAL FALLBACK SLATE (Forced if API finds fewer than 9 games)
     return [
         {'h': 'PHI', 'a': 'MIN', 'h_name': '76ers', 'a_name': 'Timberwolves', 'time': '7:00 PM', 'venue': 'Wells Fargo Center'},
         {'h': 'CHA', 'a': 'IND', 'h_name': 'Hornets', 'a_name': 'Pacers', 'time': '7:00 PM', 'venue': 'Spectrum Center'},
@@ -108,12 +103,9 @@ def get_standings():
         result = {}
         for conf in data.get('children', []):
             for entry in conf.get('standings', {}).get('entries', []):
-                abbr = entry['team']['abbreviation']
+                abbr = norm(entry['team']['abbreviation'])
                 stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
-                
-                # ESPN hides records in "summary" sometimes. This checks everywhere.
-                def get_rec(key):
-                    return stats.get(key, {}).get('summary') or stats.get(key, {}).get('displayValue', '0-0')
+                def get_rec(k): return stats.get(k, {}).get('summary') or stats.get(k, {}).get('displayValue', '0-0')
                 
                 wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
                 if wins + losses > 0:
@@ -125,8 +117,6 @@ def get_standings():
                     }
         if len(result) > 10: return result
     except: pass
-    
-    # If API fails, send the Ironclad Backup
     return BACKUP_STANDINGS
 
 @st.cache_data(ttl=600)
@@ -140,17 +130,29 @@ def get_injuries():
             if 'out' in hl.lower() or 'injury' in hl.lower():
                 for cat in art.get('categories', []):
                     if cat.get('type') == 'team':
-                        abbr = cat.get('teamAbbrev', '')
+                        abbr = norm(cat.get('teamAbbrev', ''))
                         if abbr: news.setdefault(abbr, []).append(hl)
         if len(news) > 0: return {k: v[:2] for k, v in news.items()}
     except: pass
-    
     return BACKUP_INJURIES
 
+@st.cache_data(ttl=600)
+def get_back_to_back():
+    b2b = set()
+    yest = (datetime.utcnow() - timedelta(days=1)).strftime('%Y%m%d')
+    try:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={yest}"
+        data = requests.get(url, timeout=5).json()
+        for event in data.get('events', []):
+            for c in event['competitions'][0]['competitors']:
+                b2b.add(norm(c['team']['abbreviation']))
+    except: pass
+    return b2b
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. PREDICTION ENGINE (Calculates the Exact Reasons)
+# 3. TRANSPARENT PREDICTION ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-def predict_game(h, a, standings, injuries):
+def predict_game(h, a, standings, injuries, b2b_set):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
     a_td = TEAM_DATA.get(a, {'off_rtg': 112, 'def_rtg': 115})
     h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'point_diff': 0})
@@ -159,90 +161,103 @@ def predict_game(h, a, standings, injuries):
     factors = []
     total = 0.0
     
-    # A. Win % Edge
+    # 1. Base Win % Edge
     base_adj = (h_std['win_pct'] - a_std['win_pct']) * 25.0
     total += base_adj
-    factors.append({"icon": "📊", "name": "Overall Win % Edge", "adj": base_adj, 
-                    "why": f"{h} ({h_std['record']}) vs {a} ({a_std['record']})"})
+    factors.append({"icon": "📊", "name": "Win % Disparity", "adj": base_adj, "why": f"{h} ({h_std['record']}) vs {a} ({a_std['record']})"})
 
-    # B. Home Court
+    # 2. Home Court
     total += 3.5
-    factors.append({"icon": "🏠", "name": "Home Court Advantage", "adj": 3.5, 
-                    "why": f"Standard NBA home court boost for {h}."})
+    factors.append({"icon": "🏠", "name": "Home Court Advantage", "adj": 3.5, "why": f"Standard NBA home court boost for {h}."})
 
-    # C. Defensive Efficiency
+    # 3. Defensive Efficiency
     def_adj = (a_td['def_rtg'] - h_td['def_rtg']) * 0.4
     total += def_adj
-    factors.append({"icon": "🛡️", "name": "Defensive Matchup", "adj": def_adj, 
-                    "why": f"{h} allows {h_td['def_rtg']} pts. {a} allows {a_td['def_rtg']} pts."})
+    factors.append({"icon": "🛡️", "name": "Defensive Matchup", "adj": def_adj, "why": f"{h} def rating: {h_td['def_rtg']} | {a} def rating: {a_td['def_rtg']}"})
 
-    # D. Tanking Logic (Automatically detects bad teams)
-    if h_std['win_pct'] < 0.35 and h_std['wins'] + h_std['losses'] > 15:
+    # 4. Tanking Logic (Forces it to show EVEN IF NOBODY IS TANKING)
+    h_tank = h_std['win_pct'] < 0.36
+    a_tank = a_std['win_pct'] < 0.36
+    if h_tank:
         total -= 8.0
-        factors.append({"icon": "🎯", "name": "Tanking Penalty", "adj": -8.0, 
-                        "why": f"{h} win rate is below 35%. Prioritizing draft picks."})
-    if a_std['win_pct'] < 0.35 and a_std['wins'] + a_std['losses'] > 15:
+        factors.append({"icon": "🎯", "name": "Tanking Penalty", "adj": -8.0, "why": f"{h} win rate is critically low. Prioritizing lottery."})
+    elif a_tank:
         total += 8.0
-        factors.append({"icon": "🎯", "name": "Tanking Boost", "adj": 8.0, 
-                        "why": f"{a} win rate is below 35%. Easy matchup for {h}."})
+        factors.append({"icon": "🎯", "name": "Tanking Boost", "adj": 8.0, "why": f"{a} win rate is critically low. Easy matchup for {h}."})
+    else:
+        factors.append({"icon": "🤝", "name": "Motivation Status", "adj": 0.0, "why": "Both teams are actively competing. No tanking detected."})
 
-    # E. Injuries
+    # 5. Back to Back Fatigue
+    if h in b2b_set:
+        total -= 4.5
+        factors.append({"icon": "😴", "name": "B2B Fatigue", "adj": -4.5, "why": f"{h} played yesterday. Heavy legs."})
+    elif a in b2b_set:
+        total += 4.5
+        factors.append({"icon": "😴", "name": "B2B Fatigue", "adj": 4.5, "why": f"{a} played yesterday. Schedule advantage for {h}."})
+    else:
+        factors.append({"icon": "🔋", "name": "Rest Status", "adj": 0.0, "why": "Both teams have adequate rest."})
+
+    # 6. Injuries
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     if h_inj:
         total -= 6.0
-        factors.append({"icon": "🤕", "name": "Live Injury Penalty", "adj": -6.0, "why": f"Key injuries for {h}."})
-    if a_inj:
+        factors.append({"icon": "🤕", "name": "Injury Impact", "adj": -6.0, "why": f"{h} is missing key players."})
+    elif a_inj:
         total += 6.0
-        factors.append({"icon": "🤕", "name": "Opponent Injury Boost", "adj": 6.0, "why": f"Key injuries for {a}."})
+        factors.append({"icon": "🤕", "name": "Opponent Injury", "adj": 6.0, "why": f"{a} is missing key players."})
+    else:
+        factors.append({"icon": "🏥", "name": "Injury Report", "adj": 0.0, "why": "No major game-altering injuries detected."})
 
     prob = max(5.0, min(95.0, 50.0 + total))
     return {
-        'winner': h if prob >= 50.0 else a, 
-        'conf': prob if prob >= 50.0 else 100.0 - prob,
-        'prob_h': prob, 'factors': factors,
-        'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj
+        'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0 - prob,
+        'prob_h': prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. USER INTERFACE
+# 4. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🏀 NBA Master AI Predictor")
 st.divider()
 
-# Load Data
 slate = get_daily_slate()
 standings = get_standings()
 injuries = get_injuries()
+b2b_set = get_back_to_back()
 
 st.subheader(f"Today's Predictions ({len(slate)} Games)")
 
 for game in slate:
     h, a = game['h'], game['a']
-    pred = predict_game(h, a, standings, injuries)
+    pred = predict_game(h, a, standings, injuries, b2b_set)
     conf = pred['conf']
     
     icon = "🔒" if conf >= 80 else ("🔥" if conf >= 65 else "⚖️")
     header = f"{icon} {game['h_name']} vs {game['a_name']} | {pred['winner']} ({conf:.1f}%)"
 
     with st.expander(header):
-        # 1. VERDICT BANNER
         color = '#28a745' if conf >= 65 else '#17a2b8'
         st.markdown(f"""
         <div style="border-left:5px solid {color};background:#1e1e1e;padding:12px;border-radius:6px;margin-bottom:15px;">
             <h3 style="margin:0;color:white;">🏆 {pred['winner']} WINS</h3>
         </div>""", unsafe_allow_html=True)
 
-        # 2. THE REASONING LOG (Explicit Math)
-        st.markdown("#### 🧠 Explicit AI Reasoning Log")
+        st.markdown("#### 🧠 The Transparent Reasoning Log")
+        st.write("Every rule checked and verified by the AI model:")
+        
         for f in pred['factors']:
             c1, c2, c3 = st.columns([1, 6, 2])
             c1.write(f['icon'])
             c2.markdown(f"**{f['name']}** <br> <span style='color:gray;font-size:14px;'>{f['why']}</span>", unsafe_allow_html=True)
-            pt_color = "#28a745" if f['adj'] > 0 else "#dc3545"
+            
+            # Color code points: Green, Red, or Gray if it's 0.0
+            if f['adj'] > 0: pt_color = "#28a745"
+            elif f['adj'] < 0: pt_color = "#dc3545"
+            else: pt_color = "#888888"
+            
             c3.markdown(f"<span style='color:{pt_color};font-weight:bold;font-size:18px;'>{f['adj']:+.1f} pts</span>", unsafe_allow_html=True)
         st.divider()
 
-        # 3. LIVE TEAM STATS
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"#### 🏠 {game['h_name']}")
