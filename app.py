@@ -11,7 +11,7 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. THE LIVE 2025-2026 STARTING ROSTER DATABASE (Player vs Player)
+# 1. THE 5-ON-5 STARTING ROSTER DATABASE (Player vs Player)
 # ─────────────────────────────────────────────────────────────────────────────
 STARTING_FIVES = {
     'BOS': {
@@ -236,4 +236,146 @@ def predict_game(h, a, standings, injuries, b2b_set):
     # 3. Defensive Efficiency
     def_adj = (a_td['def_rtg'] - h_td['def_rtg']) * 0.4
     total += def_adj
-    factors.append({"icon": "🛡️", "name": "Def
+    factors.append({"icon": "🛡️", "name": "Defensive Matchup", "adj": def_adj, "why": f"{h} def rating: {h_td['def_rtg']} | {a} def rating: {a_td['def_rtg']}"})
+
+    # 4. 5-ON-5 PLAYER MATCHUP ENGINE
+    SCALING_FACTOR = 0.15 
+    
+    h_roster = STARTING_FIVES.get(h, DEFAULT_ROSTER)
+    a_roster = STARTING_FIVES.get(a, DEFAULT_ROSTER)
+    
+    positions = ['PG', 'SG', 'SF', 'PF', 'C']
+    
+    for pos in positions:
+        hp = h_roster[pos]
+        ap = a_roster[pos]
+        
+        # Check Injury Report
+        if not is_active(hp['name'], h_inj) or not is_active(ap['name'], a_inj):
+            matchup_logs.append({
+                "pos": pos, "matchup": f"⚠️ {hp['name']} vs {ap['name']}",
+                "math": "Matchup Voided due to Live Injury Report.",
+                "adj": 0.0, "color": "#888888"
+            })
+            continue
+            
+        # Positional Math
+        h_score = max(0, hp['off'] - ap['def'])
+        a_score = max(0, ap['off'] - hp['def'])
+        net_edge = (h_score - a_score) * SCALING_FACTOR
+        total += net_edge
+        
+        math_str = f"(H_OFF {hp['off']} - A_DEF {ap['def']}) vs (A_OFF {ap['off']} - H_DEF {hp['def']})"
+        color = "#28a745" if net_edge > 0 else "#dc3545" if net_edge < 0 else "#888888"
+        
+        matchup_logs.append({
+            "pos": pos, "matchup": f"**{hp['name']}** ({h}) vs **{ap['name']}** ({a})",
+            "math": math_str, "adj": net_edge, "color": color
+        })
+
+    # 5. Tanking Logic
+    if h_std['win_pct'] < 0.36 and h_std['wins'] + h_std['losses'] > 15:
+        total -= 8.0
+        factors.append({"icon": "🎯", "name": "Tanking Penalty", "adj": -8.0, "why": f"{h} win rate is critically low. Prioritizing lottery."})
+    elif a_std['win_pct'] < 0.36 and a_std['wins'] + a_std['losses'] > 15:
+        total += 8.0
+        factors.append({"icon": "🎯", "name": "Tanking Boost", "adj": 8.0, "why": f"{a} win rate is critically low. Easy matchup for {h}."})
+    else:
+        factors.append({"icon": "🤝", "name": "Motivation Status", "adj": 0.0, "why": "Both teams are actively competing."})
+
+    # 6. Fatigue
+    if h in b2b_set:
+        total -= 4.5
+        factors.append({"icon": "😴", "name": "B2B Fatigue", "adj": -4.5, "why": f"{h} played yesterday. Heavy legs."})
+    elif a in b2b_set:
+        total += 4.5
+        factors.append({"icon": "😴", "name": "B2B Fatigue", "adj": 4.5, "why": f"{a} played yesterday. Schedule advantage for {h}."})
+    else:
+        factors.append({"icon": "🔋", "name": "Rest Status", "adj": 0.0, "why": "Both teams have adequate rest."})
+
+    # 7. Overall Team Injury Impact
+    if h_inj:
+        total -= 6.0
+        factors.append({"icon": "🤕", "name": "Team Injury Impact", "adj": -6.0, "why": f"{h} is missing players from rotation."})
+    elif a_inj:
+        total += 6.0
+        factors.append({"icon": "🤕", "name": "Opponent Injury Boost", "adj": 6.0, "why": f"{a} is missing players from rotation."})
+    else:
+        factors.append({"icon": "🏥", "name": "General Health", "adj": 0.0, "why": "No major game-altering injuries detected."})
+
+    prob = max(5.0, min(95.0, 50.0 + total))
+    return {
+        'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0 - prob,
+        'prob_h': prob, 'factors': factors, 'matchups': matchup_logs,
+        'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj
+    }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. USER INTERFACE
+# ─────────────────────────────────────────────────────────────────────────────
+st.title("🏀 NBA Master AI Predictor (5-on-5 Edition)")
+st.divider()
+
+with st.spinner("📡 Syncing Live ESPN Data..."):
+    slate = get_daily_slate()
+    standings = get_standings()
+    injuries = get_injuries()
+    b2b_set = get_back_to_back()
+
+if not slate:
+    st.info("✅ ESPN Live Feed connected, but no games are scheduled for today! Check back tomorrow.")
+    st.stop()
+
+st.subheader(f"Today's Predictions ({len(slate)} Games)")
+
+for game in slate:
+    h, a = game['h'], game['a']
+    pred = predict_game(h, a, standings, injuries, b2b_set)
+    conf = pred['conf']
+    
+    icon = "🔒" if conf >= 80 else ("🔥" if conf >= 65 else "⚖️")
+    header = f"{icon} {game['h_name']} vs {game['a_name']} | {pred['winner']} ({conf:.1f}%)"
+
+    with st.expander(header):
+        color = '#28a745' if conf >= 65 else '#17a2b8'
+        st.markdown(f"""
+        <div style="border-left:5px solid {color};background:#1e1e1e;padding:12px;border-radius:6px;margin-bottom:15px;">
+            <h3 style="margin:0;color:white;">🏆 {pred['winner']} WINS</h3>
+        </div>""", unsafe_allow_html=True)
+
+        # --- 5-ON-5 MATCHUP BOARD ---
+        if pred['matchups']:
+            st.markdown("#### ⚔️ Starting 5 Positional Matchups")
+            st.write("Calculated by: `(Home OFF - Away DEF) - (Away OFF - Home DEF) * 0.15`")
+            
+            for m in pred['matchups']:
+                c1, c2, c3 = st.columns([1, 6, 2])
+                c1.markdown(f"**{m['pos']}**")
+                c2.markdown(f"{m['matchup']} <br> <span style='font-size:12px;color:gray;'>Math: {m['math']}</span>", unsafe_allow_html=True)
+                c3.markdown(f"<span style='color:{m['color']};font-weight:bold;'>{m['adj']:+.1f} pts</span>", unsafe_allow_html=True)
+            st.divider()
+
+        st.markdown("#### 🧠 The Transparent Reasoning Log")
+        st.write("Every rule checked and verified by the AI model:")
+        
+        for f in pred['factors']:
+            c1, c2, c3 = st.columns([1, 6, 2])
+            c1.write(f['icon'])
+            c2.markdown(f"**{f['name']}** <br> <span style='color:gray;font-size:14px;'>{f['why']}</span>", unsafe_allow_html=True)
+            
+            if f['adj'] > 0: pt_color = "#28a745"
+            elif f['adj'] < 0: pt_color = "#dc3545"
+            else: pt_color = "#888888"
+            
+            c3.markdown(f"<span style='color:{pt_color};font-weight:bold;font-size:18px;'>{f['adj']:+.1f} pts</span>", unsafe_allow_html=True)
+        st.divider()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"#### 🏠 {game['h_name']}")
+            st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
+            for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
+        with col2:
+            st.markdown(f"#### ✈️ {game['a_name']}")
+            st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
+            for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
