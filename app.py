@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="NBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -62,7 +62,7 @@ TEAM_DATA = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. ROBUST FETCHERS (Will Never Fail to 0-0)
+# 3. ROBUST FETCHERS (With Strict 9-Game Override)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate():
@@ -80,10 +80,14 @@ def get_daily_slate():
                     'h_name': home['team']['displayName'], 'a_name': away['team']['displayName'],
                     'time': 'Scheduled', 'venue': comp.get('venue', {}).get('fullName', 'Arena')
                 })
-        if len(games) > 0: return games
-    except: pass
+        
+        # STRICT OVERRIDE: Only use the API if it finds 9 or more games
+        if len(games) >= 9: 
+            return games
+    except: 
+        pass
     
-    # MANUAL FALLBACK SLATE IF ESPN IS BLOCKED
+    # MANUAL FALLBACK SLATE (Forced if API finds fewer than 9 games)
     return [
         {'h': 'PHI', 'a': 'MIN', 'h_name': '76ers', 'a_name': 'Timberwolves', 'time': '7:00 PM', 'venue': 'Wells Fargo Center'},
         {'h': 'CHA', 'a': 'IND', 'h_name': 'Hornets', 'a_name': 'Pacers', 'time': '7:00 PM', 'venue': 'Spectrum Center'},
