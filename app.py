@@ -11,19 +11,43 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. THE IRONCLAD BACKUP DATABASE (Used if ESPN blocks the server)
+# 1. 2026 PLAYER MATCHUP DATABASE (Star vs. Stopper Engine)
 # ─────────────────────────────────────────────────────────────────────────────
+# Offensive points added per 100 possessions by the team's primary star
+OFFENSIVE_STARS = {
+    'OKC': {'name': 'Shai Gilgeous-Alexander', 'impact': 8.5},
+    'DEN': {'name': 'Nikola Jokic', 'impact': 9.0},
+    'LAL': {'name': 'Luka Doncic', 'impact': 8.8},
+    'NYK': {'name': 'Jalen Brunson', 'impact': 7.2},
+    'MIN': {'name': 'Anthony Edwards', 'impact': 6.5},
+    'MIL': {'name': 'Giannis Antetokounmpo', 'impact': 8.0},
+    'PHI': {'name': 'Tyrese Maxey', 'impact': 6.0},
+    'HOU': {'name': 'Kevin Durant', 'impact': 7.0},
+    'BOS': {'name': 'Jayson Tatum', 'impact': 6.8}
+}
+
+# Defensive points saved per 100 possessions by elite 1-on-1 stoppers
+ELITE_STOPPERS = {
+    'BOS': {'name': 'Jrue Holiday', 'stopper_rating': 4.5},
+    'MIN': {'name': 'Rudy Gobert', 'stopper_rating': 5.2},
+    'OKC': {'name': 'Lu Dort', 'stopper_rating': 4.0},
+    'NOP': {'name': 'Herb Jones', 'stopper_rating': 4.2},
+    'SAS': {'name': 'Victor Wembanyama', 'stopper_rating': 5.5},
+    'MIA': {'name': 'Bam Adebayo', 'stopper_rating': 4.8},
+    'NYK': {'name': 'OG Anunoby', 'stopper_rating': 3.9}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. THE IRONCLAD BACKUP DATABASE & ABBREVIATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+ESPN_TO_STD = {'GS': 'GSW', 'SA': 'SAS', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHAR': 'CHA', 'BKLN': 'BKN'}
+def norm(abbr): return ESPN_TO_STD.get(abbr, abbr)
+
 BACKUP_STANDINGS = {
     'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-8', 'away_record': '26-13', 'point_diff': 7.2},
     'BOS': {'wins': 51, 'losses': 25, 'record': '51-25', 'win_pct': 0.671, 'home_record': '28-10', 'away_record': '23-15', 'point_diff': 7.2},
     'NYK': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '27-11', 'away_record': '22-17', 'point_diff': 4.2},
     'PHI': {'wins': 42, 'losses': 34, 'record': '42-34', 'win_pct': 0.552, 'home_record': '24-15', 'away_record': '18-19', 'point_diff': 0.8},
-    'ATL': {'wins': 44, 'losses': 33, 'record': '44-33', 'win_pct': 0.571, 'home_record': '25-14', 'away_record': '19-19', 'point_diff': 3.1},
-    'CHI': {'wins': 30, 'losses': 47, 'record': '30-47', 'win_pct': 0.389, 'home_record': '18-21', 'away_record': '12-26', 'point_diff': -3.2},
-    'IND': {'wins': 35, 'losses': 42, 'record': '35-42', 'win_pct': 0.454, 'home_record': '20-18', 'away_record': '15-24', 'point_diff': -1.5},
-    'MIL': {'wins': 30, 'losses': 46, 'record': '30-46', 'win_pct': 0.394, 'home_record': '19-20', 'away_record': '11-26', 'point_diff': -6.1},
-    'BKN': {'wins': 20, 'losses': 56, 'record': '20-56', 'win_pct': 0.263, 'home_record': '12-26', 'away_record': '8-30', 'point_diff': -11.5},
-    'CHA': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '22-16', 'away_record': '19-20', 'point_diff': 0.5},
     'OKC': {'wins': 60, 'losses': 16, 'record': '60-16', 'win_pct': 0.789, 'home_record': '33-5', 'away_record': '27-11', 'point_diff': 9.8},
     'SAS': {'wins': 58, 'losses': 18, 'record': '58-18', 'win_pct': 0.763, 'home_record': '32-6', 'away_record': '26-12', 'point_diff': 7.5},
     'LAL': {'wins': 50, 'losses': 26, 'record': '50-26', 'win_pct': 0.657, 'home_record': '28-11', 'away_record': '22-15', 'point_diff': 4.8},
@@ -31,9 +55,6 @@ BACKUP_STANDINGS = {
     'MIN': {'wins': 46, 'losses': 29, 'record': '46-29', 'win_pct': 0.613, 'home_record': '25-12', 'away_record': '21-17', 'point_diff': 3.5},
     'UTA': {'wins': 21, 'losses': 56, 'record': '21-56', 'win_pct': 0.272, 'home_record': '13-26', 'away_record': '8-30', 'point_diff': -11.0},
     'DAL': {'wins': 24, 'losses': 52, 'record': '24-52', 'win_pct': 0.315, 'home_record': '14-24', 'away_record': '10-28', 'point_diff': -5.2},
-    'MEM': {'wins': 35, 'losses': 41, 'record': '35-41', 'win_pct': 0.460, 'home_record': '20-18', 'away_record': '15-23', 'point_diff': 0.2},
-    'SAC': {'wins': 38, 'losses': 39, 'record': '38-39', 'win_pct': 0.493, 'home_record': '22-17', 'away_record': '16-22', 'point_diff': -0.8},
-    'NOP': {'wins': 28, 'losses': 48, 'record': '28-48', 'win_pct': 0.368, 'home_record': '16-22', 'away_record': '12-26', 'point_diff': -7.5},
 }
 
 BACKUP_INJURIES = {
@@ -55,12 +76,8 @@ TEAM_DATA = {
     'SAC': {'off_rtg': 115.0, 'def_rtg': 115.5}, 'NOP': {'off_rtg': 115.0, 'def_rtg': 112.5},
 }
 
-def norm(abbr):
-    ESPN_TO_STD = {'GS': 'GSW', 'SA': 'SAS', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHAR': 'CHA', 'BKLN': 'BKN'}
-    return ESPN_TO_STD.get(abbr, abbr)
-
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. FETCHERS (With Strict Override)
+# 3. ROBUST FETCHERS (With Strict Override)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate():
@@ -78,9 +95,8 @@ def get_daily_slate():
                     'h_name': home['team']['displayName'], 'a_name': away['team']['displayName'],
                     'time': 'Scheduled', 'venue': comp.get('venue', {}).get('fullName', 'Arena')
                 })
-        # STRICT OVERRIDE: Must be 9 games, or use the master slate
-        if len(games) >= 9: 
-            return games
+        
+        if len(games) >= 9: return games
     except: pass
     
     return [
@@ -150,7 +166,7 @@ def get_back_to_back():
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. TRANSPARENT PREDICTION ENGINE
+# 4. TRANSPARENT PREDICTION ENGINE (WITH MATCHUPS)
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
@@ -173,21 +189,43 @@ def predict_game(h, a, standings, injuries, b2b_set):
     # 3. Defensive Efficiency
     def_adj = (a_td['def_rtg'] - h_td['def_rtg']) * 0.4
     total += def_adj
-    factors.append({"icon": "🛡️", "name": "Defensive Matchup", "adj": def_adj, "why": f"{h} def rating: {h_td['def_rtg']} | {a} def rating: {a_td['def_rtg']}"})
+    factors.append({"icon": "🛡️", "name": "Team Defense Matchup", "adj": def_adj, "why": f"{h} def rating: {h_td['def_rtg']} | {a} def rating: {a_td['def_rtg']}"})
 
-    # 4. Tanking Logic (Forces it to show EVEN IF NOBODY IS TANKING)
-    h_tank = h_std['win_pct'] < 0.36
-    a_tank = a_std['win_pct'] < 0.36
-    if h_tank:
+    # 4. INDIVIDUAL MATCHUP LOGIC (Star vs Stopper)
+    matchup_found = False
+    
+    # Check if Home has a Star and Away has a Stopper
+    if h in OFFENSIVE_STARS and a in ELITE_STOPPERS:
+        star, stopper = OFFENSIVE_STARS[h], ELITE_STOPPERS[a]
+        penalty = min(star['impact'], stopper['stopper_rating'])
+        total -= penalty
+        factors.append({"icon": "🥷", "name": "Elite Matchup Detected", "adj": -penalty, 
+                        "why": f"{stopper['name']} ({a}) is neutralizing {star['name']} ({h})."})
+        matchup_found = True
+        
+    # Check if Away has a Star and Home has a Stopper
+    if a in OFFENSIVE_STARS and h in ELITE_STOPPERS:
+        star, stopper = OFFENSIVE_STARS[a], ELITE_STOPPERS[h]
+        penalty = min(star['impact'], stopper['stopper_rating'])
+        total += penalty
+        factors.append({"icon": "🥷", "name": "Elite Matchup Detected", "adj": penalty, 
+                        "why": f"{stopper['name']} ({h}) is neutralizing {star['name']} ({a})."})
+        matchup_found = True
+
+    if not matchup_found:
+        factors.append({"icon": "🥷", "name": "Star vs. Stopper", "adj": 0.0, "why": "No direct elite 1-on-1 matchups identified."})
+
+    # 5. Tanking Logic
+    if h_std['win_pct'] < 0.36 and h_std['wins'] + h_std['losses'] > 15:
         total -= 8.0
-        factors.append({"icon": "🎯", "name": "Tanking Penalty", "adj": -8.0, "why": f"{h} win rate is critically low. Prioritizing lottery."})
-    elif a_tank:
+        factors.append({"icon": "🎯", "name": "Tanking Penalty", "adj": -8.0, "why": f"{h} win rate critically low. Prioritizing lottery."})
+    elif a_std['win_pct'] < 0.36 and a_std['wins'] + a_std['losses'] > 15:
         total += 8.0
-        factors.append({"icon": "🎯", "name": "Tanking Boost", "adj": 8.0, "why": f"{a} win rate is critically low. Easy matchup for {h}."})
+        factors.append({"icon": "🎯", "name": "Tanking Boost", "adj": 8.0, "why": f"{a} win rate critically low. Easy matchup for {h}."})
     else:
-        factors.append({"icon": "🤝", "name": "Motivation Status", "adj": 0.0, "why": "Both teams are actively competing. No tanking detected."})
+        factors.append({"icon": "🤝", "name": "Motivation Status", "adj": 0.0, "why": "Both teams are actively competing."})
 
-    # 5. Back to Back Fatigue
+    # 6. Fatigue
     if h in b2b_set:
         total -= 4.5
         factors.append({"icon": "😴", "name": "B2B Fatigue", "adj": -4.5, "why": f"{h} played yesterday. Heavy legs."})
@@ -197,7 +235,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     else:
         factors.append({"icon": "🔋", "name": "Rest Status", "adj": 0.0, "why": "Both teams have adequate rest."})
 
-    # 6. Injuries
+    # 7. Injuries
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     if h_inj:
         total -= 6.0
@@ -215,7 +253,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. USER INTERFACE
+# 5. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🏀 NBA Master AI Predictor")
 st.divider()
@@ -250,7 +288,6 @@ for game in slate:
             c1.write(f['icon'])
             c2.markdown(f"**{f['name']}** <br> <span style='color:gray;font-size:14px;'>{f['why']}</span>", unsafe_allow_html=True)
             
-            # Color code points: Green, Red, or Gray if it's 0.0
             if f['adj'] > 0: pt_color = "#28a745"
             elif f['adj'] < 0: pt_color = "#dc3545"
             else: pt_color = "#888888"
