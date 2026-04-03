@@ -1,80 +1,47 @@
 import streamlit as st
 import requests
+import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="NBA AI 2026", page_icon="🏀")
+# --- APP CONFIGURATION ---
+st.set_page_config(page_title="NBA AI 2026 - Master", page_icon="🏀", layout="wide")
 
-# --- 1. BASE POWER RATINGS (L10 Momentum) ---
-RATINGS = {
-    'BOS': 10.5, 'MIL': -4.2, 'HOU': 12.0, 'UTA': -12.5, 
-    'ATL': 8.8, 'BKN': -6.1, 'MEM': 5.5, 'TOR': -5.8,
-    'PHI': 4.2, 'MIN': 1.5, 'CHA': 6.2, 'IND': -3.1,
-    'NYK': 7.5, 'CHI': -4.8, 'ORL': 3.9, 'DAL': -8.2,
-    'SAC': 4.1, 'NOP': -5.5, 'WAS': -7.0, 'OKC': 15.7
+# --- 2026 LIVE RATINGS DATABASE ---
+# OFF = Offensive Rating, DEF = Defensive Rating (Lower is better for DEF)
+TEAM_STATS = {
+    'BOS': {'off': 118.5, 'def': 107.5, 'seed': 2, 'status': 'Title Contender'},
+    'DET': {'off': 112.4, 'def': 109.6, 'seed': 1, 'status': 'Title Contender'},
+    'OKC': {'off': 122.1, 'def': 108.2, 'seed': 1, 'status': 'Title Contender'},
+    'HOU': {'off': 116.8, 'def': 109.2, 'seed': 3, 'status': 'Climbing'},
+    'NYK': {'off': 115.5, 'def': 111.1, 'seed': 4, 'status': 'Seeding Battle'},
+    'PHI': {'off': 114.2, 'def': 115.9, 'seed': 6, 'status': 'Injured'},
+    'ATL': {'off': 110.1, 'def': 110.0, 'seed': 8, 'status': 'Play-In Fight'},
+    'MIN': {'off': 112.5, 'def': 114.7, 'seed': 7, 'status': 'Play-In Fight'},
+    'LAL': {'off': 113.1, 'def': 115.6, 'seed': 10, 'status': 'Play-In Fight'},
+    'UTA': {'off': 105.2, 'def': 125.7, 'seed': 15, 'status': 'Tanking'},
+    'DAL': {'off': 106.1, 'def': 118.0, 'seed': 14, 'status': 'Tanking'},
+    'MIL': {'off': 110.2, 'def': 115.6, 'seed': 9, 'status': 'Struggling'}
 }
 
-# --- 2. THE "INTELLIGENCE" LAYER (Injuries & Context) ---
-# This is where we tell the code WHY a team might lose despite a good rating
-IMPACT_MODIFIERS = {
-    'MIL': {'penalty': -15.0, 'reason': 'Giannis Antetokounmpo (OUT)'},
-    'MIN': {'penalty': -5.0, 'reason': 'Anthony Edwards (Minutes Restriction)'},
-    'UTA': {'penalty': -10.0, 'reason': 'Official Tanking / Resting Starters'},
-    'DAL': {'penalty': -10.0, 'reason': 'Lottery Mode / 13-game home slide'},
-    'ATL': {'bonus': 5.0, 'reason': 'Post-Trae Trade Defensive Surge'},
-    'WAS': {'bonus': 8.0, 'reason': 'Trae Young / AD Trade Era Debut'}
+# --- DYNAMIC INJURY REPORT (Auto-applied to logic) ---
+INJURIES = {
+    'MIL': 'Giannis Antetokounmpo (OUT)',
+    'PHI': 'Joel Embiid (Doubtful)',
+    'DET': 'Cade Cunningham (OUT)',
+    'MIN': 'Anthony Edwards (OUT)',
+    'BOS': 'Jayson Tatum (Available - Post-Achilles)'
 }
 
-def fetch_games():
+# --- CORE ENGINE FUNCTIONS ---
+@st.cache_data(ttl=600)
+def fetch_nba_data():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
     try:
-        res = requests.get(url).json()
-        return [{'h': e['competitions'][0]['competitors'][0]['team']['abbreviation'],
-                 'a': e['competitions'][0]['competitors'][1]['team']['abbreviation']} 
-                for e in res.get('events', [])]
-    except: return []
+        data = requests.get(url).json()
+        return data.get('events', [])
+    except:
+        return []
 
-# --- APP UI ---
-st.title("🏀 NBA Smart AI")
-st.write(f"**Scouting Report:** {datetime.now().strftime('%A, %B %d, %Y')}")
-st.divider()
-
-live_games = fetch_games()
-
-if live_games:
-    for game in live_games:
-        h, a = game['h'], game['a']
-        
-        # MATH ENGINE
-        # Start with Home Edge (54.5%) + Rating Diff
-        prob = 54.5 + ((RATINGS.get(h, 0) - RATINGS.get(a, 0)) * 2)
-        
-        # Apply Logic Penalties/Bonuses
-        reasons = []
-        for team in [h, a]:
-            if team in IMPACT_MODIFIERS:
-                mod = IMPACT_MODIFIERS[team]
-                effect = mod.get('penalty', mod.get('bonus', 0))
-                # If it's a penalty for the Home team, prob goes down. 
-                # If it's a penalty for Away, prob goes up for Home.
-                prob += effect if team == h else -effect
-                reasons.append(mod['reason'])
-
-        # Final Verdict Logic
-        final_prob = max(1, min(99, prob))
-        winner = h if final_prob > 50 else a
-        confidence = final_prob if final_prob > 50 else (100 - final_prob)
-        
-        # UI
-        with st.expander(f"{'🔒' if confidence > 85 else '🏀'} {h} vs {a}"):
-            st.subheader(f"🏆 VERDICT: {winner} WINS")
-            st.metric("Model Confidence", f"{confidence:.1f}%")
-            
-            if reasons:
-                st.write("**Adjustments Applied:**")
-                for r in reasons:
-                    st.info(f"📍 {r}")
-            else:
-                st.write("📊 *Based on pure statistical momentum.*")
-
-else:
-    st.warning("No games found for today.")
+def calculate_probability(home_id, away_id):
+    h = TEAM_STATS.get(home_id, {'off': 110, 'def': 115, 'seed': 11, 'status': 'Neutral'})
+    a = TEAM_STATS.get(away_id, {'off': 110, 'def': 115, 'seed': 11, 'status': 'Neutral'})
