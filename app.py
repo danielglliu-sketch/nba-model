@@ -11,9 +11,8 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. 2026 PLAYER MATCHUP DATABASE (With POSITIONAL ZONING)
+# 1. 2026 PLAYER MATCHUP DATABASE (With Positional Zoning)
 # ─────────────────────────────────────────────────────────────────────────────
-# Zones: 'Perimeter' (Guards), 'Wing' (Forwards), 'Paint' (Bigs)
 OFFENSIVE_STARS = {
     'OKC': {'name': 'Shai Gilgeous-Alexander', 'impact': 8.5, 'zone': 'Perimeter'},
     'DEN': {'name': 'Nikola Jokic', 'impact': 9.0, 'zone': 'Paint'},
@@ -149,7 +148,7 @@ def get_injuries():
         articles = requests.get(url, timeout=5).json().get('articles', [])
         for art in articles:
             hl = art.get('headline', '')
-            if 'out' in hl.lower() or 'injury' in hl.lower():
+            if 'out' in hl.lower() or 'injury' in hl.lower() or 'questionable' in hl.lower():
                 for cat in art.get('categories', []):
                     if cat.get('type') == 'team':
                         abbr = norm(cat.get('teamAbbrev', ''))
@@ -172,13 +171,22 @@ def get_back_to_back():
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. TRANSPARENT PREDICTION ENGINE (WITH POSITIONAL ZONING)
+# 4. TRANSPARENT PREDICTION ENGINE (WITH INJURY SCANNER)
 # ─────────────────────────────────────────────────────────────────────────────
+def is_active(player_name, team_injuries):
+    """Checks if the player's last name appears in their team's injury list."""
+    last_name = player_name.split()[-1]
+    return not any(last_name in inj for inj in team_injuries)
+
 def predict_game(h, a, standings, injuries, b2b_set):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
     a_td = TEAM_DATA.get(a, {'off_rtg': 112, 'def_rtg': 115})
     h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'point_diff': 0})
     a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'point_diff': 0})
+    
+    # Extract injuries early so we can use them for matchups
+    h_inj = injuries.get(h, [])
+    a_inj = injuries.get(a, [])
     
     factors = []
     total = 0.0
@@ -197,37 +205,48 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += def_adj
     factors.append({"icon": "🛡️", "name": "Team Defense Matchup", "adj": def_adj, "why": f"{h} def rating: {h_td['def_rtg']} | {a} def rating: {a_td['def_rtg']}"})
 
-    # 4. INDIVIDUAL POSITIONAL MATCHUP LOGIC (Zone vs Zone)
+    # 4. INDIVIDUAL POSITIONAL MATCHUP LOGIC (With Injury Scanner)
     matchup_found = False
     
-    # Check if Home has a Star and Away has a Stopper
+    # Check Home Star vs Away Stopper
     if h in OFFENSIVE_STARS and a in ELITE_STOPPERS:
         star, stopper = OFFENSIVE_STARS[h], ELITE_STOPPERS[a]
-        # ONLY apply if their zones match (e.g., Perimeter vs Perimeter)
-        if star['zone'] == stopper['zone']:
-            penalty = min(star['impact'], stopper['stopper_rating'])
-            total -= penalty
-            factors.append({"icon": "🥷", "name": "Positional Matchup Detected", "adj": -penalty, 
-                            "why": f"{stopper['name']} ({a}) is guarding {star['name']} ({h}) in the {star['zone']}."})
-            matchup_found = True
-        else:
-            factors.append({"icon": "🥷", "name": "Mismatch Escaped", "adj": 0.0, 
-                            "why": f"{stopper['name']} ({a}) is a {stopper['zone']} defender and will not primarily guard {star['name']} ({star['zone']})."})
-            matchup_found = True
         
-    # Check if Away has a Star and Home has a Stopper
+        # Are they both healthy?
+        if is_active(star['name'], h_inj) and is_active(stopper['name'], a_inj):
+            if star['zone'] == stopper['zone']:
+                penalty = min(star['impact'], stopper['stopper_rating'])
+                total -= penalty
+                factors.append({"icon": "🥷", "name": "Positional Matchup Detected", "adj": -penalty, 
+                                "why": f"{stopper['name']} ({a}) is guarding {star['name']} ({h}) in the {star['zone']}."})
+            else:
+                factors.append({"icon": "🥷", "name": "Mismatch Escaped", "adj": 0.0, 
+                                "why": f"{stopper['name']} ({a}) is a {stopper['zone']} defender and will not primarily guard {star['name']} ({star['zone']})."})
+        else:
+            injured_guy = star['name'] if not is_active(star['name'], h_inj) else stopper['name']
+            factors.append({"icon": "🏥", "name": "Matchup Voided", "adj": 0.0, 
+                            "why": f"{injured_guy} is on the injury report. 1-on-1 matchup canceled."})
+        matchup_found = True
+        
+    # Check Away Star vs Home Stopper
     if a in OFFENSIVE_STARS and h in ELITE_STOPPERS and not matchup_found:
         star, stopper = OFFENSIVE_STARS[a], ELITE_STOPPERS[h]
-        if star['zone'] == stopper['zone']:
-            penalty = min(star['impact'], stopper['stopper_rating'])
-            total += penalty
-            factors.append({"icon": "🥷", "name": "Positional Matchup Detected", "adj": penalty, 
-                            "why": f"{stopper['name']} ({h}) is guarding {star['name']} ({a}) in the {star['zone']}."})
-            matchup_found = True
+        
+        # Are they both healthy?
+        if is_active(star['name'], a_inj) and is_active(stopper['name'], h_inj):
+            if star['zone'] == stopper['zone']:
+                penalty = min(star['impact'], stopper['stopper_rating'])
+                total += penalty
+                factors.append({"icon": "🥷", "name": "Positional Matchup Detected", "adj": penalty, 
+                                "why": f"{stopper['name']} ({h}) is guarding {star['name']} ({a}) in the {star['zone']}."})
+            else:
+                factors.append({"icon": "🥷", "name": "Mismatch Escaped", "adj": 0.0, 
+                                "why": f"{stopper['name']} ({h}) is a {stopper['zone']} defender and will not primarily guard {star['name']} ({star['zone']})."})
         else:
-            factors.append({"icon": "🥷", "name": "Mismatch Escaped", "adj": 0.0, 
-                            "why": f"{stopper['name']} ({h}) is a {stopper['zone']} defender and will not primarily guard {star['name']} ({star['zone']})."})
-            matchup_found = True
+            injured_guy = star['name'] if not is_active(star['name'], a_inj) else stopper['name']
+            factors.append({"icon": "🏥", "name": "Matchup Voided", "adj": 0.0, 
+                            "why": f"{injured_guy} is on the injury report. 1-on-1 matchup canceled."})
+        matchup_found = True
 
     if not matchup_found:
         factors.append({"icon": "🥷", "name": "Star vs. Stopper", "adj": 0.0, "why": "No direct 1-on-1 matchups identified."})
@@ -252,16 +271,15 @@ def predict_game(h, a, standings, injuries, b2b_set):
     else:
         factors.append({"icon": "🔋", "name": "Rest Status", "adj": 0.0, "why": "Both teams have adequate rest."})
 
-    # 7. Injuries
-    h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
+    # 7. Overall Team Injury Impact
     if h_inj:
         total -= 6.0
-        factors.append({"icon": "🤕", "name": "Injury Impact", "adj": -6.0, "why": f"{h} is missing key players."})
+        factors.append({"icon": "🤕", "name": "General Injury Impact", "adj": -6.0, "why": f"{h} is missing players from rotation."})
     elif a_inj:
         total += 6.0
-        factors.append({"icon": "🤕", "name": "Opponent Injury", "adj": 6.0, "why": f"{a} is missing key players."})
+        factors.append({"icon": "🤕", "name": "Opponent Injury Boost", "adj": 6.0, "why": f"{a} is missing players from rotation."})
     else:
-        factors.append({"icon": "🏥", "name": "Injury Report", "adj": 0.0, "why": "No major game-altering injuries detected."})
+        factors.append({"icon": "🏥", "name": "General Health", "adj": 0.0, "why": "No major game-altering injuries detected."})
 
     prob = max(5.0, min(95.0, 50.0 + total))
     return {
