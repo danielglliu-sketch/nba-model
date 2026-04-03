@@ -16,7 +16,7 @@ def norm(abbr):
     return ESPN_TO_STD.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BASELINE EFFICIENCY STATS (Math Only - No Text Notes!)
+# BASELINE EFFICIENCY STATS (Math Only)
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_DATA = {
     'DET': {'off_rtg': 112.5, 'def_rtg': 113.0, 'pace': 99.8},
@@ -52,7 +52,7 @@ TEAM_DATA = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LIVE AUTO-FETCHERS (Pulls Real-Time Data)
+# LIVE AUTO-FETCHERS
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate():
@@ -90,8 +90,7 @@ def get_daily_slate():
                 'status': comp.get('status', {}).get('type', {}).get('description', 'Scheduled'),
             })
         return games
-    except Exception as exc:
-        st.warning("⚠️ Live slate unavailable. Retrying connection...")
+    except Exception:
         return []
 
 @st.cache_data(ttl=600)
@@ -103,7 +102,6 @@ def get_standings():
         for conf in data.get('children', []):
             for entry in conf.get('standings', {}).get('entries', []):
                 abbr  = norm(entry['team']['abbreviation'])
-                # FIX: Convert keys to lowercase to stop the "N/A" bug
                 stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
                 
                 def val(k, d=0): return stats.get(k.lower(), {}).get('value') or d
@@ -120,7 +118,6 @@ def get_standings():
                 wins, losses = int(val('wins', 0)), int(val('losses', 0))
                 win_pct = float(val('winpercent', 0.5))
 
-                # AUTO-GENERATE STATUS based on Real Win %
                 if win_pct > 0.65: auto_status = "🏆 Elite Contender"
                 elif win_pct > 0.55: auto_status = "✅ Playoff Lock"
                 elif win_pct > 0.40: auto_status = "⚠️ Play-In Threat"
@@ -227,7 +224,7 @@ def predict_game(h, a, standings, form, b2b_set, injuries):
         total += 4.5
         factors.append({"icon": "😴", "name": "Fatigue", "why": f"{a} is on 2nd night of B2B", "adj": 4.5})
         
-    # 6. DYNAMIC Tanking Logic (If team wins less than 35% of games)
+    # 6. DYNAMIC Tanking Logic
     if h_std['win_pct'] < 0.35 and h_std['wins'] + h_std['losses'] > 10:
         total -= 8.0
         factors.append({"icon": "🎯", "name": "Tanking Penalty", "why": f"{h} is prioritizing lottery odds", "adj": -8.0})
@@ -269,7 +266,7 @@ with st.spinner("📡 Fetching Live Standings, Injuries, and Schedules..."):
     injuries = get_injury_news()
 
 if not slate:
-    st.error("❌ Waiting for NBA Daily Slate to populate. Try refreshing in a few minutes.")
+    st.error("❌ Waiting for NBA Daily Slate to populate. Check back later or ensure games are scheduled today.")
     st.stop()
 
 st.subheader(f"Today's AI Predictions — {len(slate)} Games")
@@ -327,4 +324,5 @@ for game in slate:
             st.markdown(f"#### ✈️ {a} — {game['a_name']}")
             st.markdown(f"**{pred['a_std']['status']}**")
             st.write(f"Record: **{pred['a_std']['record']}** | Away: {pred['a_std']['away_record']}")
-            st.write(f"Def Rating: {pred['a_td']['
+            st.write(f"Def Rating: {pred['a_td']['def_rtg']} | Off Rating: {pred['a_td']['off_rtg']}")
+            for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
