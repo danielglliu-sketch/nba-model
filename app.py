@@ -36,7 +36,7 @@ STAR_PLAYERS = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS
+# 1. STANDINGS & BACKUPS (RESTORED ALL 30 TEAMS)
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'ATL': {'wins': 45, 'losses': 33, 'record': '45-33', 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
@@ -244,6 +244,15 @@ def predict_game(h, a, standings, injuries, b2b_set):
     if a in b2b_set:
         total += 4.0
         factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 4.0, "why": f"{a} played yesterday."})
+
+    # 6. TANKING PENALTY (Late Season April 2026 Logic)
+    # Applied to teams with win_pct below .350
+    if h_std['win_pct'] < 0.350:
+        total -= 7.0
+        factors.append({"icon": "📉", "name": f"{h} Tanking Penalty", "adj": -7.0, "why": "Incentivized lottery prioritization."})
+    if a_std['win_pct'] < 0.350:
+        total += 7.0
+        factors.append({"icon": "📉", "name": f"{a} Tanking Penalty", "adj": 7.0, "why": "Incentivized lottery prioritization."})
 
     prob = max(5.0, min(95.0, 50.0 + total))
     return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj}
