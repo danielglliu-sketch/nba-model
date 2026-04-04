@@ -11,46 +11,62 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Refreshed! Syncing to April 4, 2026.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚨 2026 BvP DATA BANK (Batter vs. Pitcher Matchups) 🚨
+# 🚨 2026 BvP DATA BANK (Batter vs. Pitcher - April 4 Slate) 🚨
 # ─────────────────────────────────────────────────────────────────────────────
-# This dictionary contains known career dominance for the current slate.
-# Impact: Points added to the team score.
+# Data includes career career slash lines for hitters vs today's SP.
 BVP_INTEL = {
-    ("SEA", "Jack Kochanowicz"): {"J. Rodriguez": ".714 AVG (5/7)", "C. Raleigh": "1.200 OPS", "Impact": 5.0},
-    ("LAD", "Jake Irvin"): {"M. Betts": ".357 AVG", "S. Ohtani": ".364 AVG (4 HR)", "W. Smith": ".310 AVG", "Impact": 5.5},
-    ("MIL", "Luinder Avila"): {"L. Rengifo": "2.000 OPS", "G. Sanchez": "1.100 OPS", "C. Yelich": ".880 OPS", "Impact": 4.5},
-    ("ATL", "Eduardo Rodriguez"): {"M. Ozuna": ".412 AVG", "O. Albies": ".305 AVG", "Impact": 3.0},
-    ("NYY", "Ryan Weathers"): {"A. Judge": ".333 AVG", "J. Soto": ".450 OBP", "Impact": 4.0},
-    ("BAL", "Carmen Mlodzinski"): {"A. Rutschman": ".290 AVG", "G. Henderson": ".320 AVG", "Impact": 2.5},
-    ("CLE", "Shota Imanaga"): {"D. Fry": "1.500 OPS", "A. Hedges": ".500 AVG", "Impact": 3.5}
+    ("LAD", "Jake Irvin"): [
+        {"name": "Mookie Betts", "stat": ".357 AVG", "desc": "Elite timing"},
+        {"name": "Shohei Ohtani", "stat": ".364 AVG / 4 HR", "desc": "Pitcher Killer"},
+        {"name": "Will Smith", "stat": "1.020 OPS", "desc": "Consistently hits hard"}
+    ],
+    ("SEA", "Jack Kochanowicz"): [
+        {"name": "Julio Rodriguez", "stat": ".714 AVG (5-for-7)", "desc": "Dominates the slider"},
+        {"name": "Cal Raleigh", "stat": ".600 AVG / 2 HR", "desc": "High power matchup"}
+    ],
+    ("NYY", "Ryan Weathers"): [
+        {"name": "Aaron Judge", "stat": ".333 AVG / 2 HR", "desc": "Power edge"},
+        {"name": "Juan Soto", "stat": ".450 OBP", "desc": "Plate discipline edge"}
+    ],
+    ("CLE", "Shota Imanaga"): [
+        {"name": "David Fry", "stat": "1.500 OPS", "desc": "Left-handed specialist"},
+        {"name": "Austin Hedges", "stat": ".500 AVG", "desc": "Small sample dominance"}
+    ],
+    ("ATL", "Michael Soroka"): [
+        {"name": "Marcell Ozuna", "stat": ".412 AVG", "desc": "Historical success"},
+        {"name": "Ozzie Albies", "stat": ".305 AVG", "desc": "Line drive threat"}
+    ]
 }
 
 MLB_STARS = [
     "Shohei Ohtani", "Aaron Judge", "Juan Soto", "Mookie Betts", "Bobby Witt Jr.",
     "Gunnar Henderson", "Elly De La Cruz", "Ronald Acuña Jr.", "Yordan Alvarez",
     "Paul Skenes", "Tarik Skubal", "Chris Sale", "Zack Wheeler", "Corbin Burnes",
-    "Logan Webb", "Shota Imanaga", "Yoshinobu Yamamoto", "Tyler Glasnow", "Max Meyer"
+    "Logan Webb", "Shota Imanaga", "Yoshinobu Yamamoto", "Tyler Glasnow"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. 2026 FULL 30-TEAM POWER DATA
+# 1. FULL 30-TEAM 2026 POWER DATA
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_DATA = {
-    'ARI': {'ops': .745, 'era': 4.15}, 'ATL': {'ops': .770, 'era': 3.55},
-    'BAL': {'ops': .785, 'era': 3.80}, 'BOS': {'ops': .755, 'era': 4.10},
-    'CHC': {'ops': .740, 'era': 3.75}, 'CWS': {'ops': .680, 'era': 4.90},
-    'CIN': {'ops': .750, 'era': 4.20}, 'CLE': {'ops': .735, 'era': 3.60},
-    'COL': {'ops': .720, 'era': 5.20}, 'DET': {'ops': .740, 'era': 3.65},
-    'HOU': {'ops': .765, 'era': 3.75}, 'KC':  {'ops': .755, 'era': 3.85},
-    'LAA': {'ops': .710, 'era': 4.50}, 'LAD': {'ops': .798, 'era': 3.40},
-    'MIA': {'ops': .700, 'era': 4.30}, 'MIL': {'ops': .745, 'era': 3.70},
-    'MIN': {'ops': .750, 'era': 3.90}, 'NYM': {'ops': .760, 'era': 3.85},
-    'NYY': {'ops': .785, 'era': 3.70}, 'ATH': {'ops': .690, 'era': 4.80},
-    'PHI': {'ops': .770, 'era': 3.45}, 'PIT': {'ops': .725, 'era': 3.80},
-    'SD':  {'ops': .760, 'era': 3.55}, 'SF':  {'ops': .730, 'era': 3.70},
-    'SEA': {'ops': .720, 'era': 3.35}, 'STL': {'ops': .740, 'era': 4.10},
-    'TB':  {'ops': .735, 'era': 3.60}, 'TEX': {'ops': .765, 'era': 4.05},
-    'TOR': {'ops': .750, 'era': 3.95}, 'WAS': {'ops': .725, 'era': 4.40}
+    # AL East
+    'NYY': {'ops': .785, 'era': 3.70}, 'BAL': {'ops': .785, 'era': 3.80},
+    'TOR': {'ops': .750, 'era': 3.95}, 'TB':  {'ops': .735, 'era': 3.60}, 'BOS': {'ops': .755, 'era': 4.10},
+    # AL Central
+    'CLE': {'ops': .735, 'era': 3.60}, 'MIN': {'ops': .750, 'era': 3.90}, 
+    'DET': {'ops': .740, 'era': 3.65}, 'KC':  {'ops': .755, 'era': 3.85}, 'CWS': {'ops': .680, 'era': 4.90},
+    # AL West
+    'HOU': {'ops': .765, 'era': 3.75}, 'TEX': {'ops': .765, 'era': 4.05}, 
+    'SEA': {'ops': .720, 'era': 3.35}, 'LAA': {'ops': .710, 'era': 4.50}, 'ATH': {'ops': .690, 'era': 4.80},
+    # NL East
+    'ATL': {'ops': .770, 'era': 3.55}, 'PHI': {'ops': .770, 'era': 3.45}, 
+    'MIA': {'ops': .700, 'era': 4.30}, 'NYM': {'ops': .760, 'era': 3.85}, 'WAS': {'ops': .725, 'era': 4.40},
+    # NL Central
+    'MIL': {'ops': .745, 'era': 3.70}, 'CHC': {'ops': .740, 'era': 3.75}, 
+    'STL': {'ops': .740, 'era': 4.10}, 'CIN': {'ops': .750, 'era': 4.20}, 'PIT': {'ops': .725, 'era': 3.80},
+    # NL West
+    'LAD': {'ops': .798, 'era': 3.40}, 'ARI': {'ops': .745, 'era': 4.15}, 
+    'SF':  {'ops': .730, 'era': 3.70}, 'SD':  {'ops': .760, 'era': 3.55}, 'COL': {'ops': .720, 'era': 5.20}
 }
 
 def norm(abbr):
@@ -95,6 +111,7 @@ def get_mlb_standings():
     try:
         data = requests.get(url, timeout=10).json()
         res = {}
+        # Robust 30-team crawler
         for league in data.get('children', []):
             for division in league.get('children', []):
                 for entry in division.get('standings', {}).get('entries', []):
@@ -111,7 +128,7 @@ def get_mlb_standings():
     except: return {}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. PREDICTION ENGINE (BvP INTEGRATION)
+# 3. PREDICTION ENGINE (BvP INTEGRATED)
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_mlb(h, a, h_sp, a_sp, standings):
     h_td = TEAM_DATA.get(h, {'ops': .740, 'era': 4.10})
@@ -122,49 +139,42 @@ def predict_mlb(h, a, h_sp, a_sp, standings):
     factors, total = [], 0.0
     def is_star(name): return any(s.lower() in name.lower() for s in MLB_STARS)
 
-    # 1. BvP Analysis (Pitcher Killers)
-    h_bvp = BVP_INTEL.get((h, a_sp), {})
-    a_bvp = BVP_INTEL.get((a, h_sp), {})
+    # 1. Batter vs. Pitcher Matchups
+    h_bvp_list = BVP_INTEL.get((h, a_sp), [])
+    a_bvp_list = BVP_INTEL.get((a, h_sp), [])
     
-    if h_bvp:
-        impact = h_bvp.get("Impact", 0)
-        total += impact
-        b_list = [f"{k} ({v})" for k, v in h_bvp.items() if k != "Impact"]
-        factors.append({"icon": "⚔️", "name": f"{h} BvP Edge", "adj": impact, "why": f"Dominant vs {a_sp}: {', '.join(b_list)}"})
-    if a_bvp:
-        impact = a_bvp.get("Impact", 0)
-        total -= impact
-        b_list = [f"{k} ({v})" for k, v in a_bvp.items() if k != "Impact"]
-        factors.append({"icon": "⚔️", "name": f"{a} BvP Edge", "adj": -impact, "why": f"Dominant vs {h_sp}: {', '.join(b_list)}"})
+    if h_bvp_list:
+        edge = min(5.5, len(h_bvp_list) * 1.8) # Cap BvP impact
+        total += edge
+        b_summary = ", ".join([f"{b['name']} ({b['stat']})" for b in h_bvp_list])
+        factors.append({"icon": "⚔️", "name": f"{h} BvP Edge", "adj": edge, "why": f"Key Matchups vs {a_sp}: {b_summary}"})
+    if a_bvp_list:
+        edge = min(5.5, len(a_bvp_list) * 1.8)
+        total -= edge
+        b_summary = ", ".join([f"{b['name']} ({b['stat']})" for b in a_bvp_list])
+        factors.append({"icon": "⚔️", "name": f"{a} BvP Edge", "adj": -edge, "why": f"Key Matchups vs {h_sp}: {b_summary}"})
 
-    # 2. Starting Pitcher Ace Bonus
-    if is_star(h_sp):
-        total += 6.5; factors.append({"icon": "🔥", "name": f"{h} Ace Bonus", "adj": 6.5, "why": f"{h_sp} is a Star SP."})
-    if is_star(a_sp):
-        total -= 6.5; factors.append({"icon": "🔥", "name": f"{a} Ace Bonus", "adj": -6.5, "why": f"{a_sp} is a Star SP."})
+    # 2. Starting Pitcher Star Status
+    if is_star(h_sp): total += 6.5; factors.append({"icon": "🔥", "name": f"{h} Ace Bonus", "adj": 6.5, "why": f"{h_sp} is a Star SP."})
+    if is_star(a_sp): total -= 6.5; factors.append({"icon": "🔥", "name": f"{a} Ace Bonus", "adj": -6.5, "why": f"{a_sp} is a Star SP."})
 
-    # 3. OPS & ERA Gaps
+    # 3. OPS & ERA Differentials
     ops_diff = (h_td['ops'] - a_td['ops']) * 120.0
     total += ops_diff
-    factors.append({"icon": "🎯", "name": "Offensive Edge", "adj": ops_diff, "why": f"Team OPS Gap: {h_td['ops']} vs {a_td['ops']}"})
-
     win_adj = (h_std['win_pct'] - a_std['win_pct']) * 15.0
-    total += win_adj + 2.5 # Home Advantage
-    factors.append({"icon": "📊", "name": "Record Factor", "adj": win_adj, "why": f"Overall Win % comparison"})
-
+    total += win_adj + 2.5 # Base Home Field
+    
     prob = max(5.0, min(95.0, 50.0 + total))
-    return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std}
+    return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std, 'h_bvp': h_bvp_list, 'a_bvp': a_bvp_list}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("⚾ MLB Master AI Predictor 2026")
-st.sidebar.info(f"Query Date: April 4, 2026")
-
 slate, standings = get_mlb_slate(), get_mlb_standings()
 
-if not slate:
-    st.warning("Standings found for all 30 teams. Fetching today's game slate...")
+if not slate or len(standings) < 10:
+    st.warning("Fetching data from the bullpen... Please wait or refresh.")
 else:
     for g in slate:
         p = predict_mlb(g['h'], g['a'], g['h_sp'], g['a_sp'], standings)
@@ -174,6 +184,17 @@ else:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
                 st.markdown(f"{f['icon']} **{f['name']}**: {f['adj']:+.1f} pts — {f['why']}", unsafe_allow_html=True)
             st.divider()
+            
+            # Batter vs Pitcher Section
+            if p['h_bvp'] or p['a_bvp']:
+                st.markdown("#### 📉 Notable Batter vs Pitcher Stats")
+                b1, b2 = st.columns(2)
+                with b1:
+                    for b in p['h_bvp']: st.success(f"**{b['name']}**: {b['stat']} — {b['desc']}")
+                with b2:
+                    for b in p['a_bvp']: st.error(f"**{b['name']}**: {b['stat']} — {b['desc']}")
+                st.divider()
+
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"#### 🏠 {g['h_name']}")
@@ -182,4 +203,4 @@ else:
             with col2:
                 st.markdown(f"#### ✈️ {g['a_name']}")
                 st.write(f"**SP:** {g['a_sp']} ({g['a_sp_rec']})")
-                st.write(f"**Overall Record:** {p['a_std']['overall']} | **Away:** {p['a_std']['away']}")
+                st.write(f"**Overall Record:** {p['a_std']['overall']} | **Road:** {p['a_std']['away']}")
