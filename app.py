@@ -173,7 +173,6 @@ def get_injuries():
                     if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{player} ({injury})")
             
-            # FIXED: Removed players[:2] so it shows the full list
             if players:
                 news[abbr] = players 
                 
