@@ -15,45 +15,48 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# 2026 STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
+# 2026 MASTER STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
 STAR_PLAYERS = [
     # ELITE SCORERS (25+ PPG)
     "Luka Doncic", "Shai Gilgeous-Alexander", "Anthony Edwards", "Jaylen Brown", 
     "Tyrese Maxey", "Kawhi Leonard", "Donovan Mitchell", "Nikola Jokic", 
     "Jalen Brunson", "Kevin Durant", "Devin Booker", "Jamal Murray", "Julius Randle",
+    "Lauri Markkanen", "De'Aaron Fox", "Domantas Sabonis", "Giannis Antetokounmpo",
     
     # CORE STARS & 2026 BREAKOUTS (18-25 PPG)
     "Victor Wembanyama", "Cade Cunningham", "Pascal Siakam", "Deni Avdija", 
     "James Harden", "Keyonte George", "Jalen Johnson", "Paolo Banchero", 
     "Norman Powell", "Trey Murphy III", "Brandon Ingram", "Zion Williamson", 
-    "LeBron James", "Alperen Sengun", "Nickeil Alexander-Walker", 
+    "LeBron James", "Alperen Sengun", "Nickeil Alexander-Walker", "Scottie Barnes",
     "Brandon Miller", "Cooper Flagg", "Bam Adebayo", "Desmond Bane", 
     "Karl-Anthony Towns", "LaMelo Ball", "Jalen Duren", "Amen Thompson", 
-    "Kristaps Porzingis", "Dejounte Murray", "Scottie Barnes", "Trae Young",
-    "Lauri Markkanen", "De'Aaron Fox", "Domantas Sabonis", "Jalen Williams",
+    "Kristaps Porzingis", "Dejounte Murray", "Jalen Williams", "Chet Holmgren",
+    "Austin Reaves", "Derrick White", "Naz Reid", "Kon Knueppel",
     
-    # THE 12.5+ PPG BRACKET (Capturing Second Options & High-Impact Starters)
-    "Alex Sarr", "Kon Knueppel", "Reed Sheppard", "Donovan Clingan", "Stephon Castle",
-    "Isaiah Collier", "Kel'el Ware", "Josh Giddey", "Andrew Nembhard", "Jabari Smith Jr.", 
-    "Chet Holmgren", "Franz Wagner", "Coby White", "Miles Bridges", "Cam Thomas", 
-    "Mikal Bridges", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", "Jordan Poole", 
-    "Darius Garland", "Evan Mobley", "Jarrett Allen", "Austin Reaves", "D'Angelo Russell", 
-    "Michael Porter Jr.", "Aaron Gordon", "Naz Reid", "Jaden McDaniels", "Bobby Portis", 
-    "Brook Lopez", "Kelly Oubre Jr.", "Josh Hart", "Donte DiVincenzo", "Terry Rozier", 
-    "Jaime Jaquez Jr.", "Bennedict Mathurin", "Malik Monk", "Keegan Murray", 
-    "Jonathan Kuminga", "Collin Sexton", "Cam Johnson", "Nic Claxton", "Shaedon Sharpe", 
-    "Scoot Henderson", "Bilal Coulibaly", "Grayson Allen", "Rui Hachimura", 
-    "Andrew Wiggins", "Immanuel Quickley", "Josh Giddey", "Matas Buzelis", "Yves Missi",
+    # THE 12.5+ PPG BRACKET (Capturing Deep Star Power)
+    "Alex Sarr", "Reed Sheppard", "Donovan Clingan", "Stephon Castle", "Josh Giddey",
+    "Isaiah Collier", "Kel'el Ware", "Matas Buzelis", "Andrew Nembhard", "Jabari Smith Jr.", 
+    "Franz Wagner", "Coby White", "Miles Bridges", "Cam Thomas", "Mikal Bridges", 
+    "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", "Jordan Poole", "Darius Garland", 
+    "Evan Mobley", "Jarrett Allen", "D'Angelo Russell", "Michael Porter Jr.", 
+    "Aaron Gordon", "Jaden McDaniels", "Bobby Portis", "Brook Lopez", "Kelly Oubre Jr.", 
+    "Josh Hart", "Donte DiVincenzo", "Terry Rozier", "Jaime Jaquez Jr.", 
+    "Bennedict Mathurin", "Malik Monk", "Keegan Murray", "Jonathan Kuminga", 
+    "Collin Sexton", "Cam Johnson", "Nic Claxton", "Shaedon Sharpe", "Scoot Henderson", 
+    "Bilal Coulibaly", "Grayson Allen", "Rui Hachimura", "Andrew Wiggins", 
+    "Immanuel Quickley", "RJ Barrett", "Gradey Dick", "Bennedict Mathurin", 
+    "Jaden Ivey", "Buddy Hield", "Tyler Herro", "Ivica Zubac", "John Collins",
 
-    # DEFENSIVE SPECIALISTS (High Defensive Rating / DPOY Contenders)
-    "Rudy Gobert", "Herb Jones", "Alex Caruso", "OG Anunoby", "Derrick White", 
-    "Jrue Holiday", "Jalen Suggs", "Ausar Thompson", "Cason Wallace", 
-    "Dyson Daniels", "Isaiah Stewart", "Myles Turner", "Robert Williams III",
-    "Draymond Green", "Marcus Smart"
+    # DEFENSIVE SPECIALISTS (Elite Defensive Rating / Impact)
+    "Rudy Gobert", "Herb Jones", "Alex Caruso", "OG Anunoby", "Jrue Holiday", 
+    "Jalen Suggs", "Ausar Thompson", "Cason Wallace", "Dyson Daniels", 
+    "Isaiah Stewart", "Myles Turner", "Robert Williams III", "Draymond Green", 
+    "Marcus Smart", "Isaiah Hartenstein", "Neemias Queta", "Jonathan Isaac", 
+    "Matisse Thybulle", "Kris Dunn", "Walker Kessler", "Dereck Lively II"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS (Updated for April 4, 2026)
+# 1. STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-9', 'away_record': '26-12'},
@@ -197,7 +200,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     
     def get_player_impact(scraped_string):
         raw = scraped_string.lower().strip()
-        # Bulletproof Matching: Check if Star is in the name or vice versa
+        # Matching logic to verify if a Star name exists within the scraped text
         for star in STAR_PLAYERS:
             s = star.lower()
             if s in raw or raw in s:
