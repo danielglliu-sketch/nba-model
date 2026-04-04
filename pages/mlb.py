@@ -26,7 +26,6 @@ MLB_STARS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. FULL 30-TEAM 2026 POWER DATA
 # ─────────────────────────────────────────────────────────────────────────────
-# Updated with all 30 teams so games are no longer 50/50 by default
 TEAM_DATA = {
     'ARI': {'ops': .745, 'era': 4.15, 'park': 1.01}, 'ATL': {'ops': .770, 'era': 3.55, 'park': 1.00},
     'BAL': {'ops': .785, 'era': 3.80, 'park': 0.98}, 'BOS': {'ops': .755, 'era': 4.10, 'park': 1.04},
@@ -46,7 +45,7 @@ TEAM_DATA = {
 }
 
 def norm(abbr):
-    mapping = {'WSH': 'WAS', 'KC': 'KC', 'SDG': 'SD', 'SFO': 'SF', 'TBR': 'TB', 'CHW': 'CWS', 'KCA': 'KC', 'LAN': 'LAD', 'NYN': 'NYM', 'CHN': 'CHC'}
+    mapping = {'WSH': 'WAS', 'KCA': 'KC', 'SDG': 'SD', 'SFO': 'SF', 'TBR': 'TB', 'CHW': 'CWS', 'LAN': 'LAD', 'NYN': 'NYM', 'CHN': 'CHC'}
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,12 +63,21 @@ def get_mlb_slate():
             h = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
             a = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             if h and a:
-                h_sp = h.get('probables', [{}])[0].get('athlete', {}).get('displayName', 'TBD')
-                a_sp = a.get('probables', [{}])[0].get('athlete', {}).get('displayName', 'TBD')
+                h_prob = h.get('probables', [{}])[0]
+                a_prob = a.get('probables', [{}])[0]
+                
+                h_sp_name = h_prob.get('athlete', {}).get('displayName', 'TBD')
+                a_sp_name = a_prob.get('athlete', {}).get('displayName', 'TBD')
+                
+                # Fetch SP record string (e.g., "4-1, 2.45 ERA")
+                h_sp_rec = h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00')
+                a_sp_rec = a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00')
+                
                 games.append({
                     'h': norm(h['team']['abbreviation']), 'a': norm(a['team']['abbreviation']),
-                    'h_name': h['team']['displayName'], 'a_name': away_team['team']['displayName'] if 'away_team' in locals() else a['team']['displayName'],
-                    'h_sp': h_sp, 'a_sp': a_sp
+                    'h_name': h['team']['displayName'], 'a_name': a['team']['displayName'],
+                    'h_sp': h_sp_name, 'a_sp': a_sp_name,
+                    'h_sp_rec': h_sp_rec, 'a_sp_rec': a_sp_rec
                 })
         return games
     except: return []
@@ -82,41 +90,29 @@ def get_mlb_standings():
         res = {}
         for entry in data.get('children', [{}])[0].get('children', [{}])[0].get('standings', {}).get('entries', []):
             abbr = norm(entry['team']['abbreviation'])
-            stats = {s['name']: s['value'] for s in entry['stats']}
-            res[abbr] = {'win_pct': stats.get('winPercent', 0.5), 'record': entry['stats'][0]['displayValue']}
+            stats = {s['name']: s['displayValue'] for s in entry['stats']}
+            val_stats = {s['name']: s['value'] for s in entry['stats']}
+            res[abbr] = {
+                'win_pct': val_stats.get('winPercent', 0.5),
+                'overall': stats.get('summary', '0-0'),
+                'home': stats.get('home', '0-0'),
+                'away': stats.get('road', '0-0')
+            }
         return res
-    except: return {}
-
-@st.cache_data(ttl=600)
-def get_mlb_injuries():
-    url = "https://www.cbssports.com/mlb/injuries/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        from bs4 import BeautifulSoup
-        html = requests.get(url, headers=headers).text
-        soup = BeautifulSoup(html, 'html.parser')
-        news = {}
-        # Simple MLB Injury Scraper Logic
-        for table in soup.find_all('div', class_='TableBase'):
-            team_name = table.find('span', class_='TeamName').get_text(strip=True)
-            # Shortened team mapping (e.g. "L.A. Dodgers" -> "LAD")
-            # Logic here...
-            pass 
-        return news 
     except: return {}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. MLB PREDICTION ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-def predict_mlb(h, a, h_sp, a_sp, standings, injuries):
+def predict_mlb(h, a, h_sp, a_sp, standings):
     h_td = TEAM_DATA.get(h, {'ops': .740, 'era': 4.10, 'park': 1.0})
     a_td = TEAM_DATA.get(a, {'ops': .740, 'era': 4.10, 'park': 1.0})
-    h_std = standings.get(h, {'win_pct': 0.5, 'record': '0-0'})
-    a_std = standings.get(a, {'win_pct': 0.5, 'record': '0-0'})
+    h_std = standings.get(h, {'win_pct': 0.5, 'overall': '0-0', 'home': '0-0', 'away': '0-0'})
+    a_std = standings.get(a, {'win_pct': 0.5, 'overall': '0-0', 'home': '0-0', 'away': '0-0'})
 
     factors, total = [], 0.0
 
-    # 1. Starting Pitcher Edge (The most important factor)
+    # 1. Starting Pitcher Edge (6.5 pts for Star)
     def is_star(name):
         return any(s.lower() in name.lower() for s in MLB_STARS)
 
@@ -133,9 +129,9 @@ def predict_mlb(h, a, h_sp, a_sp, standings, injuries):
     # 3. Bullpen & Defense (ERA Difference)
     era_diff = (a_td['era'] - h_td['era']) * 2.0
     total += era_diff
-    factors.append({"icon": "🛡️", "name": "Run Prevention", "adj": era_diff, "why": f"Bullpen ERA Edge"})
+    factors.append({"icon": "🛡️", "name": "Run Prevention", "adj": era_diff, "why": f"Bullpen/Def ERA Edge"})
 
-    # 4. Standing/Win % Edge
+    # 4. Win % Edge
     win_adj = (h_std['win_pct'] - a_std['win_pct']) * 15.0
     total += win_adj
     factors.append({"icon": "📊", "name": "Record Edge", "adj": win_adj, "why": "Seasonal performance"})
@@ -156,23 +152,30 @@ st.divider()
 
 slate = get_mlb_slate()
 standings = get_mlb_standings()
-injuries = get_mlb_injuries()
 
 if not slate:
     st.info("No games scheduled today.")
 else:
     for game in slate:
-        pred = predict_mlb(game['h'], game['a'], game['h_sp'], game['a_sp'], standings, injuries)
+        pred = predict_mlb(game['h'], game['a'], game['h_sp'], game['a_sp'], standings)
+        
         with st.expander(f"{game['a_name']} vs {game['h_name']} | Winner: {pred['winner']}"):
             st.markdown(f"### 🏆 {pred['winner']} Wins ({pred['conf']:.1f}%)")
             for f in pred['factors']:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
                 st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
             st.divider()
+            
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"#### 🏠 {game['h_name']}")
-                st.write(f"**SP:** {game['h_sp']} | **Rec:** {pred['h_std']['record']}")
+                st.write(f"**Starting Pitcher:** {game['h_sp']}")
+                st.write(f"**SP Record/Stats:** {game['h_sp_rec']}")
+                st.write(f"**Overall Record:** {pred['h_std']['overall']}")
+                st.write(f"**Home Record:** {pred['h_std']['home']}")
             with col2:
                 st.markdown(f"#### ✈️ {game['a_name']}")
-                st.write(f"**SP:** {game['a_sp']} | **Rec:** {pred['a_std']['record']}")
+                st.write(f"**Starting Pitcher:** {game['a_sp']}")
+                st.write(f"**SP Record/Stats:** {game['a_sp_rec']}")
+                st.write(f"**Overall Record:** {pred['a_std']['overall']}")
+                st.write(f"**Away Record:** {pred['a_std']['away']}")
