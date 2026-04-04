@@ -1,1 +1,227 @@
+import streamlit as st
+import requests
+from datetime import datetime, timedelta
 
+# --- PAGE SETUP ---
+st.set_page_config(page_title="MLB Master AI 2026", page_icon="⚾", layout="wide")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚾ MLB MASTER AI LOGIC & DATA
+# ─────────────────────────────────────────────────────────────────────────────
+MLB_CLEARED_PLAYERS = ["Aaron Judge", "Shohei Ohtani"]
+
+MLB_BACKUP_STANDINGS = {
+    'NYY': {'wins': 5, 'losses': 2, 'record': '5-2', 'win_pct': 0.714, 'home_record': '3-1', 'away_record': '2-1'},
+    'BAL': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-1', 'away_record': '2-2'},
+    'BOS': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-2', 'away_record': '2-1'},
+    'TB': {'wins': 3, 'losses': 4, 'record': '3-4', 'win_pct': 0.429, 'home_record': '1-2', 'away_record': '2-2'},
+    'TOR': {'wins': 2, 'losses': 5, 'record': '2-5', 'win_pct': 0.286, 'home_record': '1-3', 'away_record': '1-2'},
+    'CLE': {'wins': 5, 'losses': 1, 'record': '5-1', 'win_pct': 0.833, 'home_record': '3-0', 'away_record': '2-1'},
+    'DET': {'wins': 4, 'losses': 2, 'record': '4-2', 'win_pct': 0.667, 'home_record': '2-1', 'away_record': '2-1'},
+    'KC': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-2', 'away_record': '2-1'},
+    'MIN': {'wins': 3, 'losses': 3, 'record': '3-3', 'win_pct': 0.500, 'home_record': '1-2', 'away_record': '2-1'},
+    'CWS': {'wins': 1, 'losses': 6, 'record': '1-6', 'win_pct': 0.143, 'home_record': '1-3', 'away_record': '0-3'},
+    'TEX': {'wins': 5, 'losses': 2, 'record': '5-2', 'win_pct': 0.714, 'home_record': '3-1', 'away_record': '2-1'},
+    'HOU': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-1', 'away_record': '2-2'},
+    'SEA': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-2', 'away_record': '2-1'},
+    'LAA': {'wins': 2, 'losses': 5, 'record': '2-5', 'win_pct': 0.286, 'home_record': '1-3', 'away_record': '1-2'},
+    'OAK': {'wins': 2, 'losses': 5, 'record': '2-5', 'win_pct': 0.286, 'home_record': '1-2', 'away_record': '1-3'},
+    'ATL': {'wins': 6, 'losses': 1, 'record': '6-1', 'win_pct': 0.857, 'home_record': '3-0', 'away_record': '3-1'},
+    'PHI': {'wins': 5, 'losses': 2, 'record': '5-2', 'win_pct': 0.714, 'home_record': '3-1', 'away_record': '2-1'},
+    'NYM': {'wins': 3, 'losses': 4, 'record': '3-4', 'win_pct': 0.429, 'home_record': '1-2', 'away_record': '2-2'},
+    'MIA': {'wins': 2, 'losses': 5, 'record': '2-5', 'win_pct': 0.286, 'home_record': '1-3', 'away_record': '1-2'},
+    'WSH': {'wins': 2, 'losses': 5, 'record': '2-5', 'win_pct': 0.286, 'home_record': '1-2', 'away_record': '1-3'},
+    'MIL': {'wins': 5, 'losses': 2, 'record': '5-2', 'win_pct': 0.714, 'home_record': '3-1', 'away_record': '2-1'},
+    'CHC': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-2', 'away_record': '2-1'},
+    'CIN': {'wins': 3, 'losses': 4, 'record': '3-4', 'win_pct': 0.429, 'home_record': '1-2', 'away_record': '2-2'},
+    'PIT': {'wins': 3, 'losses': 4, 'record': '3-4', 'win_pct': 0.429, 'home_record': '2-1', 'away_record': '1-3'},
+    'STL': {'wins': 3, 'losses': 4, 'record': '3-4', 'win_pct': 0.429, 'home_record': '2-2', 'away_record': '1-2'},
+    'LAD': {'wins': 6, 'losses': 2, 'record': '6-2', 'win_pct': 0.750, 'home_record': '3-1', 'away_record': '3-1'},
+    'SD': {'wins': 5, 'losses': 3, 'record': '5-3', 'win_pct': 0.625, 'home_record': '3-1', 'away_record': '2-2'},
+    'ARI': {'wins': 4, 'losses': 3, 'record': '4-3', 'win_pct': 0.571, 'home_record': '2-1', 'away_record': '2-2'},
+    'SF': {'wins': 3, 'losses': 4, 'record': '3-4', 'win_pct': 0.429, 'home_record': '2-2', 'away_record': '1-2'},
+    'COL': {'wins': 1, 'losses': 6, 'record': '1-6', 'win_pct': 0.143, 'home_record': '1-3', 'away_record': '0-3'}
+}
+
+MLB_BACKUP_INJURIES = {
+    'NYY': ['Gerrit Cole (OUT)'], 'ATL': ['Spencer Strider (OUT)'],
+    'LAD': ['Clayton Kershaw (OUT)'], 'HOU': ['Justin Verlander (Questionable)'],
+    'TEX': ['Jacob deGrom (OUT)']
+}
+
+MLB_ELIMINATED_TEAMS = []
+
+MLB_TEAM_DATA = {
+    'ATL': {'off_rtg': 5.4, 'def_rtg': 4.1}, 'LAD': {'off_rtg': 5.6, 'def_rtg': 4.2},
+    'NYY': {'off_rtg': 5.1, 'def_rtg': 4.0}, 'BAL': {'off_rtg': 5.0, 'def_rtg': 4.2},
+    'HOU': {'off_rtg': 5.1, 'def_rtg': 4.3}, 'TEX': {'off_rtg': 5.2, 'def_rtg': 4.4},
+    'PHI': {'off_rtg': 4.9, 'def_rtg': 4.1}, 'SD': {'off_rtg': 4.8, 'def_rtg': 4.0},
+    'SEA': {'off_rtg': 4.4, 'def_rtg': 3.8}, 'CWS': {'off_rtg': 3.1, 'def_rtg': 5.2}
+}
+
+def norm_mlb(abbr):
+    mapping = {'CHW': 'CWS', 'KCA': 'KC', 'SDP': 'SD', 'SFG': 'SF', 'TBA': 'TB', 'WAS': 'WSH', 'NYA': 'NYY', 'NYN': 'NYM'}
+    return mapping.get(abbr, abbr)
+
+@st.cache_data(ttl=300)
+def get_mlb_slate():
+    today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
+    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today_str}"
+    try:
+        data = requests.get(url, timeout=5).json()
+        games = []
+        for event in data.get('events', []):
+            comp = event['competitions'][0]
+            home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
+            away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            if home and away:
+                games.append({'h': norm_mlb(home['team']['abbreviation']), 'a': norm_mlb(away['team']['abbreviation']),
+                              'h_name': home['team']['displayName'], 'a_name': away['team']['displayName']})
+        if games: return games
+    except: pass
+    return []
+
+@st.cache_data(ttl=600)
+def get_mlb_standings():
+    url = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/standings"
+    try:
+        data = requests.get(url, timeout=5).json()
+        result = {}
+        for conf in data.get('children', []):
+            for entry in conf.get('standings', {}).get('entries', []):
+                abbr = norm_mlb(entry['team']['abbreviation'])
+                stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
+                def get_rec(k): return stats.get(k, {}).get('summary') or stats.get(k, {}).get('displayValue', '0-0')
+                wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
+                home_rec = get_rec('home')
+                away_rec = get_rec('road') if 'road' in stats else get_rec('away')
+                if wins + losses > 0:
+                    result[abbr] = {'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 'win_pct': wins / (wins + losses), 'home_record': home_rec, 'away_record': away_rec}
+        if len(result) > 10: return result
+    except: pass
+    return MLB_BACKUP_STANDINGS
+
+@st.cache_data(ttl=600)
+def get_mlb_injuries():
+    url = "https://www.cbssports.com/mlb/injuries/"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        from bs4 import BeautifulSoup
+        html = requests.get(url, headers=headers, timeout=5).text
+        soup = BeautifulSoup(html, 'html.parser')
+        news = {}
+        TEAM_MAP = {
+            'Arizona': 'ARI', 'Arizona Diamondbacks': 'ARI', 'Atlanta': 'ATL', 'Atlanta Braves': 'ATL',
+            'Baltimore': 'BAL', 'Baltimore Orioles': 'BAL', 'Boston': 'BOS', 'Boston Red Sox': 'BOS',
+            'Chicago': 'CWS', 'Chicago White Sox': 'CWS', 'Chicago Cubs': 'CHC', 
+            'Cincinnati': 'CIN', 'Cincinnati Reds': 'CIN', 'Cleveland': 'CLE', 'Cleveland Guardians': 'CLE',
+            'Colorado': 'COL', 'Colorado Rockies': 'COL', 'Detroit': 'DET', 'Detroit Tigers': 'DET',
+            'Houston': 'HOU', 'Houston Astros': 'HOU', 'Kansas City': 'KC', 'Kansas City Royals': 'KC',
+            'L.A. Angels': 'LAA', 'Los Angeles Angels': 'LAA', 'L.A. Dodgers': 'LAD', 'Los Angeles Dodgers': 'LAD',
+            'Miami': 'MIA', 'Miami Marlins': 'MIA', 'Milwaukee': 'MIL', 'Milwaukee Brewers': 'MIL',
+            'Minnesota': 'MIN', 'Minnesota Twins': 'MIN', 'New York': 'NYY', 'New York Yankees': 'NYY',
+            'New York Mets': 'NYM', 'Oakland': 'OAK', 'Oakland Athletics': 'OAK', 
+            'Philadelphia': 'PHI', 'Philadelphia Phillies': 'PHI', 'Pittsburgh': 'PIT', 'Pittsburgh Pirates': 'PIT',
+            'San Diego': 'SD', 'San Diego Padres': 'SD', 'San Francisco': 'SF', 'San Francisco Giants': 'SF',
+            'Seattle': 'SEA', 'Seattle Mariners': 'SEA', 'St. Louis': 'STL', 'St. Louis Cardinals': 'STL',
+            'Tampa Bay': 'TB', 'Tampa Bay Rays': 'TB', 'Texas': 'TEX', 'Texas Rangers': 'TEX',
+            'Toronto': 'TOR', 'Toronto Blue Jays': 'TOR', 'Washington': 'WSH', 'Washington Nationals': 'WSH'
+        }
+        for table in soup.find_all('div', class_='TableBase'):
+            team_name_tag = table.find('span', class_='TeamName')
+            if not team_name_tag: team_name_tag = table.find(class_='TeamLogoNameLockup-name')
+            if not team_name_tag: continue
+            abbr = TEAM_MAP.get(team_name_tag.get_text(strip=True))
+            if not abbr: continue
+            players = []
+            for row in table.find_all('tr', class_='TableBase-bodyTr'):
+                cols = row.find_all('td')
+                if len(cols) >= 5:
+                    player_tag = cols[0].find('a')
+                    player = player_tag.get_text(strip=True) if player_tag else cols[0].get_text(strip=True)
+                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
+                    if any(p.lower() in player.lower() for p in MLB_CLEARED_PLAYERS): continue
+                    if status.lower() not in ['expected to play', 'probable', 'active']: players.append(f"{player} ({injury})")
+            if players: news[abbr] = players 
+        if news: return news
+    except: pass
+    return MLB_BACKUP_INJURIES
+
+@st.cache_data(ttl=600)
+def get_mlb_b2b():
+    b2b = set()
+    yest = (datetime.utcnow() - timedelta(days=1, hours=5)).strftime('%Y%m%d')
+    try:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={yest}"
+        data = requests.get(url, timeout=5).json()
+        for event in data.get('events', []):
+            for c in event['competitions'][0]['competitors']: b2b.add(norm_mlb(c['team']['abbreviation']))
+    except: pass
+    return b2b
+
+def predict_mlb(h, a, standings, injuries, b2b_set):
+    h_td = MLB_TEAM_DATA.get(h, {'off_rtg': 4.5, 'def_rtg': 4.5})
+    a_td = MLB_TEAM_DATA.get(a, {'off_rtg': 4.5, 'def_rtg': 4.5})
+    h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'home_record': '0-0', 'away_record': '0-0'})
+    a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'home_record': '0-0', 'away_record': '0-0'})
+    factors, total = [], 0.0
+    
+    base_adj = (h_std['win_pct'] - a_std['win_pct']) * 25.0
+    total += base_adj
+    factors.append({"icon": "📊", "name": "Win % Edge", "adj": base_adj, "why": f"{h} ({h_std['record']}) vs {a} ({a_std['record']})"})
+    
+    total += 3.5
+    factors.append({"icon": "🏟️", "name": "Home Field", "adj": 3.5, "why": f"Advantage for {h} at home."})
+    
+    eff_adj = (a_td['def_rtg'] - h_td['def_rtg']) * 0.4
+    total += eff_adj
+    factors.append({"icon": "🛡️", "name": "Run Prevention Gap", "adj": eff_adj, "why": f"{h} RA/G: {h_td['def_rtg']} | {a} RA/G: {a_td['def_rtg']}"})
+    
+    if h in MLB_ELIMINATED_TEAMS:
+        total -= 9.0; factors.append({"icon": "🎯", "name": "Elimination Penalty", "adj": -9.0, "why": f"{h} is out of playoff contention."})
+    if a in MLB_ELIMINATED_TEAMS:
+        total += 9.0; factors.append({"icon": "🎯", "name": "Elimination Boost", "adj": 9.0, "why": f"{a} is out of playoff contention."})
+        
+    if h in b2b_set:
+        total -= 4.0; factors.append({"icon": "😴", "name": f"{h} Bullpen Fatigue", "adj": -4.0, "why": f"{h} played yesterday."})
+    if a in b2b_set:
+        total += 4.0; factors.append({"icon": "😴", "name": f"{a} Bullpen Fatigue", "adj": 4.0, "why": f"{a} played yesterday."})
+        
+    h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
+    if h_inj:
+        total -= 6.0; factors.append({"icon": "🤕", "name": f"{h} Injury Impact", "adj": -6.0, "why": f"{h} has key players out."})
+    if a_inj: 
+        total += 6.0; factors.append({"icon": "🤕", "name": f"{a} Injury Impact", "adj": 6.0, "why": f"{a} has key players out."})
+
+    prob = max(5.0, min(95.0, 50.0 + total))
+    return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🖥️ MLB UI RENDERING
+# ─────────────────────────────────────────────────────────────────────────────
+st.title("⚾ MLB Master AI Predictor")
+current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
+st.markdown(f"**Market Date:** {current_market_date}")
+
+mlb_slate, mlb_standings, mlb_injuries, mlb_b2b = get_mlb_slate(), get_mlb_standings(), get_mlb_injuries(), get_mlb_b2b()
+
+if not mlb_slate:
+    st.info("No MLB games scheduled for today, or ESPN hasn't published the slate yet.")
+else:
+    for game in mlb_slate:
+        pred = predict_mlb(game['h'], game['a'], mlb_standings, mlb_injuries, mlb_b2b)
+        with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
+            st.markdown(f"### 🏆 {pred['winner']} Wins")
+            for f in pred['factors']:
+                color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
+                st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+            st.divider()
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"#### 🏠 {game['h_name']}")
+                st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
+                for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
+            with col2:
+                st.markdown(f"#### ✈️ {game['a_name']}")
+                st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
+                for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
