@@ -15,10 +15,10 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# 2026 STAR LIST (Updated with Alex Sarr and 2026 leaders)
+# 2026 STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
 STAR_PLAYERS = [
-    "Alex Sarr", "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
-    "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
+    "Jalen Duren", "Alex Sarr", "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
+    "Kon Knueppel", "Reed Sheppard", "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
     "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
     "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert", "Jaden McDaniels",
     "Kawhi Leonard", "Paul George", "James Harden", "LeBron James", "Anthony Davis", 
