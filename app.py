@@ -36,7 +36,7 @@ STAR_PLAYERS = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS (RESTORED ALL 30 TEAMS)
+# 1. STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'ATL': {'wins': 45, 'losses': 33, 'record': '45-33', 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
@@ -199,9 +199,11 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += base_adj
     factors.append({"icon": "📊", "name": "Win % Edge", "adj": base_adj, "why": f"{h} vs {a}"})
 
-    # 2. Home Court
-    total += 3.5
-    factors.append({"icon": "🏠", "name": "Home Court", "adj": 3.5, "why": f"Advantage for {h}"})
+    # 2. Home Court (Specialized Altitude Adjustment for Denver)
+    hca = 5.5 if h == 'DEN' else 3.5
+    total += hca
+    hca_why = f"Altitude Advantage for {h}" if h == 'DEN' else f"Advantage for {h}"
+    factors.append({"icon": "🏠", "name": "Home Court", "adj": hca, "why": hca_why})
 
     # 3. Efficiency
     eff_adj = (a_td['def_rtg'] - h_td['def_rtg']) * 0.4
@@ -246,7 +248,6 @@ def predict_game(h, a, standings, injuries, b2b_set):
         factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 4.0, "why": f"{a} played yesterday."})
 
     # 6. TANKING PENALTY (Late Season April 2026 Logic)
-    # Applied to teams with win_pct below .350
     if h_std['win_pct'] < 0.350:
         total -= 7.0
         factors.append({"icon": "📉", "name": f"{h} Tanking Penalty", "adj": -7.0, "why": "Incentivized lottery prioritization."})
