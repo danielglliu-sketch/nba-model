@@ -47,7 +47,6 @@ BACKUP_STANDINGS = {
     'OKC': {'wins': 61, 'losses': 16, 'record': '61-16', 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
     'SAS': {'wins': 59, 'losses': 18, 'record': '59-18', 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
     'LAL': {'wins': 50, 'losses': 27, 'record': '50-27', 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
-    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
 }
 
 TEAM_DATA = {
@@ -175,7 +174,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += eff_adj
     factors.append({"icon": "🛡️", "name": "Defense Gap", "adj": eff_adj, "why": "Efficiency comparison"})
 
-    # 4. INJURY DETECTION (RESTORED ROLE/STAR LABELS)
+    # 4. INJURY DETECTION (SUPER-CLEAN MATCHING)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
