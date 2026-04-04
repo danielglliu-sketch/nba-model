@@ -91,7 +91,8 @@ def get_daily_slate():
                               'h_name': home['team']['displayName'], 'a_name': away['team']['displayName']})
         if games: return games
     except: pass
-    return [{'h': 'DEN', 'a': 'SAS', 'h_name': 'Nuggets', 'a_name': 'Spurs'}]
+    # Returns an empty list if there are truly no games today, instead of being stuck on April 4th games
+    return []
 
 @st.cache_data(ttl=600)
 def get_standings():
@@ -238,31 +239,38 @@ def predict_game(h, a, standings, injuries, b2b_set):
 # 4. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🏀 NBA Master AI Predictor 2026")
-st.markdown(f"**Market Date:** April 04, 2026")
+
+# Dynamic Date Fix: Now it automatically changes at midnight ET!
+current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
+st.markdown(f"**Market Date:** {current_market_date}")
 st.divider()
 
 slate, standings, injuries, b2b = get_daily_slate(), get_standings(), get_injuries(), get_back_to_back()
 
-for game in slate:
-    h, a = game['h'], game['a']
-    pred = predict_game(h, a, standings, injuries, b2b)
-    
-    with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
-        st.markdown(f"### 🏆 {pred['winner']} Wins")
+# Fallback in case there are zero games on the schedule today
+if not slate:
+    st.info("No games scheduled for today, or ESPN hasn't published the slate yet.")
+else:
+    for game in slate:
+        h, a = game['h'], game['a']
+        pred = predict_game(h, a, standings, injuries, b2b)
         
-        st.markdown("#### 🧠 The Transparent Reasoning Log")
-        for f in pred['factors']:
-            color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
-            st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+        with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
+            st.markdown(f"### 🏆 {pred['winner']} Wins")
             
-        st.divider()
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"#### 🏠 {game['h_name']}")
-            st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
-            for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
-        with col2:
-            st.markdown(f"#### ✈️ {game['a_name']}")
-            st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
-            for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
+            st.markdown("#### 🧠 The Transparent Reasoning Log")
+            for f in pred['factors']:
+                color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
+                st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+                
+            st.divider()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"#### 🏠 {game['h_name']}")
+                st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
+                for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
+            with col2:
+                st.markdown(f"#### ✈️ {game['a_name']}")
+                st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
+                for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
