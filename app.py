@@ -13,6 +13,7 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 # 🚨 MANUAL OVERRIDES 🚨
 # ─────────────────────────────────────────────────────────────────────────────
+# You rarely need this now, but you can still use it to manually force the AI to ignore a player
 CLEARED_PLAYERS = ["Joel Embiid", "Tyrese Maxey"]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,28 +115,58 @@ def get_standings():
     except: pass
     return BACKUP_STANDINGS
 
+# 🚨 THE NEW ADVANCED WEB SCRAPER FOR INJURIES 🚨
 @st.cache_data(ttl=600)
 def get_injuries():
-    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news"
+    url = "https://www.cbssports.com/nba/injuries/"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     try:
+        from bs4 import BeautifulSoup
+        html = requests.get(url, headers=headers, timeout=5).text
+        soup = BeautifulSoup(html, 'html.parser')
         news = {}
-        articles = requests.get(url, timeout=5).json().get('articles', [])
-        for art in articles:
-            hl = art.get('headline', '')
+        
+        # CBS maps injuries by city name, we convert that to our 3-letter codes
+        TEAM_MAP = {
+            'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
+            'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
+            'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
+            'L.A. Clippers': 'LAC', 'L.A. Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
+            'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
+            'Oklahoma City': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
+            'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
+            'Utah': 'UTA', 'Washington': 'WAS'
+        }
+        
+        for table in soup.find_all('div', class_='TableBase'):
+            team_span = table.find('span', class_='TeamName')
+            if not team_span: continue
             
-            # Magic Fix: Ignore cleared players
-            if any(p.lower() in hl.lower() for p in CLEARED_PLAYERS): continue
+            abbr = TEAM_MAP.get(team_span.text.strip())
+            if not abbr: continue
+            
+            players = []
+            for row in table.find_all('tr', class_='TableBase-bodyTr'):
+                cols = row.find_all('td')
+                if len(cols) >= 5:
+                    # Physically scrape the Player Name and Status columns
+                    player = cols[0].get_text(strip=True)
+                    status = cols[3].get_text(strip=True)
+                    
+                    if any(p.lower() in player.lower() for p in CLEARED_PLAYERS):
+                        continue
+                    
+                    # Ignore players who are cleared to play
+                    if status.lower() not in ['expected to play', 'probable', 'active']:
+                        players.append(f"{player} ({status})")
+            
+            if players:
+                news[abbr] = players[:2] # Grab the top 2 injuries for UI cleanliness
                 
-            if 'out' in hl.lower() or 'injury' in hl.lower():
-                for cat in art.get('categories', []):
-                    if cat.get('type') == 'team':
-                        abbr = norm(cat.get('teamAbbrev', ''))
-                        if abbr: news.setdefault(abbr, []).append(hl)
-        if news: 
-            return {k: list(set(v))[:2] for k, v in news.items()}
+        if news: return news
     except: pass
     
-    # Returns the backup database if ESPN news is empty!
+    # If the internet drops or you forgot to pip install bs4, it falls back here safely
     return BACKUP_INJURIES
 
 @st.cache_data(ttl=600)
