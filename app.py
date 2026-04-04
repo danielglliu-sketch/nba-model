@@ -39,20 +39,54 @@ STAR_PLAYERS = [
 # 1. STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
-    'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-9', 'away_record': '26-12'},
-    'BOS': {'wins': 52, 'losses': 25, 'record': '52-25', 'win_pct': 0.675, 'home_record': '26-11', 'away_record': '26-14'},
-    'NYK': {'wins': 50, 'losses': 28, 'record': '50-28', 'win_pct': 0.641, 'home_record': '28-9', 'away_record': '22-19'},
-    'PHI': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '22-17', 'away_record': '21-17'},
     'ATL': {'wins': 45, 'losses': 33, 'record': '45-33', 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
-    'OKC': {'wins': 61, 'losses': 16, 'record': '61-16', 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
-    'SAS': {'wins': 59, 'losses': 18, 'record': '59-18', 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
+    'BOS': {'wins': 52, 'losses': 25, 'record': '52-25', 'win_pct': 0.675, 'home_record': '26-11', 'away_record': '26-14'},
+    'BKN': {'wins': 32, 'losses': 45, 'record': '32-45', 'win_pct': 0.416, 'home_record': '18-20', 'away_record': '14-25'},
+    'CHA': {'wins': 25, 'losses': 52, 'record': '25-52', 'win_pct': 0.325, 'home_record': '13-25', 'away_record': '12-27'},
+    'CHI': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506, 'home_record': '20-19', 'away_record': '19-19'},
+    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '25-13', 'away_record': '23-16'},
+    'DAL': {'wins': 50, 'losses': 27, 'record': '50-27', 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
+    'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-9', 'away_record': '26-12'},
+    'GSW': {'wins': 44, 'losses': 33, 'record': '44-33', 'win_pct': 0.571, 'home_record': '23-15', 'away_record': '21-18'},
+    'HOU': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '22-16', 'away_record': '19-20'},
+    'IND': {'wins': 46, 'losses': 32, 'record': '46-32', 'win_pct': 0.590, 'home_record': '24-15', 'away_record': '22-17'},
+    'LAC': {'wins': 47, 'losses': 30, 'record': '47-30', 'win_pct': 0.610, 'home_record': '25-13', 'away_record': '22-17'},
     'LAL': {'wins': 50, 'losses': 27, 'record': '50-27', 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
+    'MEM': {'wins': 35, 'losses': 42, 'record': '35-42', 'win_pct': 0.455, 'home_record': '18-21', 'away_record': '17-21'},
+    'MIA': {'wins': 44, 'losses': 33, 'record': '44-33', 'win_pct': 0.571, 'home_record': '22-16', 'away_record': '22-17'},
+    'MIL': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '27-11', 'away_record': '22-17'},
+    'MIN': {'wins': 54, 'losses': 23, 'record': '54-23', 'win_pct': 0.701, 'home_record': '28-10', 'away_record': '26-13'},
+    'NOP': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '23-15', 'away_record': '25-14'},
+    'NYK': {'wins': 50, 'losses': 28, 'record': '50-28', 'win_pct': 0.641, 'home_record': '28-9', 'away_record': '22-19'},
+    'OKC': {'wins': 61, 'losses': 16, 'record': '61-16', 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
+    'ORL': {'wins': 46, 'losses': 31, 'record': '46-31', 'win_pct': 0.597, 'home_record': '27-12', 'away_record': '19-19'},
+    'PHI': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '22-17', 'away_record': '21-17'},
+    'PHO': {'wins': 47, 'losses': 30, 'record': '47-30', 'win_pct': 0.610, 'home_record': '26-13', 'away_record': '21-17'},
+    'POR': {'wins': 21, 'losses': 56, 'record': '21-56', 'win_pct': 0.273, 'home_record': '11-27', 'away_record': '10-29'},
+    'SAC': {'wins': 45, 'losses': 32, 'record': '45-32', 'win_pct': 0.584, 'home_record': '23-15', 'away_record': '22-17'},
+    'SAS': {'wins': 59, 'losses': 18, 'record': '59-18', 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
+    'TOR': {'wins': 33, 'losses': 44, 'record': '33-44', 'win_pct': 0.429, 'home_record': '18-21', 'away_record': '15-23'},
+    'UTA': {'wins': 31, 'losses': 46, 'record': '31-46', 'win_pct': 0.403, 'home_record': '19-19', 'away_record': '12-27'},
+    'WAS': {'wins': 15, 'losses': 62, 'record': '15-62', 'win_pct': 0.195, 'home_record': '7-31', 'away_record': '8-31'},
 }
 
 TEAM_DATA = {
-    'OKC': {'off_rtg': 118.8, 'def_rtg': 107.5}, 'DET': {'off_rtg': 117.5, 'def_rtg': 109.6},
-    'SAS': {'off_rtg': 119.4, 'def_rtg': 111.0}, 'BOS': {'off_rtg': 120.4, 'def_rtg': 112.7},
-    'NYK': {'off_rtg': 119.7, 'def_rtg': 113.5}, 'LAL': {'off_rtg': 118.2, 'def_rtg': 116.8}
+    'ATL': {'off_rtg': 116.4, 'def_rtg': 114.2}, 'BOS': {'off_rtg': 120.4, 'def_rtg': 112.7},
+    'BKN': {'off_rtg': 111.2, 'def_rtg': 115.8}, 'CHA': {'off_rtg': 109.5, 'def_rtg': 119.2},
+    'CHI': {'off_rtg': 114.1, 'def_rtg': 115.4}, 'CLE': {'off_rtg': 115.8, 'def_rtg': 111.2},
+    'DAL': {'off_rtg': 118.9, 'def_rtg': 115.1}, 'DEN': {'off_rtg': 118.2, 'def_rtg': 113.8},
+    'DET': {'off_rtg': 117.5, 'def_rtg': 109.6}, 'GSW': {'off_rtg': 117.1, 'def_rtg': 114.9},
+    'HOU': {'off_rtg': 113.9, 'def_rtg': 112.8}, 'IND': {'off_rtg': 121.2, 'def_rtg': 119.1},
+    'LAC': {'off_rtg': 116.8, 'def_rtg': 113.5}, 'LAL': {'off_rtg': 118.2, 'def_rtg': 116.8},
+    'MEM': {'off_rtg': 110.4, 'def_rtg': 112.1}, 'MIA': {'off_rtg': 113.2, 'def_rtg': 112.5},
+    'MIL': {'off_rtg': 119.4, 'def_rtg': 116.2}, 'MIN': {'off_rtg': 115.1, 'def_rtg': 108.4},
+    'NOP': {'off_rtg': 117.2, 'def_rtg': 113.1}, 'NYK': {'off_rtg': 119.7, 'def_rtg': 113.5},
+    'OKC': {'off_rtg': 118.8, 'def_rtg': 107.5}, 'ORL': {'off_rtg': 112.9, 'def_rtg': 110.8},
+    'PHI': {'off_rtg': 117.5, 'def_rtg': 113.2}, 'PHO': {'off_rtg': 118.5, 'def_rtg': 115.8},
+    'POR': {'off_rtg': 108.8, 'def_rtg': 117.5}, 'SAC': {'off_rtg': 117.8, 'def_rtg': 116.2},
+    'SAS': {'off_rtg': 119.4, 'def_rtg': 111.0}, 'TOR': {'off_rtg': 114.5, 'def_rtg': 117.8},
+    'UTA': {'off_rtg': 115.2, 'def_rtg': 119.5}, 'WAS': {'off_rtg': 110.1, 'def_rtg': 121.4}
 }
 
 def norm(abbr):
