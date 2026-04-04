@@ -15,23 +15,39 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# 2026 STAR LIST (Updated with Alex Sarr and 2026 leaders)
+# 2026 STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
 STAR_PLAYERS = [
-    "Alex Sarr", "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
-    "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
-    "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
-    "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert", "Jaden McDaniels",
-    "Kawhi Leonard", "Paul George", "James Harden", "LeBron James", "Anthony Davis", 
-    "Kevin Durant", "Devin Booker", "Bradley Beal", "De'Aaron Fox", "Domantas Sabonis", 
-    "Zion Williamson", "Brandon Ingram", "CJ McCollum", "Herb Jones", "Stephen Curry", 
-    "Jayson Tatum", "Jaylen Brown", "Kristaps Porzingis", "Derrick White", "Jrue Holiday",
-    "Giannis Antetokounmpo", "Damian Lillard", "Khris Middleton", "Joel Embiid", "Tyrese Maxey", 
-    "Donovan Mitchell", "Darius Garland", "Evan Mobley", "Jarrett Allen", "Jalen Brunson", 
-    "Julius Randle", "OG Anunoby", "Jimmy Butler", "Bam Adebayo", "Paolo Banchero", 
-    "Franz Wagner", "Tyrese Haliburton", "Pascal Siakam", "DeMar DeRozan", "Zach LaVine", 
-    "Trae Young", "Dejounte Murray", "Scottie Barnes", "RJ Barrett", "Victor Wembanyama", 
-    "Alperen Sengun", "Cade Cunningham", "Lauri Markkanen", "Mikal Bridges", "Ja Morant",
-    "Jalen Johnson", "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
+    # ELITE SCORERS (25+ PPG)
+    "Luka Doncic", "Shai Gilgeous-Alexander", "Anthony Edwards", "Jaylen Brown", 
+    "Tyrese Maxey", "Kawhi Leonard", "Donovan Mitchell", "Nikola Jokic", 
+    "Jalen Brunson", "Kevin Durant", "Devin Booker", "Jamal Murray",
+    
+    # CORE STARS (18-25 PPG)
+    "Victor Wembanyama", "Cade Cunningham", "Pascal Siakam", "Deni Avdija", 
+    "James Harden", "Keyonte George", "Jalen Johnson", "Paolo Banchero", 
+    "Norman Powell", "Trey Murphy III", "Brandon Ingram", "Zion Williamson", 
+    "Julius Randle", "LeBron James", "Alperen Sengun", "Nickeil Alexander-Walker", 
+    "Brandon Miller", "Cooper Flagg", "Bam Adebayo", "Desmond Bane", 
+    "Karl-Anthony Towns", "LaMelo Ball", "Jalen Duren", "Amen Thompson", 
+    "Kristaps Porzingis", "Dejounte Murray", "Scottie Barnes", "Trae Young",
+    "Lauri Markkanen", "De'Aaron Fox", "Domantas Sabonis", "Jalen Williams",
+    
+    # THE 12.5 - 18.0 PPG BRACKET (Your New Threshold)
+    "Alex Sarr", "Jabari Smith Jr.", "Chet Holmgren", "Franz Wagner", "Coby White", 
+    "Miles Bridges", "Cam Thomas", "Mikal Bridges", "Anfernee Simons", "Jerami Grant", 
+    "Kyle Kuzma", "Jordan Poole", "Darius Garland", "Evan Mobley", "Jarrett Allen", 
+    "Austin Reaves", "D'Angelo Russell", "Michael Porter Jr.", "Aaron Gordon", 
+    "Naz Reid", "Jaden McDaniels", "Bobby Portis", "Brook Lopez", "Kelly Oubre Jr.", 
+    "Josh Hart", "Donte DiVincenzo", "Terry Rozier", "Jaime Jaquez Jr.", 
+    "Bennedict Mathurin", "Malik Monk", "Keegan Murray", "Jonathan Kuminga", 
+    "Collin Sexton", "Cam Johnson", "Nic Claxton", "Shaedon Sharpe", 
+    "Scoot Henderson", "Bilal Coulibaly", "Marcus Smart", "Jaren Jackson Jr.",
+    "Grayson Allen", "Rui Hachimura", "Andrew Wiggins", "Immanuel Quickley",
+    
+    # DEFENSIVE SPECIALISTS (High Defensive Rating / DPOY Contenders)
+    "Rudy Gobert", "Herb Jones", "Alex Caruso", "OG Anunoby", "Derrick White", 
+    "Jrue Holiday", "Jalen Suggs", "Ausar Thompson", "Cason Wallace", 
+    "Dyson Daniels", "Donovan Clingan", "Marcus Smart", "Draymond Green"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,10 +192,11 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += eff_adj
     factors.append({"icon": "🛡️", "name": "Defense Gap", "adj": eff_adj, "why": "Efficiency comparison"})
 
-    # 4. INJURY DETECTION (IMPROVED FUZZY MATCHING)
+    # 4. INJURY DETECTION (FUZZY MATCHING)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
+        # Force the scraped name to lowercase and strip hidden spaces
         raw = scraped_string.lower().strip()
         # Bulletproof Matching: Check if Star is in the name or vice versa
         for star in STAR_PLAYERS:
