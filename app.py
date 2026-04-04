@@ -175,7 +175,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += eff_adj
     factors.append({"icon": "🛡️", "name": "Defense Gap", "adj": eff_adj, "why": "Efficiency comparison"})
 
-    # 4. INJURY DETECTION (SUPER-CLEAN FUZZY MATCHING)
+    # 4. INJURY DETECTION (RESTORED ROLE/STAR LABELS)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
@@ -186,14 +186,23 @@ def predict_game(h, a, standings, injuries, b2b_set):
                 return 5.5, "Star"
         return 1.5, "Role"
 
+    def calc_injury_penalty(inj_list):
+        pen = 0.0
+        details = []
+        for p in inj_list:
+            val, tier = get_player_impact(p)
+            pen += val
+            details.append(f"{p.split(' (')[0]} ({tier})")
+        return pen, details
+
     if h_inj:
-        p = sum(get_player_impact(x)[0] for x in h_inj)
+        p, d = calc_injury_penalty(h_inj)
         total -= p
-        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": -p, "why": f"Penalty for {len(h_inj)} players."})
+        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": -p, "why": f"Missing: {', '.join(d)}"})
     if a_inj:
-        p = sum(get_player_impact(x)[0] for x in a_inj)
+        p, d = calc_injury_penalty(a_inj)
         total += p
-        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": p, "why": f"Penalty for {len(a_inj)} players."})
+        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": p, "why": f"Missing: {', '.join(d)}"})
 
     # 5. BACK-TO-BACK FATIGUE
     if h in b2b_set:
