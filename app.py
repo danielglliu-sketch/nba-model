@@ -106,7 +106,6 @@ def get_standings():
                 
                 wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
                 
-                # FIXED: ESPN changed their API key from 'away' to 'road' in many instances!
                 home_rec = get_rec('home')
                 away_rec = get_rec('road') if 'road' in stats else get_rec('away')
 
@@ -130,7 +129,6 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # Robust mapping covering both full names and city names
         TEAM_MAP = {
             'Atlanta': 'ATL', 'Atlanta Hawks': 'ATL', 'Boston': 'BOS', 'Boston Celtics': 'BOS',
             'Brooklyn': 'BKN', 'Brooklyn Nets': 'BKN', 'Charlotte': 'CHA', 'Charlotte Hornets': 'CHA',
@@ -151,7 +149,6 @@ def get_injuries():
         }
         
         for table in soup.find_all('div', class_='TableBase'):
-            # Grab team name from multiple potential CBS structures
             team_name_tag = table.find('span', class_='TeamName')
             if not team_name_tag:
                 team_name_tag = table.find(class_='TeamLogoNameLockup-name')
@@ -164,11 +161,9 @@ def get_injuries():
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    # FIXED: Find the <a> link to isolate the player name from their position text
                     player_tag = cols[0].find('a')
                     player = player_tag.get_text(strip=True) if player_tag else cols[0].get_text(strip=True)
                     
-                    # Column 3 is the body part (Knee), Column 4 is Status
                     injury = cols[3].get_text(strip=True)
                     status = cols[4].get_text(strip=True)
                     
@@ -178,8 +173,9 @@ def get_injuries():
                     if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{player} ({injury})")
             
+            # FIXED: Removed players[:2] so it shows the full list
             if players:
-                news[abbr] = players[:2] 
+                news[abbr] = players 
                 
         if news: return news
     except: pass
