@@ -13,7 +13,6 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 # 🚨 MANUAL OVERRIDES 🚨
 # ─────────────────────────────────────────────────────────────────────────────
-# You rarely need this now, but you can still use it to manually force the AI to ignore a player
 CLEARED_PLAYERS = ["Joel Embiid", "Tyrese Maxey"]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -40,16 +39,16 @@ BACKUP_STANDINGS = {
     'MEM': {'wins': 25, 'losses': 52, 'record': '25-52', 'win_pct': 0.325, 'home_record': '14-26', 'away_record': '11-26'},
     'SAC': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '14-25', 'away_record': '7-32'},
     'NOP': {'wins': 25, 'losses': 53, 'record': '25-53', 'win_pct': 0.321, 'home_record': '16-23', 'away_record': '9-30'},
-    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623},
-    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532},
-    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519},
-    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558},
-    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224},
-    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636},
-    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506},
-    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545},
-    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468},
-    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513},
+    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '24-14', 'away_record': '23-15'},
+    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '24-16', 'away_record': '16-20'},
+    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519, 'home_record': '24-15', 'away_record': '16-22'},
+    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '21-17', 'away_record': '21-17'},
+    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224, 'home_record': '11-27', 'away_record': '6-32'},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
+    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506, 'home_record': '21-16', 'away_record': '18-21'},
+    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545, 'home_record': '24-15', 'away_record': '18-20'},
+    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468, 'home_record': '21-16', 'away_record': '15-24'},
+    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513, 'home_record': '21-17', 'away_record': '18-21'},
 }
 
 BACKUP_INJURIES = {
@@ -104,18 +103,23 @@ def get_standings():
                 abbr = norm(entry['team']['abbreviation'])
                 stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
                 def get_rec(k): return stats.get(k, {}).get('summary') or stats.get(k, {}).get('displayValue', '0-0')
+                
                 wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
+                
+                # FIXED: ESPN changed their API key from 'away' to 'road' in many instances!
+                home_rec = get_rec('home')
+                away_rec = get_rec('road') if 'road' in stats else get_rec('away')
+
                 if wins + losses > 0:
                     result[abbr] = {
                         'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
                         'win_pct': wins / (wins + losses),
-                        'home_record': get_rec('home'), 'away_record': get_rec('away')
+                        'home_record': home_rec, 'away_record': away_rec
                     }
         if len(result) > 10: return result
     except: pass
     return BACKUP_STANDINGS
 
-# 🚨 FIXED ADVANCED WEB SCRAPER FOR INJURIES 🚨
 @st.cache_data(ttl=600)
 def get_injuries():
     url = "https://www.cbssports.com/nba/injuries/"
@@ -126,7 +130,7 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # Robust mapping for CBS's team names
+        # Robust mapping covering both full names and city names
         TEAM_MAP = {
             'Atlanta': 'ATL', 'Atlanta Hawks': 'ATL', 'Boston': 'BOS', 'Boston Celtics': 'BOS',
             'Brooklyn': 'BKN', 'Brooklyn Nets': 'BKN', 'Charlotte': 'CHA', 'Charlotte Hornets': 'CHA',
@@ -147,28 +151,32 @@ def get_injuries():
         }
         
         for table in soup.find_all('div', class_='TableBase'):
-            # The correct class for CBS Sports team names
-            team_container = table.find(class_='TeamLogoNameLockup-name')
-            if not team_container: continue
+            # Grab team name from multiple potential CBS structures
+            team_name_tag = table.find('span', class_='TeamName')
+            if not team_name_tag:
+                team_name_tag = table.find(class_='TeamLogoNameLockup-name')
+            if not team_name_tag: continue
             
-            abbr = TEAM_MAP.get(team_container.text.strip())
+            abbr = TEAM_MAP.get(team_name_tag.get_text(strip=True))
             if not abbr: continue
             
             players = []
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
-                # CBS Columns: 0=Player, 1=Pos, 2=Updated, 3=Injury Type, 4=Status
                 if len(cols) >= 5:
-                    player = cols[0].get_text(strip=True)
+                    # FIXED: Find the <a> link to isolate the player name from their position text
+                    player_tag = cols[0].find('a')
+                    player = player_tag.get_text(strip=True) if player_tag else cols[0].get_text(strip=True)
+                    
+                    # Column 3 is the body part (Knee), Column 4 is Status
                     injury = cols[3].get_text(strip=True)
                     status = cols[4].get_text(strip=True)
                     
                     if any(p.lower() in player.lower() for p in CLEARED_PLAYERS):
                         continue
                     
-                    # Ensure status isn't "Expected to Play"
                     if status.lower() not in ['expected to play', 'probable', 'active']:
-                        players.append(f"{player} ({injury})") 
+                        players.append(f"{player} ({injury})")
             
             if players:
                 news[abbr] = players[:2] 
