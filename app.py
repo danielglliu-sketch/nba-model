@@ -15,8 +15,9 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# EXPANDED 2026 STAR LIST (Top scorers + Elite Defenders)
+# 2026 STAR LIST (Updated with Alex Sarr and 2026 leaders)
 STAR_PLAYERS = [
+    "Alex Sarr", "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
     "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
     "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
     "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert", "Jaden McDaniels",
@@ -30,9 +31,7 @@ STAR_PLAYERS = [
     "Franz Wagner", "Tyrese Haliburton", "Pascal Siakam", "DeMar DeRozan", "Zach LaVine", 
     "Trae Young", "Dejounte Murray", "Scottie Barnes", "RJ Barrett", "Victor Wembanyama", 
     "Alperen Sengun", "Cade Cunningham", "Lauri Markkanen", "Mikal Bridges", "Ja Morant",
-    # 2026 SPECIFIC BREAKOUT STARS
-    "Jalen Johnson", "Nickeil Alexander-Walker", "Donovan Clingan", "Amen Thompson", 
-    "Cason Wallace", "Cooper Flagg", "Dyson Daniels", "Kon Knueppel"
+    "Jalen Johnson", "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,7 +110,6 @@ def get_injuries():
         html = requests.get(url, headers=headers, timeout=5).text
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
-        
         TEAM_MAP = {
             'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
             'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
@@ -122,19 +120,16 @@ def get_injuries():
             'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
             'Utah': 'UTA', 'Washington': 'WAS'
         }
-        
         for table in soup.find_all('div', class_='TableBase'):
             team_raw = table.find('span', class_='TeamName')
             if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
             if not team_raw: continue
             abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
             if not abbr: continue
-            
             players = []
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    # Clean the player name to avoid CBS "Doubling" (e.g. M. Porter Jr.Michael Porter Jr.)
                     p_text = cols[0].get_text(strip=True)
                     injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
                     if status.lower() not in ['expected to play', 'probable', 'active']:
@@ -181,19 +176,19 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += eff_adj
     factors.append({"icon": "🛡️", "name": "Defense Gap", "adj": eff_adj, "why": "Efficiency comparison"})
 
-    # 4. DUAL INJURY DETECTION (FUZZY MATCHING)
+    # 4. INJURY DETECTION (IMPROVED FUZZY MATCHING)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
         raw = scraped_string.lower().strip()
-        # FUZZY CHECK: Does any Star name exist within the scraped text, or vice versa?
+        # Bulletproof Matching: Check if Star is in the name or vice versa
         for star in STAR_PLAYERS:
             s = star.lower()
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
 
-    def calc_injury_penalty(inj_list, team_abbr):
+    def calc_injury_penalty(inj_list):
         pen = 0.0
         details = []
         for p in inj_list:
@@ -203,11 +198,11 @@ def predict_game(h, a, standings, injuries, b2b_set):
         return pen, details
 
     if h_inj:
-        p, d = calc_injury_penalty(h_inj, h)
+        p, d = calc_injury_penalty(h_inj)
         total -= p
         factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": -p, "why": f"Missing: {', '.join(d)}"})
     if a_inj:
-        p, d = calc_injury_penalty(a_inj, a)
+        p, d = calc_injury_penalty(a_inj)
         total += p
         factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": p, "why": f"Missing: {', '.join(d)}"})
 
