@@ -34,16 +34,16 @@ BACKUP_STANDINGS = {
     'MEM': {'wins': 25, 'losses': 52, 'record': '25-52', 'win_pct': 0.325, 'home_record': '14-26', 'away_record': '11-26'},
     'SAC': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '14-25', 'away_record': '7-32'},
     'NOP': {'wins': 25, 'losses': 53, 'record': '25-53', 'win_pct': 0.321, 'home_record': '16-23', 'away_record': '9-30'},
-    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623},
-    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532},
-    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519},
-    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558},
-    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224},
-    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636},
-    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506},
-    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545},
-    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468},
-    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513},
+    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '24-14', 'away_record': '23-15'},
+    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '24-16', 'away_record': '16-20'},
+    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519, 'home_record': '24-15', 'away_record': '16-22'},
+    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '21-17', 'away_record': '21-17'},
+    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224, 'home_record': '11-27', 'away_record': '6-32'},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
+    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506, 'home_record': '21-16', 'away_record': '18-21'},
+    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545, 'home_record': '24-15', 'away_record': '18-20'},
+    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468, 'home_record': '21-16', 'away_record': '15-24'},
+    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513, 'home_record': '21-17', 'away_record': '18-21'},
 }
 
 # Mathematically eliminated teams for the 2025-26 season
@@ -92,9 +92,14 @@ def get_standings():
             for entry in conf.get('standings', {}).get('entries', []):
                 abbr = norm(entry['team']['abbreviation'])
                 stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
+                def get_rec(k): return stats.get(k, {}).get('summary') or stats.get(k, {}).get('displayValue', '0-0')
                 wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
                 if wins + losses > 0:
-                    result[abbr] = {'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 'win_pct': wins / (wins + losses)}
+                    result[abbr] = {
+                        'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
+                        'win_pct': wins / (wins + losses),
+                        'home_record': get_rec('home'), 'away_record': get_rec('away')
+                    }
         if len(result) > 10: return result
     except: pass
     return BACKUP_STANDINGS
@@ -134,8 +139,8 @@ def get_back_to_back():
 def predict_game(h, a, standings, injuries, b2b_set):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
     a_td = TEAM_DATA.get(a, {'off_rtg': 112, 'def_rtg': 115})
-    h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
-    a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
+    h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'home_record': '0-0', 'away_record': '0-0'})
+    a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'home_record': '0-0', 'away_record': '0-0'})
     
     factors = []
     total = 0.0
@@ -195,6 +200,20 @@ for game in slate:
     
     with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
         st.markdown(f"### 🏆 {pred['winner']} Wins")
+        
+        st.markdown("#### 🧠 The Transparent Reasoning Log")
         for f in pred['factors']:
             color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
             st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+            
+        st.divider()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"#### 🏠 {game['h_name']}")
+            st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
+            for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
+        with col2:
+            st.markdown(f"#### ✈️ {game['a_name']}")
+            st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
+            for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
