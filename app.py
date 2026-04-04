@@ -91,7 +91,6 @@ def get_daily_slate():
                               'h_name': home['team']['displayName'], 'a_name': away['team']['displayName']})
         if games: return games
     except: pass
-    # Returns an empty list if there are truly no games today, instead of being stuck on April 4th games
     return []
 
 @st.cache_data(ttl=600)
@@ -116,7 +115,7 @@ def get_standings():
     except: pass
     return BACKUP_STANDINGS
 
-# 🚨 THE NEW ADVANCED WEB SCRAPER FOR INJURIES 🚨
+# 🚨 FIXED ADVANCED WEB SCRAPER FOR INJURIES 🚨
 @st.cache_data(ttl=600)
 def get_injuries():
     url = "https://www.cbssports.com/nba/injuries/"
@@ -127,47 +126,56 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # CBS maps injuries by city name, we convert that to our 3-letter codes
+        # Robust mapping for CBS's team names
         TEAM_MAP = {
-            'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
-            'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
-            'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
-            'L.A. Clippers': 'LAC', 'L.A. Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
-            'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
-            'Oklahoma City': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
-            'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
-            'Utah': 'UTA', 'Washington': 'WAS'
+            'Atlanta': 'ATL', 'Atlanta Hawks': 'ATL', 'Boston': 'BOS', 'Boston Celtics': 'BOS',
+            'Brooklyn': 'BKN', 'Brooklyn Nets': 'BKN', 'Charlotte': 'CHA', 'Charlotte Hornets': 'CHA',
+            'Chicago': 'CHI', 'Chicago Bulls': 'CHI', 'Cleveland': 'CLE', 'Cleveland Cavaliers': 'CLE',
+            'Dallas': 'DAL', 'Dallas Mavericks': 'DAL', 'Denver': 'DEN', 'Denver Nuggets': 'DEN',
+            'Detroit': 'DET', 'Detroit Pistons': 'DET', 'Golden State': 'GSW', 'Golden State Warriors': 'GSW',
+            'Houston': 'HOU', 'Houston Rockets': 'HOU', 'Indiana': 'IND', 'Indiana Pacers': 'IND',
+            'L.A. Clippers': 'LAC', 'LA Clippers': 'LAC', 'Los Angeles Clippers': 'LAC',
+            'L.A. Lakers': 'LAL', 'LA Lakers': 'LAL', 'Los Angeles Lakers': 'LAL',
+            'Memphis': 'MEM', 'Memphis Grizzlies': 'MEM', 'Miami': 'MIA', 'Miami Heat': 'MIA',
+            'Milwaukee': 'MIL', 'Milwaukee Bucks': 'MIL', 'Minnesota': 'MIN', 'Minnesota Timberwolves': 'MIN',
+            'New Orleans': 'NOP', 'New Orleans Pelicans': 'NOP', 'New York': 'NYK', 'New York Knicks': 'NYK',
+            'Oklahoma City': 'OKC', 'Oklahoma City Thunder': 'OKC', 'Orlando': 'ORL', 'Orlando Magic': 'ORL',
+            'Philadelphia': 'PHI', 'Philadelphia 76ers': 'PHI', 'Phoenix': 'PHO', 'Phoenix Suns': 'PHO',
+            'Portland': 'POR', 'Portland Trail Blazers': 'POR', 'Sacramento': 'SAC', 'Sacramento Kings': 'SAC',
+            'San Antonio': 'SAS', 'San Antonio Spurs': 'SAS', 'Toronto': 'TOR', 'Toronto Raptors': 'TOR',
+            'Utah': 'UTA', 'Utah Jazz': 'UTA', 'Washington': 'WAS', 'Washington Wizards': 'WAS'
         }
         
         for table in soup.find_all('div', class_='TableBase'):
-            team_span = table.find('span', class_='TeamName')
-            if not team_span: continue
+            # The correct class for CBS Sports team names
+            team_container = table.find(class_='TeamLogoNameLockup-name')
+            if not team_container: continue
             
-            abbr = TEAM_MAP.get(team_span.text.strip())
+            abbr = TEAM_MAP.get(team_container.text.strip())
             if not abbr: continue
             
             players = []
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
+                # CBS Columns: 0=Player, 1=Pos, 2=Updated, 3=Injury Type, 4=Status
                 if len(cols) >= 5:
-                    # Physically scrape the Player Name and Status columns
                     player = cols[0].get_text(strip=True)
-                    status = cols[3].get_text(strip=True)
+                    injury = cols[3].get_text(strip=True)
+                    status = cols[4].get_text(strip=True)
                     
                     if any(p.lower() in player.lower() for p in CLEARED_PLAYERS):
                         continue
                     
-                    # Ignore players who are cleared to play
+                    # Ensure status isn't "Expected to Play"
                     if status.lower() not in ['expected to play', 'probable', 'active']:
-                        players.append(f"{player} ({status})")
+                        players.append(f"{player} ({injury})") 
             
             if players:
-                news[abbr] = players[:2] # Grab the top 2 injuries for UI cleanliness
+                news[abbr] = players[:2] 
                 
         if news: return news
     except: pass
     
-    # If the internet drops or you forgot to pip install bs4, it falls back here safely
     return BACKUP_INJURIES
 
 @st.cache_data(ttl=600)
@@ -240,14 +248,12 @@ def predict_game(h, a, standings, injuries, b2b_set):
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🏀 NBA Master AI Predictor 2026")
 
-# Dynamic Date Fix: Now it automatically changes at midnight ET!
 current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
 st.markdown(f"**Market Date:** {current_market_date}")
 st.divider()
 
 slate, standings, injuries, b2b = get_daily_slate(), get_standings(), get_injuries(), get_back_to_back()
 
-# Fallback in case there are zero games on the schedule today
 if not slate:
     st.info("No games scheduled for today, or ESPN hasn't published the slate yet.")
 else:
