@@ -17,7 +17,7 @@ MLB_STARS = [
     "Jose Ramirez", "Vladimir Guerrero Jr.", "Jackson Chourio", "Dylan Crews", 
     "Paul Skenes", "Tarik Skubal", "Chris Sale", "Zack Wheeler", "Corbin Burnes",
     "Logan Webb", "Cole Ragans", "Hunter Greene", "Shota Imanaga", "Yoshinobu Yamamoto",
-    "Tyler Glasnow", "George Kirby", "Max Fried", "Framber Valdez", "Luis Castillo"
+    "Tyler Glasnow", "George Kirby", "Max Fried", "Framber Valdez", "Luis Castillo", "Shane Baz"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -43,8 +43,9 @@ TEAM_DATA = {
 
 def norm(abbr):
     mapping = {
-        'WSH': 'WAS', 'KCA': 'KC', 'SDG': 'SD', 'SFO': 'SF', 'TBR': 'TB', 
-        'CHW': 'CWS', 'LAN': 'LAD', 'NYN': 'NYM', 'CHN': 'CHC', 'OAK': 'ATH'
+        'WSH': 'WAS', 'KCA': 'KC', 'KCR': 'KC', 'SDG': 'SD', 'SDP': 'SD',
+        'SFO': 'SF', 'SFG': 'SF', 'TBR': 'TB', 'TBA': 'TB', 'CHW': 'CWS',
+        'LAN': 'LAD', 'NYN': 'NYM', 'CHN': 'CHC', 'OAK': 'ATH', 'SAC': 'ATH'
     }
     return mapping.get(abbr, abbr)
 
@@ -53,7 +54,6 @@ def norm(abbr):
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_mlb_slate():
-    # Corrected date logic for April 4, 2026
     today_str = (datetime.utcnow() - timedelta(hours=7)).strftime('%Y%m%d')
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today_str}"
     try:
@@ -65,15 +65,18 @@ def get_mlb_slate():
             a_data = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             
             if h_data and a_data:
-                # Handle potential missing "probables" early in the day
                 h_prob = h_data.get('probables', [{}])[0] if h_data.get('probables') else {}
                 a_prob = a_data.get('probables', [{}])[0] if a_data.get('probables') else {}
                 
                 h_sp_name = h_prob.get('athlete', {}).get('displayName', 'TBD')
                 a_sp_name = a_prob.get('athlete', {}).get('displayName', 'TBD')
                 
-                h_sp_rec = h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
-                a_sp_rec = a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
+                # Bulletproof Stats Check: Prevents IndexError if stats list is empty
+                h_stats = h_prob.get('statistics', [])
+                h_sp_rec = h_stats[0].get('displayValue', '0-0, 0.00 ERA') if h_stats else '0-0, 0.00 ERA'
+                
+                a_stats = a_prob.get('statistics', [])
+                a_sp_rec = a_stats[0].get('displayValue', '0-0, 0.00 ERA') if a_stats else '0-0, 0.00 ERA'
                 
                 games.append({
                     'h': norm(h_data['team']['abbreviation']), 
@@ -85,6 +88,8 @@ def get_mlb_slate():
                 })
         return games
     except Exception as e:
+        # Debugging aid for Sidebar
+        st.sidebar.error(f"Scraper Error: {e}")
         return []
 
 @st.cache_data(ttl=600)
@@ -133,7 +138,7 @@ def predict_mlb(h, a, h_sp, a_sp, standings):
     total += ops_diff
     factors.append({"icon": "🎯", "name": "Offensive Edge", "adj": ops_diff, "why": f"OPS Gap: {h_td['ops']} vs {a_td['ops']}"})
 
-    # 3. ERA Advantage
+    # 3. ERA Advantage (Def/Bullpen)
     era_diff = (a_td['era'] - h_td['era']) * 2.0
     total += era_diff
     factors.append({"icon": "🛡️", "name": "Run Prevention", "adj": era_diff, "why": "Bullpen/Def ERA Advantage"})
@@ -158,13 +163,13 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.cache_data.clear()
     st.sidebar.success("Refreshed!")
 
-st.sidebar.info(f"Market Date: {datetime.utcnow().strftime('%Y-%m-%d')}")
+st.sidebar.info(f"Query Date: {(datetime.utcnow() - timedelta(hours=7)).strftime('%Y-%m-%d')}")
 
 slate = get_mlb_slate()
 standings = get_mlb_standings()
 
 if not slate:
-    st.warning("No games found for this date. Check the sidebar for the queried date.")
+    st.warning("No games found. This can happen if the API hasn't released today's probables yet.")
 else:
     for game in slate:
         pred = predict_mlb(game['h'], game['a'], game['h_sp'], game['a_sp'], standings)
