@@ -43,37 +43,38 @@ STAR_PLAYERS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. THE 2026 ACCURATE STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
+# FIXED: Ensured every team has 'record', 'home_record', and 'away_record'
 BACKUP_STANDINGS = {
     'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-9', 'away_record': '26-12'},
     'BOS': {'wins': 52, 'losses': 25, 'record': '52-25', 'win_pct': 0.675, 'home_record': '26-11', 'away_record': '26-14'},
     'NYK': {'wins': 50, 'losses': 28, 'record': '50-28', 'win_pct': 0.641, 'home_record': '28-9', 'away_record': '22-19'},
     'PHI': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '22-17', 'away_record': '21-17'},
-    'ATL': {'wins': 45, 'losses': 33, 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
-    'CHI': {'wins': 29, 'losses': 48, 'win_pct': 0.377, 'home_record': '18-21', 'away_record': '11-27'},
-    'IND': {'wins': 18, 'losses': 59, 'win_pct': 0.234, 'home_record': '11-27', 'away_record': '7-32'},
-    'MIL': {'wins': 30, 'losses': 47, 'win_pct': 0.390, 'home_record': '17-22', 'away_record': '13-25'},
-    'BKN': {'wins': 18, 'losses': 59, 'win_pct': 0.234, 'home_record': '10-28', 'away_record': '8-31'},
-    'CHA': {'wins': 42, 'losses': 36, 'win_pct': 0.538, 'home_record': '21-19', 'away_record': '21-17'},
-    'OKC': {'wins': 61, 'losses': 16, 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
-    'SAS': {'wins': 59, 'losses': 18, 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
-    'LAL': {'wins': 50, 'losses': 27, 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
-    'HOU': {'wins': 48, 'losses': 29, 'win_pct': 0.623, 'home_record': '28-10', 'away_record': '20-19'},
-    'MIN': {'wins': 46, 'losses': 31, 'win_pct': 0.597, 'home_record': '25-14', 'away_record': '21-17'},
-    'UTA': {'wins': 21, 'losses': 57, 'win_pct': 0.269, 'home_record': '13-27', 'away_record': '8-30'},
-    'DAL': {'wins': 24, 'losses': 53, 'win_pct': 0.312, 'home_record': '14-25', 'away_record': '10-28'},
-    'MEM': {'wins': 25, 'losses': 52, 'win_pct': 0.325, 'home_record': '14-26', 'away_record': '11-26'},
-    'SAC': {'wins': 21, 'losses': 57, 'win_pct': 0.269, 'home_record': '14-25', 'away_record': '7-32'},
-    'NOP': {'wins': 25, 'losses': 53, 'win_pct': 0.321, 'home_record': '16-23', 'away_record': '9-30'},
-    'CLE': {'wins': 48, 'losses': 29, 'win_pct': 0.623},
-    'ORL': {'wins': 41, 'losses': 36, 'win_pct': 0.532},
-    'MIA': {'wins': 40, 'losses': 37, 'win_pct': 0.519},
-    'TOR': {'wins': 43, 'losses': 34, 'win_pct': 0.558},
-    'WAS': {'wins': 17, 'losses': 59, 'win_pct': 0.224},
-    'DEN': {'wins': 49, 'losses': 28, 'win_pct': 0.636},
-    'LAC': {'wins': 39, 'losses': 38, 'win_pct': 0.506},
-    'PHO': {'wins': 42, 'losses': 35, 'win_pct': 0.545},
-    'GSW': {'wins': 36, 'losses': 41, 'win_pct': 0.468},
-    'POR': {'wins': 40, 'losses': 38, 'win_pct': 0.513},
+    'ATL': {'wins': 45, 'losses': 33, 'record': '45-33', 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
+    'CHI': {'wins': 29, 'losses': 48, 'record': '29-48', 'win_pct': 0.377, 'home_record': '18-21', 'away_record': '11-27'},
+    'IND': {'wins': 18, 'losses': 59, 'record': '18-59', 'win_pct': 0.234, 'home_record': '11-27', 'away_record': '7-32'},
+    'MIL': {'wins': 30, 'losses': 47, 'record': '30-47', 'win_pct': 0.390, 'home_record': '17-22', 'away_record': '13-25'},
+    'BKN': {'wins': 18, 'losses': 59, 'record': '18-59', 'win_pct': 0.234, 'home_record': '10-28', 'away_record': '8-31'},
+    'CHA': {'wins': 42, 'losses': 36, 'record': '42-36', 'win_pct': 0.538, 'home_record': '21-19', 'away_record': '21-17'},
+    'OKC': {'wins': 61, 'losses': 16, 'record': '61-16', 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
+    'SAS': {'wins': 59, 'losses': 18, 'record': '59-18', 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
+    'LAL': {'wins': 50, 'losses': 27, 'record': '50-27', 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
+    'HOU': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '28-10', 'away_record': '20-19'},
+    'MIN': {'wins': 46, 'losses': 31, 'record': '46-31', 'win_pct': 0.597, 'home_record': '25-14', 'away_record': '21-17'},
+    'UTA': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '13-27', 'away_record': '8-30'},
+    'DAL': {'wins': 24, 'losses': 53, 'record': '24-53', 'win_pct': 0.312, 'home_record': '14-25', 'away_record': '10-28'},
+    'MEM': {'wins': 25, 'losses': 52, 'record': '25-52', 'win_pct': 0.325, 'home_record': '14-26', 'away_record': '11-26'},
+    'SAC': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '14-25', 'away_record': '7-32'},
+    'NOP': {'wins': 25, 'losses': 53, 'record': '25-53', 'win_pct': 0.321, 'home_record': '16-23', 'away_record': '9-30'},
+    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '24-14', 'away_record': '24-15'},
+    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '24-16', 'away_record': '17-20'},
+    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519, 'home_record': '24-15', 'away_record': '16-22'},
+    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '21-17', 'away_record': '22-17'},
+    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224, 'home_record': '11-27', 'away_record': '6-32'},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
+    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506, 'home_record': '21-16', 'away_record': '18-22'},
+    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545, 'home_record': '24-15', 'away_record': '18-20'},
+    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468, 'home_record': '21-16', 'away_record': '15-25'},
+    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513, 'home_record': '21-17', 'away_record': '19-21'},
 }
 
 BACKUP_INJURIES = {
@@ -231,10 +232,14 @@ def predict_game(h, a, standings, injuries, b2b_set):
     factors = []
     total = 0.0
     
+    # SAFETY: Ensure record strings exist
+    h_rec_str = h_std.get('record', '0-0')
+    a_rec_str = a_std.get('record', '0-0')
+
     # 1. Win Percentage Edge
     base_adj = (h_std['win_pct'] - a_std['win_pct']) * 25.0
     total += base_adj
-    factors.append({"icon": "📊", "name": "Win % Edge", "adj": base_adj, "why": f"{h} ({h_std['record']}) vs {a} ({a_std['record']})"})
+    factors.append({"icon": "📊", "name": "Win % Edge", "adj": base_adj, "why": f"{h} ({h_rec_str}) vs {a} ({a_rec_str})"})
 
     # 2. Home Court Advantage
     total += 3.5
@@ -263,10 +268,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(player_string):
-        # Force the scraped name to lowercase and strip hidden spaces
         player_name = player_string.split(" (")[0].strip().lower() 
-        
-        # Force your Star list to lowercase so they match perfectly every time
         if any(star.lower() in player_name for star in STAR_PLAYERS):
             return 5.5, "Star"
         return 1.5, "Role"
@@ -325,9 +327,9 @@ else:
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"#### 🏠 {game['h_name']}")
-                st.write(f"**Record:** {pred['h_std']['record']} (Home: {pred['h_std'].get('home_record', '0-0')})")
+                st.write(f"**Record:** {pred['h_std'].get('record', '0-0')} (Home: {pred['h_std'].get('home_record', '0-0')})")
                 for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
             with col2:
                 st.markdown(f"#### ✈️ {game['a_name']}")
-                st.write(f"**Record:** {pred['a_std']['record']} (Away: {pred['a_std'].get('away_record', '0-0')})")
+                st.write(f"**Record:** {pred['a_std'].get('record', '0-0')} (Away: {pred['a_std'].get('away_record', '0-0')})")
                 for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
