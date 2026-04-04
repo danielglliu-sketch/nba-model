@@ -11,7 +11,12 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. THE 2026 ACCURATE STANDINGS (Updated April 4, 2026)
+# 🚨 MANUAL OVERRIDES 🚨
+# ─────────────────────────────────────────────────────────────────────────────
+CLEARED_PLAYERS = ["Joel Embiid", "Tyrese Maxey"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. THE 2026 ACCURATE STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 56, 'losses': 21, 'record': '56-21', 'win_pct': 0.727, 'home_record': '30-9', 'away_record': '26-12'},
@@ -34,19 +39,24 @@ BACKUP_STANDINGS = {
     'MEM': {'wins': 25, 'losses': 52, 'record': '25-52', 'win_pct': 0.325, 'home_record': '14-26', 'away_record': '11-26'},
     'SAC': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '14-25', 'away_record': '7-32'},
     'NOP': {'wins': 25, 'losses': 53, 'record': '25-53', 'win_pct': 0.321, 'home_record': '16-23', 'away_record': '9-30'},
-    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623, 'home_record': '24-14', 'away_record': '23-15'},
-    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532, 'home_record': '24-16', 'away_record': '16-20'},
-    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519, 'home_record': '24-15', 'away_record': '16-22'},
-    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '21-17', 'away_record': '21-17'},
-    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224, 'home_record': '11-27', 'away_record': '6-32'},
-    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
-    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506, 'home_record': '21-16', 'away_record': '18-21'},
-    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545, 'home_record': '24-15', 'away_record': '18-20'},
-    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468, 'home_record': '21-16', 'away_record': '15-24'},
-    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513, 'home_record': '21-17', 'away_record': '18-21'},
+    'CLE': {'wins': 48, 'losses': 29, 'record': '48-29', 'win_pct': 0.623},
+    'ORL': {'wins': 41, 'losses': 36, 'record': '41-36', 'win_pct': 0.532},
+    'MIA': {'wins': 40, 'losses': 37, 'record': '40-37', 'win_pct': 0.519},
+    'TOR': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558},
+    'WAS': {'wins': 17, 'losses': 59, 'record': '17-59', 'win_pct': 0.224},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636},
+    'LAC': {'wins': 39, 'losses': 38, 'record': '39-38', 'win_pct': 0.506},
+    'PHO': {'wins': 42, 'losses': 35, 'record': '42-35', 'win_pct': 0.545},
+    'GSW': {'wins': 36, 'losses': 41, 'record': '36-41', 'win_pct': 0.468},
+    'POR': {'wins': 40, 'losses': 38, 'record': '40-38', 'win_pct': 0.513},
 }
 
-# Mathematically eliminated teams for the 2025-26 season
+BACKUP_INJURIES = {
+    'MIL': ['Giannis Antetokounmpo (OUT)'], 'LAL': ['Luka Doncic (Questionable)'],
+    'DET': ['Cade Cunningham (OUT)'], 'DAL': ['Kyrie Irving (OUT)'],
+    'MIN': ['Anthony Edwards (OUT)'], 'PHI': ['Joel Embiid (Doubtful)']
+}
+
 ELIMINATED_TEAMS = ['MIL', 'CHI', 'IND', 'BKN', 'WAS', 'MEM', 'NOP', 'DAL', 'UTA', 'SAC']
 
 TEAM_DATA = {
@@ -62,7 +72,7 @@ def norm(abbr):
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. DATA FETCHERS (With Sports-Day rollover fix)
+# 2. DATA FETCHERS
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate():
@@ -112,13 +122,21 @@ def get_injuries():
         articles = requests.get(url, timeout=5).json().get('articles', [])
         for art in articles:
             hl = art.get('headline', '')
+            
+            # Magic Fix: Ignore cleared players
+            if any(p.lower() in hl.lower() for p in CLEARED_PLAYERS): continue
+                
             if 'out' in hl.lower() or 'injury' in hl.lower():
                 for cat in art.get('categories', []):
                     if cat.get('type') == 'team':
                         abbr = norm(cat.get('teamAbbrev', ''))
                         if abbr: news.setdefault(abbr, []).append(hl)
-        return {k: list(set(v))[:2] for k, v in news.items()}
-    except: return {}
+        if news: 
+            return {k: list(set(v))[:2] for k, v in news.items()}
+    except: pass
+    
+    # Returns the backup database if ESPN news is empty!
+    return BACKUP_INJURIES
 
 @st.cache_data(ttl=600)
 def get_back_to_back():
@@ -134,7 +152,7 @@ def get_back_to_back():
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. PREDICTION ENGINE (Now with Dual Injury & Playoff Logic)
+# 3. PREDICTION ENGINE 
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
@@ -178,7 +196,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     if h_inj:
         total -= 6.0
         factors.append({"icon": "🤕", "name": f"{h} Injury Impact", "adj": -6.0, "why": f"{h} has key players out."})
-    if a_inj: # Now calculates for both teams simultaneously
+    if a_inj: 
         total += 6.0
         factors.append({"icon": "🤕", "name": f"{a} Injury Impact", "adj": 6.0, "why": f"{a} has key players out."})
 
