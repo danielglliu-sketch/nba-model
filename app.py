@@ -15,31 +15,24 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# 2026 MASTER STAR LIST (All Players >12.5 PPG + Elite Defenders)
+# 2026 MASTER STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
 STAR_PLAYERS = [
-    # ELITE & FRANCHISE STARS
-    "Luka Doncic", "Shai Gilgeous-Alexander", "Nikola Jokic", "Anthony Edwards",
-    "Jayson Tatum", "Victor Wembanyama", "Joel Embiid", "Giannis Antetokounmpo",
-    "Tyrese Maxey", "Jalen Brunson", "Kevin Durant", "Devin Booker", "Ja Morant",
-    "Cade Cunningham", "Donovan Mitchell", "Zion Williamson", "Kawhi Leonard",
-    
-    # 2026 SCORING LEADERS (>12.5 PPG)
-    "Jalen Duren", "Alex Sarr", "Deni Avdija", "Jalen Johnson", "Paolo Banchero",
-    "Chet Holmgren", "Jalen Williams", "Franz Wagner", "Lauri Markkanen", "De'Aaron Fox",
-    "Domantas Sabonis", "Alperen Sengun", "Brandon Miller", "Cooper Flagg", "Reed Sheppard",
-    "Kon Knueppel", "Stephon Castle", "Donovan Clingan", "Norman Powell", "Trey Murphy III",
-    "Coby White", "RJ Barrett", "Scottie Barnes", "Immanuel Quickley", "Anfernee Simons",
-    "Jerami Grant", "Keyonte George", "Collin Sexton", "Cam Thomas", "Mikal Bridges",
-    "Austin Reaves", "D'Angelo Russell", "Michael Porter Jr.", "Aaron Gordon", "Naz Reid",
-    "Jaden McDaniels", "Kristaps Porzingis", "Derrick White", "Jrue Holiday", "Bam Adebayo",
-    "Jimmy Butler", "Tyler Herro", "Jaime Jaquez Jr.", "Bennedict Mathurin", "Myles Turner",
-    "Pascal Siakam", "Josh Giddey", "Miles Bridges", "Kyle Kuzma", "Jordan Poole",
-    "Darius Garland", "Evan Mobley", "Jarrett Allen", "Bobby Portis", "Brook Lopez",
-    
-    # ELITE 2026 DEFENDERS (DPOY Tier Impact)
-    "Rudy Gobert", "Herb Jones", "Alex Caruso", "OG Anunoby", "Ausar Thompson", 
-    "Amen Thompson", "Dyson Daniels", "Ivica Zubac", "Isaiah Hartenstein", 
-    "Draymond Green", "Marcus Smart", "Walker Kessler", "Dereck Lively II"
+    "Paul George", "Joel Embiid", "Tyrese Maxey", "Jalen Duren", "Alex Sarr", 
+    "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
+    "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
+    "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
+    "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert", "Jaden McDaniels",
+    "Kawhi Leonard", "James Harden", "LeBron James", "Anthony Davis", 
+    "Kevin Durant", "Devin Booker", "Bradley Beal", "De'Aaron Fox", "Domantas Sabonis", 
+    "Zion Williamson", "Brandon Ingram", "CJ McCollum", "Herb Jones", "Stephen Curry", 
+    "Jayson Tatum", "Jaylen Brown", "Kristaps Porzingis", "Derrick White", "Jrue Holiday",
+    "Giannis Antetokounmpo", "Damian Lillard", "Khris Middleton", 
+    "Donovan Mitchell", "Darius Garland", "Evan Mobley", "Jarrett Allen", "Jalen Brunson", 
+    "Julius Randle", "OG Anunoby", "Jimmy Butler", "Bam Adebayo", "Paolo Banchero", 
+    "Franz Wagner", "Tyrese Haliburton", "Pascal Siakam", "DeMar DeRozan", "Zach LaVine", 
+    "Trae Young", "Dejounte Murray", "Scottie Barnes", "RJ Barrett", "Victor Wembanyama", 
+    "Alperen Sengun", "Cade Cunningham", "Lauri Markkanen", "Mikal Bridges", "Ja Morant",
+    "Jalen Johnson", "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,9 +43,11 @@ BACKUP_STANDINGS = {
     'BOS': {'wins': 52, 'losses': 25, 'record': '52-25', 'win_pct': 0.675, 'home_record': '26-11', 'away_record': '26-14'},
     'NYK': {'wins': 50, 'losses': 28, 'record': '50-28', 'win_pct': 0.641, 'home_record': '28-9', 'away_record': '22-19'},
     'PHI': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '22-17', 'away_record': '21-17'},
+    'ATL': {'wins': 45, 'losses': 33, 'record': '45-33', 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
     'OKC': {'wins': 61, 'losses': 16, 'record': '61-16', 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
     'SAS': {'wins': 59, 'losses': 18, 'record': '59-18', 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
     'LAL': {'wins': 50, 'losses': 27, 'record': '50-27', 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
 }
 
 ELIMINATED_TEAMS = ['MIL', 'CHI', 'IND', 'BKN', 'WAS', 'MEM', 'NOP', 'DAL', 'UTA', 'SAC']
@@ -182,14 +177,15 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += eff_adj
     factors.append({"icon": "🛡️", "name": "Defense Gap", "adj": eff_adj, "why": "Efficiency comparison"})
 
-    # 4. INJURY DETECTION (IMPROVED FUZZY MATCHING)
+    # 4. INJURY DETECTION (SUPER-CLEAN FUZZY MATCHING)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        raw = scraped_string.lower().strip()
-        # Bulletproof Matching: Check if Star is in the name or vice versa
+        # Remove parentheses, Jr, III, and periods for safer matching
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").strip()
         for star in STAR_PLAYERS:
-            s = star.lower()
+            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").strip()
+            # Check if star name exists within the scraped name or vice-versa
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
