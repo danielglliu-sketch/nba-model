@@ -42,7 +42,10 @@ TEAM_DATA = {
 }
 
 def norm(abbr):
-    mapping = {'WSH': 'WAS', 'KCA': 'KC', 'SDG': 'SD', 'SFO': 'SF', 'TBR': 'TB', 'CHW': 'CWS', 'LAN': 'LAD', 'NYN': 'NYM', 'CHN': 'CHC', 'OAK': 'ATH'}
+    mapping = {
+        'WSH': 'WAS', 'KCA': 'KC', 'SDG': 'SD', 'SFO': 'SF', 'TBR': 'TB', 
+        'CHW': 'CWS', 'LAN': 'LAD', 'NYN': 'NYM', 'CHN': 'CHC', 'OAK': 'ATH'
+    }
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,9 +53,8 @@ def norm(abbr):
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_mlb_slate():
-    # Force Pacific Time Date for MLB Schedule
+    # Corrected date logic for April 4, 2026
     today_str = (datetime.utcnow() - timedelta(hours=7)).strftime('%Y%m%d')
-    st.sidebar.write(f"🔍 Searching Date: {today_str}")
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today_str}"
     try:
         data = requests.get(url, timeout=10).json()
@@ -61,19 +63,29 @@ def get_mlb_slate():
             comp = event['competitions'][0]
             h_data = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
             a_data = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            
             if h_data and a_data:
-                h_prob = h_data.get('probables', [{}])[0]
-                a_prob = a_data.get('probables', [{}])[0]
+                # Handle potential missing "probables" early in the day
+                h_prob = h_data.get('probables', [{}])[0] if h_data.get('probables') else {}
+                a_prob = a_data.get('probables', [{}])[0] if a_data.get('probables') else {}
+                
+                h_sp_name = h_prob.get('athlete', {}).get('displayName', 'TBD')
+                a_sp_name = a_prob.get('athlete', {}).get('displayName', 'TBD')
+                
+                h_sp_rec = h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
+                a_sp_rec = a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
+                
                 games.append({
-                    'h': norm(h_data['team']['abbreviation']), 'a': norm(a_data['team']['abbreviation']),
-                    'h_name': h_data['team']['displayName'], 'a_name': a_data['team']['displayName'],
-                    'h_sp': h_prob.get('athlete', {}).get('displayName', 'TBD'),
-                    'a_sp': a_prob.get('athlete', {}).get('displayName', 'TBD'),
-                    'h_sp_rec': h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA'),
-                    'a_sp_rec': a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
+                    'h': norm(h_data['team']['abbreviation']), 
+                    'a': norm(a_data['team']['abbreviation']),
+                    'h_name': h_data['team']['displayName'], 
+                    'a_name': a_data['team']['displayName'],
+                    'h_sp': h_sp_name, 'a_sp': a_sp_name,
+                    'h_sp_rec': h_sp_rec, 'a_sp_rec': a_sp_rec
                 })
         return games
-    except: return []
+    except Exception as e:
+        return []
 
 @st.cache_data(ttl=600)
 def get_mlb_standings():
@@ -87,7 +99,12 @@ def get_mlb_standings():
                     abbr = norm(entry['team']['abbreviation'])
                     stats = {s['name']: s['displayValue'] for s in entry['stats']}
                     val_stats = {s['name']: s['value'] for s in entry['stats']}
-                    res[abbr] = {'win_pct': val_stats.get('winPercent', 0.5), 'overall': stats.get('summary', '0-0'), 'home': stats.get('home', '0-0'), 'away': stats.get('road', '0-0')}
+                    res[abbr] = {
+                        'win_pct': val_stats.get('winPercent', 0.5), 
+                        'overall': stats.get('summary', '0-0'), 
+                        'home': stats.get('home', '0-0'), 
+                        'away': stats.get('road', '0-0')
+                    }
         return res
     except: return {}
 
@@ -103,23 +120,30 @@ def predict_mlb(h, a, h_sp, a_sp, standings):
     factors, total = [], 0.0
     def is_star(name): return any(s.lower() in name.lower() for s in MLB_STARS)
 
+    # 1. Starting Pitcher (Ace) Bonus - 6.5 pts
     if is_star(h_sp):
-        total += 6.5; factors.append({"icon": "🔥", "name": "Ace Bonus", "adj": 6.5, "why": f"{h_sp} is a Star SP."})
+        total += 6.5
+        factors.append({"icon": "🔥", "name": f"{h} Ace Bonus", "adj": 6.5, "why": f"{h_sp} is a Star SP."})
     if is_star(a_sp):
-        total -= 6.5; factors.append({"icon": "🔥", "name": "Ace Penalty", "adj": -6.5, "why": f"{a_sp} is a Star SP."})
+        total -= 6.5
+        factors.append({"icon": "🔥", "name": f"{a} Ace Bonus", "adj": -6.5, "why": f"{a_sp} is a Star SP."})
 
+    # 2. Offensive Edge
     ops_diff = (h_td['ops'] - a_td['ops']) * 120.0
     total += ops_diff
-    factors.append({"icon": "🎯", "name": "Offensive Edge", "adj": ops_diff, "why": f"OPS Difference: {h_td['ops']} vs {a_td['ops']}"})
+    factors.append({"icon": "🎯", "name": "Offensive Edge", "adj": ops_diff, "why": f"OPS Gap: {h_td['ops']} vs {a_td['ops']}"})
 
+    # 3. ERA Advantage
     era_diff = (a_td['era'] - h_td['era']) * 2.0
     total += era_diff
-    factors.append({"icon": "🛡️", "name": "ERA Advantage", "adj": era_diff, "why": "Run Prevention Edge"})
+    factors.append({"icon": "🛡️", "name": "Run Prevention", "adj": era_diff, "why": "Bullpen/Def ERA Advantage"})
 
+    # 4. Record Factor
     win_adj = (h_std['win_pct'] - a_std['win_pct']) * 15.0
     total += win_adj
-    factors.append({"icon": "📊", "name": "Record Factor", "adj": win_adj, "why": "Seasonal momentum"})
+    factors.append({"icon": "📊", "name": "Record Factor", "adj": win_adj, "why": "Seasonal performance"})
 
+    # 5. Home Field
     total += 2.5
     factors.append({"icon": "🏠", "name": "Home Field", "adj": 2.5, "why": "Stadium advantage"})
 
@@ -134,16 +158,18 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.cache_data.clear()
     st.sidebar.success("Refreshed!")
 
+st.sidebar.info(f"Market Date: {datetime.utcnow().strftime('%Y-%m-%d')}")
+
 slate = get_mlb_slate()
 standings = get_mlb_standings()
 
 if not slate:
-    st.info("No games scheduled. Ensure your system date is correct.")
+    st.warning("No games found for this date. Check the sidebar for the queried date.")
 else:
     for game in slate:
         pred = predict_mlb(game['h'], game['a'], game['h_sp'], game['a_sp'], standings)
-        with st.expander(f"{game['a_name']} at {game['h_name']} | Winner: {pred['winner']}"):
-            st.markdown(f"### 🏆 {pred['winner']} Wins ({pred['conf']:.1f}%)")
+        with st.expander(f"{game['a_name']} at {game['h_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
+            st.markdown(f"### 🏆 {pred['winner']} Wins")
             for f in pred['factors']:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
                 st.markdown(f"{f['icon']} **{f['name']}**: {f['adj']:+.1f} pts — {f['why']}", unsafe_allow_html=True)
