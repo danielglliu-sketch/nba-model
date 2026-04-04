@@ -53,29 +53,31 @@ def norm(abbr):
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_mlb_slate():
-    today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
+    # Adjusted to ensure it grabs TODAY (April 4, 2026)
+    today_str = (datetime.utcnow() - timedelta(hours=7)).strftime('%Y%m%d')
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today_str}"
     try:
         data = requests.get(url, timeout=5).json()
         games = []
         for event in data.get('events', []):
             comp = event['competitions'][0]
-            h = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
-            a = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
-            if h and a:
-                h_prob = h.get('probables', [{}])[0]
-                a_prob = a.get('probables', [{}])[0]
+            h_data = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
+            a_data = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            
+            if h_data and a_data:
+                h_prob = h_data.get('probables', [{}])[0]
+                a_prob = a_data.get('probables', [{}])[0]
                 
                 h_sp_name = h_prob.get('athlete', {}).get('displayName', 'TBD')
                 a_sp_name = a_prob.get('athlete', {}).get('displayName', 'TBD')
                 
-                # Fetch SP record string (e.g., "4-1, 2.45 ERA")
-                h_sp_rec = h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00')
-                a_sp_rec = a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00')
+                # Fetch SP record string (e.g., "0-0, 1.50 ERA")
+                h_sp_rec = h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
+                a_sp_rec = a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA')
                 
                 games.append({
-                    'h': norm(h['team']['abbreviation']), 'a': norm(a['team']['abbreviation']),
-                    'h_name': h['team']['displayName'], 'a_name': a['team']['displayName'],
+                    'h': norm(h_data['team']['abbreviation']), 'a': norm(a_data['team']['abbreviation']),
+                    'h_name': h_data['team']['displayName'], 'a_name': a_data['team']['displayName'],
                     'h_sp': h_sp_name, 'a_sp': a_sp_name,
                     'h_sp_rec': h_sp_rec, 'a_sp_rec': a_sp_rec
                 })
@@ -88,16 +90,17 @@ def get_mlb_standings():
     try:
         data = requests.get(url, timeout=5).json()
         res = {}
-        for entry in data.get('children', [{}])[0].get('children', [{}])[0].get('standings', {}).get('entries', []):
-            abbr = norm(entry['team']['abbreviation'])
-            stats = {s['name']: s['displayValue'] for s in entry['stats']}
-            val_stats = {s['name']: s['value'] for s in entry['stats']}
-            res[abbr] = {
-                'win_pct': val_stats.get('winPercent', 0.5),
-                'overall': stats.get('summary', '0-0'),
-                'home': stats.get('home', '0-0'),
-                'away': stats.get('road', '0-0')
-            }
+        for conf in data.get('children', []):
+            for entry in conf.get('standings', {}).get('entries', []):
+                abbr = norm(entry['team']['abbreviation'])
+                stats = {s['name']: s['displayValue'] for s in entry['stats']}
+                val_stats = {s['name']: s['value'] for s in entry['stats']}
+                res[abbr] = {
+                    'win_pct': val_stats.get('winPercent', 0.5),
+                    'overall': stats.get('summary', '0-0'),
+                    'home': stats.get('home', '0-0'),
+                    'away': stats.get('road', '0-0')
+                }
         return res
     except: return {}
 
@@ -129,7 +132,7 @@ def predict_mlb(h, a, h_sp, a_sp, standings):
     # 3. Bullpen & Defense (ERA Difference)
     era_diff = (a_td['era'] - h_td['era']) * 2.0
     total += era_diff
-    factors.append({"icon": "🛡️", "name": "Run Prevention", "adj": era_diff, "why": f"Bullpen/Def ERA Edge"})
+    factors.append({"icon": "🛡️", "name": "Run Prevention", "adj": era_diff, "why": "Bullpen/Def ERA Edge"})
 
     # 4. Win % Edge
     win_adj = (h_std['win_pct'] - a_std['win_pct']) * 15.0
@@ -147,19 +150,19 @@ def predict_mlb(h, a, h_sp, a_sp, standings):
 # 4. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("⚾ MLB Master AI Predictor 2026")
-st.markdown(f"**Live Date:** {datetime.utcnow().strftime('%B %d, %Y')}")
+st.markdown(f"**Season Date:** {datetime.utcnow().strftime('%B %d, %Y')}")
 st.divider()
 
 slate = get_mlb_slate()
 standings = get_mlb_standings()
 
 if not slate:
-    st.info("No games scheduled today.")
+    st.info("No games scheduled today. Check back later or force a refresh.")
 else:
     for game in slate:
         pred = predict_mlb(game['h'], game['a'], game['h_sp'], game['a_sp'], standings)
         
-        with st.expander(f"{game['a_name']} vs {game['h_name']} | Winner: {pred['winner']}"):
+        with st.expander(f"{game['a_name']} at {game['h_name']} | Winner: {pred['winner']}"):
             st.markdown(f"### 🏆 {pred['winner']} Wins ({pred['conf']:.1f}%)")
             for f in pred['factors']:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
@@ -169,13 +172,9 @@ else:
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"#### 🏠 {game['h_name']}")
-                st.write(f"**Starting Pitcher:** {game['h_sp']}")
-                st.write(f"**SP Record/Stats:** {game['h_sp_rec']}")
-                st.write(f"**Overall Record:** {pred['h_std']['overall']}")
-                st.write(f"**Home Record:** {pred['h_std']['home']}")
+                st.write(f"**SP:** {game['h_sp']} ({game['h_sp_rec']})")
+                st.write(f"**Overall:** {pred['h_std']['overall']} | **Home:** {pred['h_std']['home']}")
             with col2:
                 st.markdown(f"#### ✈️ {game['a_name']}")
-                st.write(f"**Starting Pitcher:** {game['a_sp']}")
-                st.write(f"**SP Record/Stats:** {game['a_sp_rec']}")
-                st.write(f"**Overall Record:** {pred['a_std']['overall']}")
-                st.write(f"**Away Record:** {pred['a_std']['away']}")
+                st.write(f"**SP:** {game['a_sp']} ({game['a_sp_rec']})")
+                st.write(f"**Overall:** {pred['a_std']['overall']} | **Away:** {pred['a_std']['away']}")
