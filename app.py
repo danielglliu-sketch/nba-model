@@ -11,9 +11,34 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! The app is pulling fresh data.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚨 MANUAL OVERRIDES 🚨
+# 🚨 MANUAL OVERRIDES & PLAYER TIERS 🚨
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
+
+# AI Database of impact players (>15 PPG OR High Defensive Rating)
+STAR_PLAYERS = [
+    "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
+    "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
+    "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert",
+    "Kawhi Leonard", "Paul George", "James Harden",
+    "LeBron James", "Anthony Davis", "D'Angelo Russell", "Austin Reaves",
+    "Kevin Durant", "Devin Booker", "Bradley Beal",
+    "De'Aaron Fox", "Domantas Sabonis", "Zion Williamson", "Brandon Ingram", "CJ McCollum", "Herb Jones",
+    "Stephen Curry", "Klay Thompson", "Draymond Green", "Jonathan Kuminga",
+    "Jayson Tatum", "Jaylen Brown", "Kristaps Porzingis", "Derrick White", "Jrue Holiday",
+    "Giannis Antetokounmpo", "Damian Lillard", "Khris Middleton", "Brook Lopez",
+    "Joel Embiid", "Tyrese Maxey", "Donovan Mitchell", "Darius Garland", "Evan Mobley", "Jarrett Allen",
+    "Jalen Brunson", "Julius Randle", "OG Anunoby", "Jimmy Butler", "Bam Adebayo", "Tyler Herro",
+    "Paolo Banchero", "Franz Wagner", "Jalen Suggs",
+    "Tyrese Haliburton", "Pascal Siakam", "Myles Turner",
+    "DeMar DeRozan", "Zach LaVine", "Coby White", "Alex Caruso",
+    "Trae Young", "Dejounte Murray", "Scottie Barnes", "RJ Barrett", "Immanuel Quickley",
+    "Victor Wembanyama", "Devin Vassell", "Alperen Sengun", "Jalen Green", "Fred VanVleet",
+    "Cade Cunningham", "Jalen Duren", "Lauri Markkanen", "Collin Sexton",
+    "Deandre Ayton", "Jerami Grant", "Anfernee Simons", "Mikal Bridges", "Cam Thomas", "Nic Claxton",
+    "Kyle Kuzma", "Jordan Poole", "Desmond Bane", "Jaren Jackson Jr.", "Ja Morant",
+    "Miles Bridges", "LaMelo Ball", "Brandon Miller"
+]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. THE 2026 ACCURATE STANDINGS & BACKUPS
@@ -234,14 +259,34 @@ def predict_game(h, a, standings, injuries, b2b_set):
     if a in b2b_set:
         total += 4.0; factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 4.0, "why": f"{a} played yesterday."})
 
-    # 6. DUAL INJURY DETECTION
+    # 6. DUAL INJURY DETECTION (DYNAMIC STAR & ROLE PLAYER SCORING)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
+    
+    def get_player_impact(player_string):
+        player_name = player_string.split(" (")[0] # Extracts just the name
+        if any(star in player_name for star in STAR_PLAYERS):
+            return 5.5, "Star"
+        return 1.5, "Role"
+
     if h_inj:
-        total -= 6.0
-        factors.append({"icon": "🤕", "name": f"{h} Injury Impact", "adj": -6.0, "why": f"{h} has key players out."})
-    if a_inj: 
-        total += 6.0
-        factors.append({"icon": "🤕", "name": f"{a} Injury Impact", "adj": 6.0, "why": f"{a} has key players out."})
+        h_pen = 0.0
+        h_names = []
+        for inj in h_inj:
+            val, tier = get_player_impact(inj)
+            h_pen += val
+            h_names.append(f"{inj.split(' (')[0]} ({tier})")
+        total -= h_pen
+        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": -h_pen, "why": f"Missing: {', '.join(h_names)}"})
+
+    if a_inj:
+        a_pen = 0.0
+        a_names = []
+        for inj in a_inj:
+            val, tier = get_player_impact(inj)
+            a_pen += val
+            a_names.append(f"{inj.split(' (')[0]} ({tier})")
+        total += a_pen
+        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": a_pen, "why": f"Missing: {', '.join(a_names)}"})
 
     prob = max(5.0, min(95.0, 50.0 + total))
     return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj}
