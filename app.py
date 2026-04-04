@@ -15,35 +15,23 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# 2026 MASTER STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
+# 2026 STAR LIST (Updated with Alex Sarr and 2026 leaders)
 STAR_PLAYERS = [
-    # ELITE / FRANCHISE STARS (Top Tiers)
-    "Joel Embiid", "Luka Doncic", "Shai Gilgeous-Alexander", "Anthony Edwards", 
-    "Giannis Antetokounmpo", "Nikola Jokic", "Jayson Tatum", "Victor Wembanyama",
-    "Tyrese Maxey", "Paul George", "Tyrese Haliburton", "Kevin Durant", "Devin Booker",
-    "Kawhi Leonard", "Anthony Davis", "Stephen Curry", "Ja Morant", "Donovan Mitchell",
-    "Jaylen Brown", "Jalen Brunson", "Jamal Murray", "Cade Cunningham", "Zion Williamson",
-    
-    # 2026 BREAKOUT STARS & HIGH SCORERS (12.5+ PPG)
-    "Alex Sarr", "Cooper Flagg", "Deni Avdija", "Jalen Johnson", "Paolo Banchero",
-    "Franz Wagner", "Chet Holmgren", "Jalen Williams", "Lauri Markkanen", "De'Aaron Fox",
-    "Domantas Sabonis", "Alperen Sengun", "Jalen Green", "Brandon Miller", "Kon Knueppel",
-    "Reed Sheppard", "Donovan Clingan", "Stephon Castle", "VJ Edgecombe", "Ace Bailey",
-    "Dylan Harper", "Norman Powell", "Trey Murphy III", "Brandon Ingram", "Scottie Barnes",
-    "RJ Barrett", "Immanuel Quickley", "Coby White", "Zach LaVine", "DeMar DeRozan",
-    "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Scoot Henderson",
-    "Keyonte George", "Collin Sexton", "Walker Kessler", "Jabari Smith Jr.", "Fred VanVleet",
-    "Austin Reaves", "D'Angelo Russell", "Michael Porter Jr.", "Aaron Gordon", "Naz Reid",
-    "Jaden McDaniels", "Kristaps Porzingis", "Derrick White", "Jrue Holiday", "Bam Adebayo",
-    "Jimmy Butler", "Terry Rozier", "Tyler Herro", "Jaime Jaquez Jr.", "Jalen Suggs",
-    "Bennedict Mathurin", "Myles Turner", "Pascal Siakam", "Josh Giddey", "Matas Buzelis",
-    "Miles Bridges", "Kyle Kuzma", "Jordan Poole", "Darius Garland", "Evan Mobley",
-    "Jarrett Allen", "Bobby Portis", "Brook Lopez", "Josh Hart", "Donte DiVincenzo",
-    
-    # DEFENSIVE ANCHORS (High Defensive Rating Specialists)
-    "Rudy Gobert", "Herb Jones", "Alex Caruso", "OG Anunoby", "Ausar Thompson", 
-    "Amen Thompson", "Cason Wallace", "Dyson Daniels", "Isaiah Hartenstein", 
-    "Dereck Lively II", "Draymond Green", "Marcus Smart", "Jonathan Isaac"
+    "Alex Sarr", "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
+    "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
+    "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
+    "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert", "Jaden McDaniels",
+    "Kawhi Leonard", "Paul George", "James Harden", "LeBron James", "Anthony Davis", 
+    "Kevin Durant", "Devin Booker", "Bradley Beal", "De'Aaron Fox", "Domantas Sabonis", 
+    "Zion Williamson", "Brandon Ingram", "CJ McCollum", "Herb Jones", "Stephen Curry", 
+    "Jayson Tatum", "Jaylen Brown", "Kristaps Porzingis", "Derrick White", "Jrue Holiday",
+    "Giannis Antetokounmpo", "Damian Lillard", "Khris Middleton", "Joel Embiid", "Tyrese Maxey", 
+    "Donovan Mitchell", "Darius Garland", "Evan Mobley", "Jarrett Allen", "Jalen Brunson", 
+    "Julius Randle", "OG Anunoby", "Jimmy Butler", "Bam Adebayo", "Paolo Banchero", 
+    "Franz Wagner", "Tyrese Haliburton", "Pascal Siakam", "DeMar DeRozan", "Zach LaVine", 
+    "Trae Young", "Dejounte Murray", "Scottie Barnes", "RJ Barrett", "Victor Wembanyama", 
+    "Alperen Sengun", "Cade Cunningham", "Lauri Markkanen", "Mikal Bridges", "Ja Morant",
+    "Jalen Johnson", "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -54,9 +42,11 @@ BACKUP_STANDINGS = {
     'BOS': {'wins': 52, 'losses': 25, 'record': '52-25', 'win_pct': 0.675, 'home_record': '26-11', 'away_record': '26-14'},
     'NYK': {'wins': 50, 'losses': 28, 'record': '50-28', 'win_pct': 0.641, 'home_record': '28-9', 'away_record': '22-19'},
     'PHI': {'wins': 43, 'losses': 34, 'record': '43-34', 'win_pct': 0.558, 'home_record': '22-17', 'away_record': '21-17'},
+    'ATL': {'wins': 45, 'losses': 33, 'record': '45-33', 'win_pct': 0.577, 'home_record': '23-16', 'away_record': '22-17'},
     'OKC': {'wins': 61, 'losses': 16, 'record': '61-16', 'win_pct': 0.792, 'home_record': '33-6', 'away_record': '28-9'},
     'SAS': {'wins': 59, 'losses': 18, 'record': '59-18', 'win_pct': 0.766, 'home_record': '29-7', 'away_record': '29-11'},
     'LAL': {'wins': 50, 'losses': 27, 'record': '50-27', 'win_pct': 0.649, 'home_record': '26-12', 'away_record': '24-15'},
+    'DEN': {'wins': 49, 'losses': 28, 'record': '49-28', 'win_pct': 0.636, 'home_record': '24-13', 'away_record': '25-15'},
 }
 
 ELIMINATED_TEAMS = ['MIL', 'CHI', 'IND', 'BKN', 'WAS', 'MEM', 'NOP', 'DAL', 'UTA', 'SAC']
@@ -191,7 +181,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     
     def get_player_impact(scraped_string):
         raw = scraped_string.lower().strip()
-        # Fuzzy matching: If the star's name is in the scraped text (or vice versa), it's a star.
+        # Bulletproof Matching: Check if Star is in the name or vice versa
         for star in STAR_PLAYERS:
             s = star.lower()
             if s in raw or raw in s:
