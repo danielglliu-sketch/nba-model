@@ -32,8 +32,9 @@ STAR_PLAYERS = [
     "Michael Porter Jr.", "Bradley Beal", "Paul George", "Kawhi Leonard", "James Harden",
     "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", 
     "Jordan Poole", "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
+    "Brandon Miller", "Jonathan Kuminga", "Shaedon Sharpe", "Scoot Henderson", 
     
-    # 12.5+ PPG Consistent Contributors
+    # 12.5+ PPG Consistent Contributors & Elite Youth
     "RJ Barrett", "Immanuel Quickley", "Franz Wagner", "Jalen Duren", "Jaden Ivey",
     "Bogdan Bogdanovic", "Miles Bridges", "Terry Rozier", "Malcolm Brogdon", 
     "Deandre Ayton", "John Collins", "Collin Sexton", "Austin Reaves", "D'Angelo Russell",
@@ -43,15 +44,25 @@ STAR_PLAYERS = [
     "Deni Avdija", "Norman Powell", "Alex Sarr", "Cooper Flagg", "Donovan Clingan",
     "Rudy Gobert", "Naz Reid", "Jaden McDaniels", "Mike Conley", "Coby White",
     "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
+    "Keegan Murray", "Malik Monk", "Klay Thompson", "De'Andre Hunter", "Donte DiVincenzo", 
+    "Josh Hart", "Rui Hachimura", "Kelly Oubre Jr.", "Tobias Harris", "Buddy Hield", 
+    "PJ Washington", "Ivica Zubac", "Jonas Valanciunas", "Bojan Bogdanovic", "Harrison Barnes", 
+    "Kevin Huerter", "Clint Capela", "Mark Williams", "Keyonte George", "Jordan Clarkson", 
+    "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
+    "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
+    "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
+    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton",
     
-    # High-Impact Defensive/Role Specialists (Added previously)
+    # High-Impact Defensive/Role Specialists
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
-    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
+    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
+    "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
+    "Derrick Jones Jr.", "Vince Williams Jr."
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS (April 5, 2026 Records)
+# 1. STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 57, 'losses': 21, 'record': '57-21', 'win_pct': 0.731, 'home_record': '30-9', 'away_record': '27-12'},
