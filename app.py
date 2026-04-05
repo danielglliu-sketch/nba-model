@@ -168,29 +168,40 @@ def get_injuries():
         html = requests.get(url, headers=headers, timeout=5).text
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
+        
+        # Robust Substring Matching dictionary
         TEAM_MAP = {
-            'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
-            'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
-            'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
-            'L.A. Clippers': 'LAC', 'L.A. Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
-            'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
-            'Oklahoma City': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
-            'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
-            'Utah': 'UTA', 'Washington': 'WAS'
+            'atlanta': 'ATL', 'boston': 'BOS', 'brooklyn': 'BKN', 'charlotte': 'CHA',
+            'chicago': 'CHI', 'cleveland': 'CLE', 'dallas': 'DAL', 'denver': 'DEN',
+            'detroit': 'DET', 'golden state': 'GSW', 'houston': 'HOU', 'indiana': 'IND',
+            'clippers': 'LAC', 'lakers': 'LAL', 'memphis': 'MEM', 'miami': 'MIA',
+            'milwaukee': 'MIL', 'minnesota': 'MIN', 'new orleans': 'NOP', 'new york': 'NYK',
+            'oklahoma': 'OKC', 'orlando': 'ORL', 'philadelphia': 'PHI', 'phoenix': 'PHO',
+            'portland': 'POR', 'sacramento': 'SAC', 'san antonio': 'SAS', 'toronto': 'TOR',
+            'utah': 'UTA', 'washington': 'WAS'
         }
+        
         for table in soup.find_all('div', class_='TableBase'):
             team_raw = table.find('span', class_='TeamName')
             if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
             if not team_raw: continue
-            abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
-            if not abbr: continue
-            players = []
             
+            team_text = team_raw.get_text(strip=True).lower()
+            
+            # Use Substring logic instead of strict exact matching
+            abbr = None
+            for key, val in TEAM_MAP.items():
+                if key in team_text:
+                    abbr = val
+                    break
+                    
+            if not abbr: continue
+            
+            players = []
             # Robust Player Name Extraction
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    # Look for specific link or long name span to avoid grabbing empty text
                     p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
                     if p_name_tag:
                         p_text = p_name_tag.get_text(strip=True)
