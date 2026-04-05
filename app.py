@@ -17,30 +17,41 @@ CLEARED_PLAYERS = []
 
 # 2026 MASTER STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
 STAR_PLAYERS = [
-    "Paul George", "Joel Embiid", "Tyrese Maxey", "Jalen Duren", "Alex Sarr", 
-    "Cooper Flagg", "Deni Avdija", "Norman Powell", "Donovan Clingan",
-    "Nikola Jokic", "Jamal Murray", "Michael Porter Jr.", "Aaron Gordon",
-    "Luka Doncic", "Kyrie Irving", "Shai Gilgeous-Alexander", "Jalen Williams", "Chet Holmgren",
-    "Anthony Edwards", "Karl-Anthony Towns", "Rudy Gobert", "Jaden McDaniels",
-    "Kawhi Leonard", "James Harden", "LeBron James", "Anthony Davis", 
-    "Kevin Durant", "Devin Booker", "Bradley Beal", "De'Aaron Fox", "Domantas Sabonis", 
-    "Zion Williamson", "Brandon Ingram", "CJ McCollum", "Herb Jones", "Stephen Curry", 
-    "Jayson Tatum", "Jaylen Brown", "Kristaps Porzingis", "Derrick White", "Jrue Holiday",
-    "Giannis Antetokounmpo", "Damian Lillard", "Khris Middleton", 
-    "Donovan Mitchell", "Darius Garland", "Evan Mobley", "Jarrett Allen", "Jalen Brunson", 
-    "Julius Randle", "OG Anunoby", "Jimmy Butler", "Bam Adebayo", "Paolo Banchero", 
-    "Franz Wagner", "Tyrese Haliburton", "Pascal Siakam", "DeMar DeRozan", "Zach LaVine", 
-    "Trae Young", "Dejounte Murray", "Scottie Barnes", "RJ Barrett", "Victor Wembanyama", 
-    "Alperen Sengun", "Cade Cunningham", "Lauri Markkanen", "Mikal Bridges", "Ja Morant",
-    "Jalen Johnson", "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace",
-    # Added Elite Defenders/High Def Rating
-    "Alex Caruso", "Marcus Smart", "Jrue Holiday", "Lu Dort", "Herbert Jones", 
-    "Draymond Green", "Brook Lopez", "Myles Turner", "Nic Claxton", "Walker Kessler",
-    "Jaden McDaniels", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado"
+    # Top Tier & All-Stars
+    "Luka Doncic", "Shai Gilgeous-Alexander", "Giannis Antetokounmpo", "Nikola Jokic", 
+    "Joel Embiid", "Jayson Tatum", "Donovan Mitchell", "Kevin Durant", "Devin Booker", 
+    "De'Aaron Fox", "Stephen Curry", "Anthony Edwards", "Tyrese Maxey", "Jalen Brunson",
+    "LeBron James", "Anthony Davis", "Tyrese Haliburton", "Damian Lillard", "Kyrie Irving",
+    
+    # Rising Stars & High Scorers (15-25 PPG Range)
+    "Paolo Banchero", "Victor Wembanyama", "Alperen Sengun", "Cade Cunningham", 
+    "Zion Williamson", "Brandon Ingram", "Jaylen Brown", "Karl-Anthony Towns", 
+    "Desmond Bane", "Ja Morant", "Lauri Markkanen", "DeMar DeRozan", "Zach LaVine", 
+    "Julius Randle", "Trae Young", "Dejounte Murray", "Pascal Siakam", "Scottie Barnes",
+    "Jalen Williams", "Chet Holmgren", "Jimmy Butler", "Bam Adebayo", "Jamal Murray",
+    "Michael Porter Jr.", "Bradley Beal", "Paul George", "Kawhi Leonard", "James Harden",
+    "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", 
+    "Jordan Poole", "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
+    
+    # 12.5+ PPG Consistent Contributors
+    "RJ Barrett", "Immanuel Quickley", "Franz Wagner", "Jalen Duren", "Jaden Ivey",
+    "Bogdan Bogdanovic", "Miles Bridges", "Terry Rozier", "Malcolm Brogdon", 
+    "Deandre Ayton", "John Collins", "Collin Sexton", "Austin Reaves", "D'Angelo Russell",
+    "Jusuf Nurkic", "Aaron Gordon", "Khris Middleton", "Brook Lopez", "Bobby Portis",
+    "Kristaps Porzingis", "Derrick White", "Jrue Holiday", "Bennedict Mathurin", 
+    "Myles Turner", "Jalen Johnson", "Trey Murphy III", "Keldon Johnson", "Devin Vassell",
+    "Deni Avdija", "Norman Powell", "Alex Sarr", "Cooper Flagg", "Donovan Clingan",
+    "Rudy Gobert", "Naz Reid", "Jaden McDaniels", "Mike Conley", "Coby White",
+    "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
+    
+    # High-Impact Defensive/Role Specialists (Added previously)
+    "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
+    "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
+    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS
+# 1. STANDINGS & BACKUPS (April 5, 2026 Records)
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 57, 'losses': 21, 'record': '57-21', 'win_pct': 0.731, 'home_record': '30-9', 'away_record': '27-12'},
