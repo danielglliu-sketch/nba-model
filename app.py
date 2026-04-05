@@ -32,9 +32,8 @@ STAR_PLAYERS = [
     "Michael Porter Jr.", "Bradley Beal", "Paul George", "Kawhi Leonard", "James Harden",
     "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", 
     "Jordan Poole", "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
-    "Brandon Miller", "Jonathan Kuminga", "Shaedon Sharpe", "Scoot Henderson", 
     
-    # 12.5+ PPG Consistent Contributors & Elite Youth
+    # 12.5+ PPG Consistent Contributors
     "RJ Barrett", "Immanuel Quickley", "Franz Wagner", "Jalen Duren", "Jaden Ivey",
     "Bogdan Bogdanovic", "Miles Bridges", "Terry Rozier", "Malcolm Brogdon", 
     "Deandre Ayton", "John Collins", "Collin Sexton", "Austin Reaves", "D'Angelo Russell",
@@ -44,25 +43,15 @@ STAR_PLAYERS = [
     "Deni Avdija", "Norman Powell", "Alex Sarr", "Cooper Flagg", "Donovan Clingan",
     "Rudy Gobert", "Naz Reid", "Jaden McDaniels", "Mike Conley", "Coby White",
     "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
-    "Keegan Murray", "Malik Monk", "Klay Thompson", "De'Andre Hunter", "Donte DiVincenzo", 
-    "Josh Hart", "Rui Hachimura", "Kelly Oubre Jr.", "Tobias Harris", "Buddy Hield", 
-    "PJ Washington", "Ivica Zubac", "Jonas Valanciunas", "Bojan Bogdanovic", "Harrison Barnes", 
-    "Kevin Huerter", "Clint Capela", "Mark Williams", "Keyonte George", "Jordan Clarkson", 
-    "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
-    "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
-    "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
-    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton",
     
-    # High-Impact Defensive/Role Specialists
+    # High-Impact Defensive/Role Specialists (Added previously)
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
-    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
-    "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
-    "Derrick Jones Jr.", "Vince Williams Jr."
+    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS
+# 1. STANDINGS & BACKUPS (April 5, 2026 Records)
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 57, 'losses': 21, 'record': '57-21', 'win_pct': 0.731, 'home_record': '30-9', 'away_record': '27-12'},
@@ -181,14 +170,33 @@ def get_injuries():
         for table in soup.find_all('div', class_='TableBase'):
             team_raw = table.find('span', class_='TeamName')
             if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
-            if not team_raw: continue
-            abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
+            
+            abbr = None
+            if team_raw:
+                team_text = team_raw.get_text(strip=True)
+                for key, val in TEAM_MAP.items():
+                    if key.lower() in team_text.lower():
+                        abbr = val
+                        break
+            
+            # SURGICAL INJECTION 1: Fail-safe for hidden headers (GSW/LAC/LAL)
+            if not abbr:
+                table_html = str(table).lower()
+                if 'golden state' in table_html or '/gs/' in table_html: abbr = 'GSW'
+                elif 'clippers' in table_html or '/lac/' in table_html: abbr = 'LAC'
+                elif 'lakers' in table_html or '/lal/' in table_html: abbr = 'LAL'
+
             if not abbr: continue
+            
             players = []
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    p_text = cols[0].get_text(strip=True)
+                    # Extracts the full cell name to avoid grabbing hidden empty spaces
+                    p_name_elem = cols[0].find('span', class_='CellPlayerName--long')
+                    if not p_name_elem: p_name_elem = cols[0].find('a')
+                    p_text = p_name_elem.get_text(strip=True) if p_name_elem else cols[0].get_text(strip=True)
+                    
                     injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
                     if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{p_text} ({injury})")
@@ -240,10 +248,11 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").strip()
+        # SURGICAL INJECTION 2: Punctuation and suffix stripping for flawless Star matches
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         for star in STAR_PLAYERS:
-            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").strip()
-            if s in raw or raw in s:
+            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            if s == raw or s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
 
