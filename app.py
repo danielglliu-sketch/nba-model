@@ -32,9 +32,8 @@ STAR_PLAYERS = [
     "Michael Porter Jr.", "Bradley Beal", "Paul George", "Kawhi Leonard", "James Harden",
     "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", 
     "Jordan Poole", "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
-    "Brandon Miller", "Jonathan Kuminga", "Shaedon Sharpe", "Scoot Henderson", 
     
-    # 12.5+ PPG Consistent Contributors & Elite Youth
+    # 12.5+ PPG Consistent Contributors
     "RJ Barrett", "Immanuel Quickley", "Franz Wagner", "Jalen Duren", "Jaden Ivey",
     "Bogdan Bogdanovic", "Miles Bridges", "Terry Rozier", "Malcolm Brogdon", 
     "Deandre Ayton", "John Collins", "Collin Sexton", "Austin Reaves", "D'Angelo Russell",
@@ -44,25 +43,15 @@ STAR_PLAYERS = [
     "Deni Avdija", "Norman Powell", "Alex Sarr", "Cooper Flagg", "Donovan Clingan",
     "Rudy Gobert", "Naz Reid", "Jaden McDaniels", "Mike Conley", "Coby White",
     "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
-    "Keegan Murray", "Malik Monk", "Klay Thompson", "De'Andre Hunter", "Donte DiVincenzo", 
-    "Josh Hart", "Rui Hachimura", "Kelly Oubre Jr.", "Tobias Harris", "Buddy Hield", 
-    "PJ Washington", "Ivica Zubac", "Jonas Valanciunas", "Bojan Bogdanovic", "Harrison Barnes", 
-    "Kevin Huerter", "Clint Capela", "Mark Williams", "Keyonte George", "Jordan Clarkson", 
-    "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
-    "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
-    "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
-    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton",
     
-    # High-Impact Defensive/Role Specialists
+    # High-Impact Defensive/Role Specialists (Added previously)
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
-    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
-    "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
-    "Derrick Jones Jr.", "Vince Williams Jr."
+    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS
+# 1. STANDINGS & BACKUPS (April 5, 2026 Records)
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 57, 'losses': 21, 'record': '57-21', 'win_pct': 0.731, 'home_record': '30-9', 'away_record': '27-12'},
@@ -168,46 +157,27 @@ def get_injuries():
         html = requests.get(url, headers=headers, timeout=5).text
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
-        
-        # SLUG MAP: This is the fail-safe. It looks at the actual URL structure
-        # (e.g. /nba/teams/GS/golden-state-warriors/) so it doesn't matter what the visual text is.
-        SLUG_MAP = {
-            '/atl/': 'ATL', '/bos/': 'BOS', '/bkn/': 'BKN', '/cha/': 'CHA',
-            '/chi/': 'CHI', '/cle/': 'CLE', '/dal/': 'DAL', '/den/': 'DEN',
-            '/det/': 'DET', '/gs/': 'GSW', '/hou/': 'HOU', '/ind/': 'IND',
-            '/lac/': 'LAC', '/lal/': 'LAL', '/mem/': 'MEM', '/mia/': 'MIA',
-            '/mil/': 'MIL', '/min/': 'MIN', '/no/': 'NOP', '/ny/': 'NYK',
-            '/okc/': 'OKC', '/orl/': 'ORL', '/phi/': 'PHI', '/pho/': 'PHO',
-            '/por/': 'POR', '/sac/': 'SAC', '/sa/': 'SAS', '/tor/': 'TOR',
-            '/uta/': 'UTA', '/was/': 'WAS'
+        TEAM_MAP = {
+            'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
+            'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
+            'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
+            'L.A. Clippers': 'LAC', 'L.A. Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
+            'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
+            'Oklahoma City': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
+            'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
+            'Utah': 'UTA', 'Washington': 'WAS'
         }
-        
         for table in soup.find_all('div', class_='TableBase'):
-            # Grab all links inside the header area
-            header_links = table.find_all('a', href=True)
-            abbr = None
-            
-            # Fail-safe Check: Look for the specific team URL slug
-            for link in header_links:
-                href = link['href'].lower()
-                for slug, mapped_abbr in SLUG_MAP.items():
-                    if slug in href:
-                        abbr = mapped_abbr
-                        break
-                if abbr: break
-                
+            team_raw = table.find('span', class_='TeamName')
+            if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
+            if not team_raw: continue
+            abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
             if not abbr: continue
-            
             players = []
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
-                    if p_name_tag:
-                        p_text = p_name_tag.get_text(strip=True)
-                    else:
-                        p_text = cols[0].get_text(strip=True)
-                    
+                    p_text = cols[0].get_text(strip=True)
                     injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
                     if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{p_text} ({injury})")
