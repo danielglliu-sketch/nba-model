@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
-import json
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="NBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -52,14 +51,14 @@ STAR_PLAYERS = [
     "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
     "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
     "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
-    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton", "Brandin Podziemski",
+    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton",
     
     # High-Impact Defensive/Role Specialists
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
     "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
     "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
-    "Derrick Jones Jr.", "Vince Williams Jr.", "Andrew Wiggins", "Gary Payton II", "Kevon Looney"
+    "Derrick Jones Jr.", "Vince Williams Jr."
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -162,48 +161,40 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    """
-    BULLETPROOF JSON API INJURY SCRAPER.
-    This bypasses HTML entirely and queries ESPN's direct team-by-team injury feed,
-    guaranteeing no missing teams (like GSW) due to CSS changes.
-    """
-    # Mapping of all 30 NBA team IDs for ESPN's API
-    team_ids = {
-        'ATL': '1', 'BOS': '2', 'NOP': '3', 'CHI': '4', 'CLE': '5', 'DAL': '6',
-        'DEN': '7', 'DET': '8', 'GSW': '9', 'HOU': '10', 'IND': '11', 'LAC': '12',
-        'LAL': '13', 'MIA': '14', 'MIL': '15', 'MIN': '16', 'BKN': '17', 'NYK': '18',
-        'ORL': '19', 'PHI': '20', 'PHO': '21', 'POR': '22', 'SAC': '23', 'SAS': '24',
-        'OKC': '25', 'UTA': '26', 'WAS': '27', 'TOR': '28', 'MEM': '29', 'CHA': '30'
-    }
-    
-    news = {}
+    url = "https://www.cbssports.com/nba/injuries/"
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # We query the ESPN hidden API which returns structured JSON
-        url = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/teams?enable=roster,injuries"
-        data = requests.get(url, timeout=10).json()
-        
-        for team_block in data.get('sports', [])[0].get('leagues', [])[0].get('teams', []):
-            team_info = team_block.get('team', {})
-            abbr = norm(team_info.get('abbreviation'))
+        from bs4 import BeautifulSoup
+        html = requests.get(url, headers=headers, timeout=5).text
+        soup = BeautifulSoup(html, 'html.parser')
+        news = {}
+        TEAM_MAP = {
+            'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
+            'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
+            'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
+            'L.A. Clippers': 'LAC', 'L.A. Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
+            'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
+            'Oklahoma City': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
+            'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
+            'Utah': 'UTA', 'Washington': 'WAS'
+        }
+        for table in soup.find_all('div', class_='TableBase'):
+            team_raw = table.find('span', class_='TeamName')
+            if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
+            if not team_raw: continue
+            abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
             if not abbr: continue
-            
             players = []
-            injuries_list = team_info.get('injuries', [])
-            for inj in injuries_list:
-                status = inj.get('status', '').lower()
-                # If they are out, questionable, doubtful, etc.
-                if status not in ['active', 'probable', 'expected to play']:
-                    player_name = inj.get('athlete', {}).get('displayName', 'Unknown Player')
-                    injury_desc = inj.get('type', {}).get('description', 'Unknown')
-                    players.append(f"{player_name} ({injury_desc} - {status})")
-            
-            if players:
-                news[abbr] = players
-                
+            for row in table.find_all('tr', class_='TableBase-bodyTr'):
+                cols = row.find_all('td')
+                if len(cols) >= 5:
+                    p_text = cols[0].get_text(strip=True)
+                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
+                    if status.lower() not in ['expected to play', 'probable', 'active']:
+                        players.append(f"{p_text} ({injury})")
+            if players: news[abbr] = players 
         return news
-    except Exception as e:
-        # Fallback to empty if the API completely fails, but it's much safer than HTML
-        return {}
+    except: return {}
 
 @st.cache_data(ttl=600)
 def get_back_to_back():
@@ -249,11 +240,9 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        # Strips out all punctuation, suffixes, and spaces for an indestructible match
-        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-        
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").strip()
         for star in STAR_PLAYERS:
-            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").strip()
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
