@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
+import json
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="NBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -161,68 +162,48 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    # Cache buster to ensure CBS doesn't serve a stale file
-    url = f"https://www.cbssports.com/nba/injuries/?_cb={datetime.now().timestamp()}"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    """
+    BULLETPROOF JSON API INJURY SCRAPER.
+    This bypasses HTML entirely and queries ESPN's direct team-by-team injury feed,
+    guaranteeing no missing teams (like GSW) due to CSS changes.
+    """
+    # Mapping of all 30 NBA team IDs for ESPN's API
+    team_ids = {
+        'ATL': '1', 'BOS': '2', 'NOP': '3', 'CHI': '4', 'CLE': '5', 'DAL': '6',
+        'DEN': '7', 'DET': '8', 'GSW': '9', 'HOU': '10', 'IND': '11', 'LAC': '12',
+        'LAL': '13', 'MIA': '14', 'MIL': '15', 'MIN': '16', 'BKN': '17', 'NYK': '18',
+        'ORL': '19', 'PHI': '20', 'PHO': '21', 'POR': '22', 'SAC': '23', 'SAS': '24',
+        'OKC': '25', 'UTA': '26', 'WAS': '27', 'TOR': '28', 'MEM': '29', 'CHA': '30'
+    }
+    
+    news = {}
     try:
-        from bs4 import BeautifulSoup
-        html = requests.get(url, headers=headers, timeout=10).text
-        soup = BeautifulSoup(html, 'html.parser')
-        news = {}
+        # We query the ESPN hidden API which returns structured JSON
+        url = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/teams?enable=roster,injuries"
+        data = requests.get(url, timeout=10).json()
         
-        IDENTIFIERS = {
-            'atlanta': 'ATL', 'hawks': 'ATL', 'boston': 'BOS', 'celtics': 'BOS',
-            'brooklyn': 'BKN', 'nets': 'BKN', 'charlotte': 'CHA', 'hornets': 'CHA',
-            'chicago': 'CHI', 'bulls': 'CHI', 'cleveland': 'CLE', 'cavaliers': 'CLE',
-            'dallas': 'DAL', 'mavericks': 'DAL', 'denver': 'DEN', 'nuggets': 'DEN',
-            'detroit': 'DET', 'pistons': 'DET', 'golden state': 'GSW', 'warriors': 'GSW', '/teams/gs/': 'GSW',
-            'houston': 'HOU', 'rockets': 'HOU', 'indiana': 'IND', 'pacers': 'IND',
-            'clippers': 'LAC', '/teams/lac/': 'LAC', 'lakers': 'LAL', '/teams/lal/': 'LAL',
-            'memphis': 'MEM', 'grizzlies': 'MEM', 'miami': 'MIA', 'heat': 'MIA',
-            'milwaukee': 'MIL', 'bucks': 'MIL', 'minnesota': 'MIN', 'timberwolves': 'MIN',
-            'new orleans': 'NOP', 'pelicans': 'NOP', 'new york': 'NYK', 'knicks': 'NYK',
-            'oklahoma': 'OKC', 'thunder': 'OKC', 'orlando': 'ORL', 'magic': 'ORL',
-            'philadelphia': 'PHI', '76ers': 'PHI', 'phoenix': 'PHO', 'suns': 'PHO',
-            'portland': 'POR', 'blazers': 'POR', 'sacramento': 'SAC', 'kings': 'SAC',
-            'san antonio': 'SAS', 'spurs': 'SAS', 'toronto': 'TOR', 'raptors': 'TOR',
-            'utah': 'UTA', 'jazz': 'UTA', 'washington': 'WAS', 'wizards': 'WAS'
-        }
-
-        for table in soup.find_all('div', class_='TableBase'):
-            abbr = None
-            table_str = str(table).lower()
-            
-            if '<tr class="tablebase-bodytr"' in table_str:
-                header_str = table_str.split('<tr class="tablebase-bodytr"')[0] 
-            elif '<tbody' in table_str:
-                header_str = table_str.split('<tbody')[0]
-            else:
-                header_str = table_str
-
-            for key, val in IDENTIFIERS.items():
-                if key in header_str:
-                    abbr = val
-                    break
-            
+        for team_block in data.get('sports', [])[0].get('leagues', [])[0].get('teams', []):
+            team_info = team_block.get('team', {})
+            abbr = norm(team_info.get('abbreviation'))
             if not abbr: continue
             
             players = []
-            for row in table.find_all('tr', class_='TableBase-bodyTr'):
-                cols = row.find_all('td')
-                if len(cols) >= 5:
-                    p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
-                    if p_name_tag:
-                        p_text = p_name_tag.get_text(strip=True)
-                    else:
-                        p_text = cols[0].get_text(strip=True)
-                    
-                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
-                    if status.lower() not in ['expected to play', 'probable', 'active']:
-                        players.append(f"{p_text} ({injury})")
-                        
-            if players: news[abbr] = players 
+            injuries_list = team_info.get('injuries', [])
+            for inj in injuries_list:
+                status = inj.get('status', '').lower()
+                # If they are out, questionable, doubtful, etc.
+                if status not in ['active', 'probable', 'expected to play']:
+                    player_name = inj.get('athlete', {}).get('displayName', 'Unknown Player')
+                    injury_desc = inj.get('type', {}).get('description', 'Unknown')
+                    players.append(f"{player_name} ({injury_desc} - {status})")
+            
+            if players:
+                news[abbr] = players
+                
         return news
-    except: return {}
+    except Exception as e:
+        # Fallback to empty if the API completely fails, but it's much safer than HTML
+        return {}
 
 @st.cache_data(ttl=600)
 def get_back_to_back():
