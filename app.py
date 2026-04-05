@@ -161,7 +161,7 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    # Cache-Busting parameter ensures CBS serves the absolute newest HTML
+    # Cache buster to ensure CBS doesn't serve a stale file
     url = f"https://www.cbssports.com/nba/injuries/?_cb={datetime.now().timestamp()}"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     try:
@@ -170,56 +170,62 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # Comprehensive Mapping including exact mascots to prevent misses
-        TEAM_MAP = {
+        # Raw string matching map
+        IDENTIFIERS = {
             'atlanta': 'ATL', 'hawks': 'ATL', 'boston': 'BOS', 'celtics': 'BOS',
             'brooklyn': 'BKN', 'nets': 'BKN', 'charlotte': 'CHA', 'hornets': 'CHA',
             'chicago': 'CHI', 'bulls': 'CHI', 'cleveland': 'CLE', 'cavaliers': 'CLE',
             'dallas': 'DAL', 'mavericks': 'DAL', 'denver': 'DEN', 'nuggets': 'DEN',
-            'detroit': 'DET', 'pistons': 'DET', 'golden state': 'GSW', 'warriors': 'GSW',
+            'detroit': 'DET', 'pistons': 'DET', 'golden state': 'GSW', 'warriors': 'GSW', '/teams/gs/': 'GSW',
             'houston': 'HOU', 'rockets': 'HOU', 'indiana': 'IND', 'pacers': 'IND',
-            'clippers': 'LAC', 'lakers': 'LAL', 'memphis': 'MEM', 'grizzlies': 'MEM',
-            'miami': 'MIA', 'heat': 'MIA', 'milwaukee': 'MIL', 'bucks': 'MIL',
-            'minnesota': 'MIN', 'timberwolves': 'MIN', 'new orleans': 'NOP', 'pelicans': 'NOP',
-            'new york': 'NYK', 'knicks': 'NYK', 'oklahoma': 'OKC', 'thunder': 'OKC',
-            'orlando': 'ORL', 'magic': 'ORL', 'philadelphia': 'PHI', '76ers': 'PHI',
-            'phoenix': 'PHO', 'suns': 'PHO', 'portland': 'POR', 'blazers': 'POR',
-            'sacramento': 'SAC', 'kings': 'SAC', 'san antonio': 'SAS', 'spurs': 'SAS',
-            'toronto': 'TOR', 'raptors': 'TOR', 'utah': 'UTA', 'jazz': 'UTA',
-            'washington': 'WAS', 'wizards': 'WAS'
+            'clippers': 'LAC', '/teams/lac/': 'LAC', 'lakers': 'LAL', '/teams/lal/': 'LAL',
+            'memphis': 'MEM', 'grizzlies': 'MEM', 'miami': 'MIA', 'heat': 'MIA',
+            'milwaukee': 'MIL', 'bucks': 'MIL', 'minnesota': 'MIN', 'timberwolves': 'MIN',
+            'new orleans': 'NOP', 'pelicans': 'NOP', 'new york': 'NYK', 'knicks': 'NYK',
+            'oklahoma': 'OKC', 'thunder': 'OKC', 'orlando': 'ORL', 'magic': 'ORL',
+            'philadelphia': 'PHI', '76ers': 'PHI', 'phoenix': 'PHO', 'suns': 'PHO',
+            'portland': 'POR', 'blazers': 'POR', 'sacramento': 'SAC', 'kings': 'SAC',
+            'san antonio': 'SAS', 'spurs': 'SAS', 'toronto': 'TOR', 'raptors': 'TOR',
+            'utah': 'UTA', 'jazz': 'UTA', 'washington': 'WAS', 'wizards': 'WAS'
         }
 
-        # Invincible Traversal: Search every player row directly, then read upwards to find the team.
-        for row in soup.find_all('tr', class_='TableBase-bodyTr'):
-            cols = row.find_all('td')
-            if len(cols) < 5: continue
-            
-            # Read backwards up the DOM to the closest preceding Team Title Wrapper
-            team_node = row.find_previous(class_=['TeamName', 'TeamLogoNameLockup-name', 'TableBase-title'])
-            if not team_node: continue
-            
-            team_text = team_node.get_text(separator=' ', strip=True).lower()
-            
+        # Invincible Strategy: Look at the TableBase, stringify it, grab the top header chunk, and match substrings.
+        for table in soup.find_all('div', class_='TableBase'):
             abbr = None
-            for key, val in TEAM_MAP.items():
-                if key in team_text:
+            
+            # Extract everything before the first player row to find the team identifier
+            table_str = str(table).lower()
+            
+            # Slicing at the body tag or first player row to isolate the header
+            if '<tr class="tablebase-bodytr"' in table_str:
+                header_str = table_str.split('<tr class="tablebase-bodytr"')[0] 
+            elif '<tbody' in table_str:
+                header_str = table_str.split('<tbody')[0]
+            else:
+                header_str = table_str
+
+            for key, val in IDENTIFIERS.items():
+                if key in header_str:
                     abbr = val
                     break
-                    
+            
             if not abbr: continue
             
-            p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
-            p_text = p_name_tag.get_text(strip=True) if p_name_tag else cols[0].get_text(strip=True)
-            
-            injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
-            if status.lower() not in ['expected to play', 'probable', 'active']:
-                if abbr not in news: news[abbr] = []
-                news[abbr].append(f"{p_text} ({injury})")
-        
-        # Deduplicate to ensure clean lists
-        for key in news:
-            news[key] = list(set(news[key]))
-            
+            players = []
+            for row in table.find_all('tr', class_='TableBase-bodyTr'):
+                cols = row.find_all('td')
+                if len(cols) >= 5:
+                    p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
+                    if p_name_tag:
+                        p_text = p_name_tag.get_text(strip=True)
+                    else:
+                        p_text = cols[0].get_text(strip=True)
+                    
+                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
+                    if status.lower() not in ['expected to play', 'probable', 'active']:
+                        players.append(f"{p_text} ({injury})")
+                        
+            if players: news[abbr] = players 
         return news
     except: return {}
 
