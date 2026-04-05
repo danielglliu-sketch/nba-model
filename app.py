@@ -51,14 +51,14 @@ STAR_PLAYERS = [
     "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
     "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
     "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
-    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton",
+    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton", "Brandin Podziemski",
     
     # High-Impact Defensive/Role Specialists
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
     "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
     "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
-    "Derrick Jones Jr.", "Vince Williams Jr."
+    "Derrick Jones Jr.", "Vince Williams Jr.", "Andrew Wiggins", "Gary Payton II", "Kevon Looney"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,8 +169,7 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # SLUG MAP: This is the fail-safe. It looks at the actual URL structure
-        # (e.g. /nba/teams/GS/golden-state-warriors/) so it doesn't matter what the visual text is.
+        # SLUG MAP: Fail-safe matching
         SLUG_MAP = {
             '/atl/': 'ATL', '/bos/': 'BOS', '/bkn/': 'BKN', '/cha/': 'CHA',
             '/chi/': 'CHI', '/cle/': 'CLE', '/dal/': 'DAL', '/den/': 'DEN',
@@ -183,11 +182,9 @@ def get_injuries():
         }
         
         for table in soup.find_all('div', class_='TableBase'):
-            # Grab all links inside the header area
             header_links = table.find_all('a', href=True)
             abbr = None
             
-            # Fail-safe Check: Look for the specific team URL slug
             for link in header_links:
                 href = link['href'].lower()
                 for slug, mapped_abbr in SLUG_MAP.items():
@@ -259,9 +256,14 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").strip()
+        # Extremely robust suffix stripping
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+        
         for star in STAR_PLAYERS:
-            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").strip()
+            # Strip suffixes from our list as well just to be perfectly safe
+            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            
+            # Substring match (e.g. "stephen curry" matches "stephen curry")
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
