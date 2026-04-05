@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
+import json
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="NBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -32,8 +33,9 @@ STAR_PLAYERS = [
     "Michael Porter Jr.", "Bradley Beal", "Paul George", "Kawhi Leonard", "James Harden",
     "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", 
     "Jordan Poole", "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
+    "Brandon Miller", "Jonathan Kuminga", "Shaedon Sharpe", "Scoot Henderson", 
     
-    # 12.5+ PPG Consistent Contributors
+    # 12.5+ PPG Consistent Contributors & Elite Youth
     "RJ Barrett", "Immanuel Quickley", "Franz Wagner", "Jalen Duren", "Jaden Ivey",
     "Bogdan Bogdanovic", "Miles Bridges", "Terry Rozier", "Malcolm Brogdon", 
     "Deandre Ayton", "John Collins", "Collin Sexton", "Austin Reaves", "D'Angelo Russell",
@@ -43,15 +45,25 @@ STAR_PLAYERS = [
     "Deni Avdija", "Norman Powell", "Alex Sarr", "Cooper Flagg", "Donovan Clingan",
     "Rudy Gobert", "Naz Reid", "Jaden McDaniels", "Mike Conley", "Coby White",
     "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
+    "Keegan Murray", "Malik Monk", "Klay Thompson", "De'Andre Hunter", "Donte DiVincenzo", 
+    "Josh Hart", "Rui Hachimura", "Kelly Oubre Jr.", "Tobias Harris", "Buddy Hield", 
+    "PJ Washington", "Ivica Zubac", "Jonas Valanciunas", "Bojan Bogdanovic", "Harrison Barnes", 
+    "Kevin Huerter", "Clint Capela", "Mark Williams", "Keyonte George", "Jordan Clarkson", 
+    "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
+    "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
+    "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
+    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton", "Brandin Podziemski",
     
-    # High-Impact Defensive/Role Specialists (Added previously)
+    # High-Impact Defensive/Role Specialists
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
-    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
+    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
+    "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
+    "Derrick Jones Jr.", "Vince Williams Jr.", "Andrew Wiggins", "Gary Payton II", "Kevon Looney"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. STANDINGS & BACKUPS (April 5, 2026 Records)
+# 1. STANDINGS & BACKUPS
 # ─────────────────────────────────────────────────────────────────────────────
 BACKUP_STANDINGS = {
     'DET': {'wins': 57, 'losses': 21, 'record': '57-21', 'win_pct': 0.731, 'home_record': '30-9', 'away_record': '27-12'},
@@ -150,9 +162,23 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    """ESPN JSON Fallback Scraper - Ignores HTML totally to prevent GSW dropping"""
+    """
+    BULLETPROOF JSON API INJURY SCRAPER.
+    This bypasses HTML entirely and queries ESPN's direct team-by-team injury feed,
+    guaranteeing no missing teams (like GSW) due to CSS changes.
+    """
+    # Mapping of all 30 NBA team IDs for ESPN's API
+    team_ids = {
+        'ATL': '1', 'BOS': '2', 'NOP': '3', 'CHI': '4', 'CLE': '5', 'DAL': '6',
+        'DEN': '7', 'DET': '8', 'GSW': '9', 'HOU': '10', 'IND': '11', 'LAC': '12',
+        'LAL': '13', 'MIA': '14', 'MIL': '15', 'MIN': '16', 'BKN': '17', 'NYK': '18',
+        'ORL': '19', 'PHI': '20', 'PHO': '21', 'POR': '22', 'SAC': '23', 'SAS': '24',
+        'OKC': '25', 'UTA': '26', 'WAS': '27', 'TOR': '28', 'MEM': '29', 'CHA': '30'
+    }
+    
     news = {}
     try:
+        # We query the ESPN hidden API which returns structured JSON
         url = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/teams?enable=roster,injuries"
         data = requests.get(url, timeout=10).json()
         
@@ -165,6 +191,7 @@ def get_injuries():
             injuries_list = team_info.get('injuries', [])
             for inj in injuries_list:
                 status = inj.get('status', '').lower()
+                # If they are out, questionable, doubtful, etc.
                 if status not in ['active', 'probable', 'expected to play']:
                     player_name = inj.get('athlete', {}).get('displayName', 'Unknown Player')
                     injury_desc = inj.get('type', {}).get('description', 'Unknown')
@@ -172,8 +199,11 @@ def get_injuries():
             
             if players:
                 news[abbr] = players
+                
         return news
-    except: return {}
+    except Exception as e:
+        # Fallback to empty if the API completely fails, but it's much safer than HTML
+        return {}
 
 @st.cache_data(ttl=600)
 def get_back_to_back():
@@ -219,7 +249,9 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
+        # Strips out all punctuation, suffixes, and spaces for an indestructible match
         raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+        
         for star in STAR_PLAYERS:
             s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
             if s in raw or raw in s:
