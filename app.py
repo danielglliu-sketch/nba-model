@@ -239,10 +239,12 @@ def predict_game(h, a, standings, injuries, b2b_set):
     hca_why = f"Altitude Advantage for {h}" if h == 'DEN' else f"Advantage for {h}"
     factors.append({"icon": "🏠", "name": "Home Court", "adj": hca, "why": hca_why})
 
-    # 3. Efficiency
-    eff_adj = (a_td['def_rtg'] - h_td['def_rtg']) * 0.4
-    total += eff_adj
-    factors.append({"icon": "🛡️", "name": "Defense Gap", "adj": eff_adj, "why": "Efficiency comparison"})
+    # 3. Efficiency (Net Rating Edge)
+    h_net = h_td['off_rtg'] - h_td['def_rtg']
+    a_net = a_td['off_rtg'] - a_td['def_rtg']
+    net_edge = (h_net - a_net) * 0.6
+    total += net_edge
+    factors.append({"icon": "⚖️", "name": "Net Rating Edge", "adj": net_edge, "why": "Combined Off/Def efficiency"})
 
     # 4. INJURY DETECTION (SUPER-CLEAN MATCHING)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
