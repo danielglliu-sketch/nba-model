@@ -170,7 +170,6 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # Raw string matching map
         IDENTIFIERS = {
             'atlanta': 'ATL', 'hawks': 'ATL', 'boston': 'BOS', 'celtics': 'BOS',
             'brooklyn': 'BKN', 'nets': 'BKN', 'charlotte': 'CHA', 'hornets': 'CHA',
@@ -189,14 +188,10 @@ def get_injuries():
             'utah': 'UTA', 'jazz': 'UTA', 'washington': 'WAS', 'wizards': 'WAS'
         }
 
-        # Invincible Strategy: Look at the TableBase, stringify it, grab the top header chunk, and match substrings.
         for table in soup.find_all('div', class_='TableBase'):
             abbr = None
-            
-            # Extract everything before the first player row to find the team identifier
             table_str = str(table).lower()
             
-            # Slicing at the body tag or first player row to isolate the header
             if '<tr class="tablebase-bodytr"' in table_str:
                 header_str = table_str.split('<tr class="tablebase-bodytr"')[0] 
             elif '<tbody' in table_str:
@@ -273,11 +268,11 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        # Extremely robust suffix stripping (Sr, Jr, II, III)
-        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+        # Strips out all punctuation, suffixes, and spaces for an indestructible match
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         
         for star in STAR_PLAYERS:
-            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
