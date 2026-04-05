@@ -185,10 +185,18 @@ def get_injuries():
             abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
             if not abbr: continue
             players = []
+            
+            # Robust Player Name Extraction
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    p_text = cols[0].get_text(strip=True)
+                    # Look for specific link or long name span to avoid grabbing empty text
+                    p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
+                    if p_name_tag:
+                        p_text = p_name_tag.get_text(strip=True)
+                    else:
+                        p_text = cols[0].get_text(strip=True)
+                    
                     injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
                     if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{p_text} ({injury})")
