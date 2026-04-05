@@ -150,38 +150,28 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    url = "https://www.cbssports.com/nba/injuries/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    """ESPN JSON Fallback Scraper - Ignores HTML totally to prevent GSW dropping"""
+    news = {}
     try:
-        from bs4 import BeautifulSoup
-        html = requests.get(url, headers=headers, timeout=5).text
-        soup = BeautifulSoup(html, 'html.parser')
-        news = {}
-        TEAM_MAP = {
-            'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
-            'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
-            'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
-            'L.A. Clippers': 'LAC', 'L.A. Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
-            'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
-            'Oklahoma City': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
-            'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
-            'Utah': 'UTA', 'Washington': 'WAS'
-        }
-        for table in soup.find_all('div', class_='TableBase'):
-            team_raw = table.find('span', class_='TeamName')
-            if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
-            if not team_raw: continue
-            abbr = TEAM_MAP.get(team_raw.get_text(strip=True))
+        url = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/teams?enable=roster,injuries"
+        data = requests.get(url, timeout=10).json()
+        
+        for team_block in data.get('sports', [])[0].get('leagues', [])[0].get('teams', []):
+            team_info = team_block.get('team', {})
+            abbr = norm(team_info.get('abbreviation'))
             if not abbr: continue
+            
             players = []
-            for row in table.find_all('tr', class_='TableBase-bodyTr'):
-                cols = row.find_all('td')
-                if len(cols) >= 5:
-                    p_text = cols[0].get_text(strip=True)
-                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
-                    if status.lower() not in ['expected to play', 'probable', 'active']:
-                        players.append(f"{p_text} ({injury})")
-            if players: news[abbr] = players 
+            injuries_list = team_info.get('injuries', [])
+            for inj in injuries_list:
+                status = inj.get('status', '').lower()
+                if status not in ['active', 'probable', 'expected to play']:
+                    player_name = inj.get('athlete', {}).get('displayName', 'Unknown Player')
+                    injury_desc = inj.get('type', {}).get('description', 'Unknown')
+                    players.append(f"{player_name} ({injury_desc} - {status})")
+            
+            if players:
+                news[abbr] = players
         return news
     except: return {}
 
@@ -229,9 +219,9 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").strip()
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         for star in STAR_PLAYERS:
-            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").strip()
+            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
