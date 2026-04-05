@@ -15,25 +15,30 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 CLEARED_PLAYERS = []
 
-# 2026 MASTER STAR LIST (Threshold: 12.5 PPG and ABOVE + Elite Defenders)
-STAR_PLAYERS = [
-    # Top Tier & All-Stars
-    "Luka Doncic", "Shai Gilgeous-Alexander", "Giannis Antetokounmpo", "Nikola Jokic", 
-    "Joel Embiid", "Jayson Tatum", "Donovan Mitchell", "Kevin Durant", "Devin Booker", 
-    "De'Aaron Fox", "Stephen Curry", "Anthony Edwards", "Tyrese Maxey", "Jalen Brunson",
-    "LeBron James", "Anthony Davis", "Tyrese Haliburton", "Damian Lillard", "Kyrie Irving",
-    
-    # Rising Stars & High Scorers (15-25 PPG Range)
+# SUPERSTARS (-8.0) - Top 10-15 MVP Level Franchise Players
+SUPERSTARS = [
+    "Nikola Jokic", "Luka Doncic", "Shai Gilgeous-Alexander", "Giannis Antetokounmpo", 
+    "Joel Embiid", "Jayson Tatum", "Stephen Curry", "Kevin Durant", "LeBron James", 
+    "Anthony Edwards"
+]
+
+# ALL-STARS (-4.5) - #2 Options, Consistent All-Stars, Elite Lead Guards
+ALL_STARS = [
+    "Donovan Mitchell", "Devin Booker", "De'Aaron Fox", "Tyrese Maxey", "Jalen Brunson",
+    "Anthony Davis", "Tyrese Haliburton", "Damian Lillard", "Kyrie Irving",
     "Paolo Banchero", "Victor Wembanyama", "Alperen Sengun", "Cade Cunningham", 
-    "Zion Williamson", "Brandon Ingram", "Jaylen Brown", "Karl-Anthony Towns", 
-    "Desmond Bane", "Ja Morant", "Lauri Markkanen", "DeMar DeRozan", "Zach LaVine", 
-    "Julius Randle", "Trae Young", "Dejounte Murray", "Pascal Siakam", "Scottie Barnes",
-    "Jalen Williams", "Chet Holmgren", "Jimmy Butler", "Bam Adebayo", "Jamal Murray",
-    "Michael Porter Jr.", "Bradley Beal", "Paul George", "Kawhi Leonard", "James Harden",
-    "Mikal Bridges", "Cam Thomas", "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", 
-    "Jordan Poole", "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
-    
-    # 12.5+ PPG Consistent Contributors
+    "Zion Williamson", "Jaylen Brown", "Karl-Anthony Towns", "Ja Morant", 
+    "Lauri Markkanen", "DeMar DeRozan", "Jimmy Butler", "Bam Adebayo", 
+    "Jamal Murray", "Paul George", "Kawhi Leonard", "James Harden", "Trae Young", 
+    "Dejounte Murray", "Pascal Siakam", "Scottie Barnes", "Jalen Williams"
+]
+
+# HIGH-IMPACT (-2.0) - Elite Role Players, Defensive Anchors, 15+ PPG Scorers
+HIGH_IMPACT = [
+    "Desmond Bane", "Zach LaVine", "Julius Randle", "Chet Holmgren", 
+    "Michael Porter Jr.", "Bradley Beal", "Mikal Bridges", "Cam Thomas", 
+    "Anfernee Simons", "Jerami Grant", "Kyle Kuzma", "Jordan Poole", 
+    "Tyler Herro", "CJ McCollum", "Jalen Green", "Fred VanVleet",
     "RJ Barrett", "Immanuel Quickley", "Franz Wagner", "Jalen Duren", "Jaden Ivey",
     "Bogdan Bogdanovic", "Miles Bridges", "Terry Rozier", "Malcolm Brogdon", 
     "Deandre Ayton", "John Collins", "Collin Sexton", "Austin Reaves", "D'Angelo Russell",
@@ -43,8 +48,6 @@ STAR_PLAYERS = [
     "Deni Avdija", "Norman Powell", "Alex Sarr", "Cooper Flagg", "Donovan Clingan",
     "Rudy Gobert", "Naz Reid", "Jaden McDaniels", "Mike Conley", "Coby White",
     "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
-    
-    # High-Impact Defensive/Role Specialists (Added previously)
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
     "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
@@ -246,17 +249,25 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += net_edge
     factors.append({"icon": "⚖️", "name": "Net Rating Edge", "adj": net_edge, "why": "Combined Off/Def efficiency"})
 
-    # 4. INJURY DETECTION (SUPER-CLEAN MATCHING)
+    # 4. INJURY DETECTION (TIERED PENALTIES)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        # SURGICAL INJECTION 2: Punctuation and suffix stripping for flawless Star matches
         raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-        for star in STAR_PLAYERS:
+        
+        for star in SUPERSTARS:
             s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-            if s == raw or s in raw or raw in s:
-                return 5.5, "Star"
-        return 1.5, "Role"
+            if s == raw or s in raw or raw in s: return 8.0, "Superstar"
+            
+        for star in ALL_STARS:
+            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            if s == raw or s in raw or raw in s: return 4.5, "All-Star"
+            
+        for star in HIGH_IMPACT:
+            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            if s == raw or s in raw or raw in s: return 2.0, "High-Impact"
+            
+        return 1.0, "Role"
 
     def calc_injury_penalty(inj_list):
         pen = 0.0
