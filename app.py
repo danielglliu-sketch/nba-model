@@ -51,14 +51,14 @@ STAR_PLAYERS = [
     "Tyus Jones", "Tre Jones", "Wendell Carter Jr.", "Cole Anthony", "Max Strus",
     "Zaccharie Risacher", "Reed Sheppard", "Stephon Castle", "Dalton Knecht", "Matas Buzelis",
     "Tidjane Salaun", "Ron Holland", "GG Jackson", "Cam Whitmore", "Jalen Suggs", "Josh Giddey",
-    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton", "Brandin Podziemski",
+    "Jabari Smith Jr.", "Dennis Schroder", "Cameron Johnson", "Deandre Ayton",
     
     # High-Impact Defensive/Role Specialists
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
     "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace", "Isaiah Hartenstein", 
     "Aaron Nesmith", "Dillon Brooks", "Christian Braun", "Kentavious Caldwell-Pope",
-    "Derrick Jones Jr.", "Vince Williams Jr.", "Andrew Wiggins", "Gary Payton II", "Kevon Looney"
+    "Derrick Jones Jr.", "Vince Williams Jr."
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,49 +161,41 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    # Cache buster to ensure CBS doesn't serve a stale file
-    url = f"https://www.cbssports.com/nba/injuries/?_cb={datetime.now().timestamp()}"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    url = "https://www.cbssports.com/nba/injuries/"
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         from bs4 import BeautifulSoup
-        html = requests.get(url, headers=headers, timeout=10).text
+        html = requests.get(url, headers=headers, timeout=5).text
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        IDENTIFIERS = {
-            'atlanta': 'ATL', 'hawks': 'ATL', 'boston': 'BOS', 'celtics': 'BOS',
-            'brooklyn': 'BKN', 'nets': 'BKN', 'charlotte': 'CHA', 'hornets': 'CHA',
-            'chicago': 'CHI', 'bulls': 'CHI', 'cleveland': 'CLE', 'cavaliers': 'CLE',
-            'dallas': 'DAL', 'mavericks': 'DAL', 'denver': 'DEN', 'nuggets': 'DEN',
-            'detroit': 'DET', 'pistons': 'DET', 'golden state': 'GSW', 'warriors': 'GSW', '/teams/gs/': 'GSW',
-            'houston': 'HOU', 'rockets': 'HOU', 'indiana': 'IND', 'pacers': 'IND',
-            'clippers': 'LAC', '/teams/lac/': 'LAC', 'lakers': 'LAL', '/teams/lal/': 'LAL',
-            'memphis': 'MEM', 'grizzlies': 'MEM', 'miami': 'MIA', 'heat': 'MIA',
-            'milwaukee': 'MIL', 'bucks': 'MIL', 'minnesota': 'MIN', 'timberwolves': 'MIN',
-            'new orleans': 'NOP', 'pelicans': 'NOP', 'new york': 'NYK', 'knicks': 'NYK',
-            'oklahoma': 'OKC', 'thunder': 'OKC', 'orlando': 'ORL', 'magic': 'ORL',
-            'philadelphia': 'PHI', '76ers': 'PHI', 'phoenix': 'PHO', 'suns': 'PHO',
-            'portland': 'POR', 'blazers': 'POR', 'sacramento': 'SAC', 'kings': 'SAC',
-            'san antonio': 'SAS', 'spurs': 'SAS', 'toronto': 'TOR', 'raptors': 'TOR',
-            'utah': 'UTA', 'jazz': 'UTA', 'washington': 'WAS', 'wizards': 'WAS'
+        # SLUG MAP: This is the fail-safe. It looks at the actual URL structure
+        # (e.g. /nba/teams/GS/golden-state-warriors/) so it doesn't matter what the visual text is.
+        SLUG_MAP = {
+            '/atl/': 'ATL', '/bos/': 'BOS', '/bkn/': 'BKN', '/cha/': 'CHA',
+            '/chi/': 'CHI', '/cle/': 'CLE', '/dal/': 'DAL', '/den/': 'DEN',
+            '/det/': 'DET', '/gs/': 'GSW', '/hou/': 'HOU', '/ind/': 'IND',
+            '/lac/': 'LAC', '/lal/': 'LAL', '/mem/': 'MEM', '/mia/': 'MIA',
+            '/mil/': 'MIL', '/min/': 'MIN', '/no/': 'NOP', '/ny/': 'NYK',
+            '/okc/': 'OKC', '/orl/': 'ORL', '/phi/': 'PHI', '/pho/': 'PHO',
+            '/por/': 'POR', '/sac/': 'SAC', '/sa/': 'SAS', '/tor/': 'TOR',
+            '/uta/': 'UTA', '/was/': 'WAS'
         }
-
+        
         for table in soup.find_all('div', class_='TableBase'):
+            # Grab all links inside the header area
+            header_links = table.find_all('a', href=True)
             abbr = None
-            table_str = str(table).lower()
             
-            if '<tr class="tablebase-bodytr"' in table_str:
-                header_str = table_str.split('<tr class="tablebase-bodytr"')[0] 
-            elif '<tbody' in table_str:
-                header_str = table_str.split('<tbody')[0]
-            else:
-                header_str = table_str
-
-            for key, val in IDENTIFIERS.items():
-                if key in header_str:
-                    abbr = val
-                    break
-            
+            # Fail-safe Check: Look for the specific team URL slug
+            for link in header_links:
+                href = link['href'].lower()
+                for slug, mapped_abbr in SLUG_MAP.items():
+                    if slug in href:
+                        abbr = mapped_abbr
+                        break
+                if abbr: break
+                
             if not abbr: continue
             
             players = []
@@ -219,7 +211,6 @@ def get_injuries():
                     injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
                     if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{p_text} ({injury})")
-                        
             if players: news[abbr] = players 
         return news
     except: return {}
@@ -268,11 +259,9 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        # Strips out all punctuation, suffixes, and spaces for an indestructible match
-        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-        
+        raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").strip()
         for star in STAR_PLAYERS:
-            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").strip()
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
