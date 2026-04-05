@@ -50,7 +50,14 @@ HIGH_IMPACT = [
     "Nikola Vucevic", "Evan Mobley", "Jarrett Allen", "Darius Garland", "Caris LeVert",
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
-    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace"
+    "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace",
+    # 15+ PPG Scorers & Key Contributors Restored
+    "Josh Giddey", "Klay Thompson", "De'Andre Hunter", "Donte DiVincenzo", 
+    "Tobias Harris", "Buddy Hield", "PJ Washington", "Bojan Bogdanovic", 
+    "Harrison Barnes", "Jordan Clarkson", "Dennis Schroder", "Cameron Johnson",
+    "Keegan Murray", "Malik Monk", "Kelly Oubre Jr.", "Jabari Smith Jr.", "Jalen Suggs",
+    "Cam Whitmore", "GG Jackson", "Keyonte George", "Josh Hart", "Rui Hachimura",
+    "Clint Capela", "Ivica Zubac", "Jonas Valanciunas", "Wendell Carter Jr."
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
