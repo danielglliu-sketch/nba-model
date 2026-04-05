@@ -161,54 +161,65 @@ def get_standings():
 
 @st.cache_data(ttl=600)
 def get_injuries():
-    url = "https://www.cbssports.com/nba/injuries/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    # Cache-Busting parameter ensures CBS serves the absolute newest HTML
+    url = f"https://www.cbssports.com/nba/injuries/?_cb={datetime.now().timestamp()}"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     try:
         from bs4 import BeautifulSoup
-        html = requests.get(url, headers=headers, timeout=5).text
+        html = requests.get(url, headers=headers, timeout=10).text
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # SLUG MAP: Fail-safe matching
-        SLUG_MAP = {
-            '/atl/': 'ATL', '/bos/': 'BOS', '/bkn/': 'BKN', '/cha/': 'CHA',
-            '/chi/': 'CHI', '/cle/': 'CLE', '/dal/': 'DAL', '/den/': 'DEN',
-            '/det/': 'DET', '/gs/': 'GSW', '/hou/': 'HOU', '/ind/': 'IND',
-            '/lac/': 'LAC', '/lal/': 'LAL', '/mem/': 'MEM', '/mia/': 'MIA',
-            '/mil/': 'MIL', '/min/': 'MIN', '/no/': 'NOP', '/ny/': 'NYK',
-            '/okc/': 'OKC', '/orl/': 'ORL', '/phi/': 'PHI', '/pho/': 'PHO',
-            '/por/': 'POR', '/sac/': 'SAC', '/sa/': 'SAS', '/tor/': 'TOR',
-            '/uta/': 'UTA', '/was/': 'WAS'
+        # Comprehensive Mapping including exact mascots to prevent misses
+        TEAM_MAP = {
+            'atlanta': 'ATL', 'hawks': 'ATL', 'boston': 'BOS', 'celtics': 'BOS',
+            'brooklyn': 'BKN', 'nets': 'BKN', 'charlotte': 'CHA', 'hornets': 'CHA',
+            'chicago': 'CHI', 'bulls': 'CHI', 'cleveland': 'CLE', 'cavaliers': 'CLE',
+            'dallas': 'DAL', 'mavericks': 'DAL', 'denver': 'DEN', 'nuggets': 'DEN',
+            'detroit': 'DET', 'pistons': 'DET', 'golden state': 'GSW', 'warriors': 'GSW',
+            'houston': 'HOU', 'rockets': 'HOU', 'indiana': 'IND', 'pacers': 'IND',
+            'clippers': 'LAC', 'lakers': 'LAL', 'memphis': 'MEM', 'grizzlies': 'MEM',
+            'miami': 'MIA', 'heat': 'MIA', 'milwaukee': 'MIL', 'bucks': 'MIL',
+            'minnesota': 'MIN', 'timberwolves': 'MIN', 'new orleans': 'NOP', 'pelicans': 'NOP',
+            'new york': 'NYK', 'knicks': 'NYK', 'oklahoma': 'OKC', 'thunder': 'OKC',
+            'orlando': 'ORL', 'magic': 'ORL', 'philadelphia': 'PHI', '76ers': 'PHI',
+            'phoenix': 'PHO', 'suns': 'PHO', 'portland': 'POR', 'blazers': 'POR',
+            'sacramento': 'SAC', 'kings': 'SAC', 'san antonio': 'SAS', 'spurs': 'SAS',
+            'toronto': 'TOR', 'raptors': 'TOR', 'utah': 'UTA', 'jazz': 'UTA',
+            'washington': 'WAS', 'wizards': 'WAS'
         }
-        
-        for table in soup.find_all('div', class_='TableBase'):
-            header_links = table.find_all('a', href=True)
-            abbr = None
+
+        # Invincible Traversal: Search every player row directly, then read upwards to find the team.
+        for row in soup.find_all('tr', class_='TableBase-bodyTr'):
+            cols = row.find_all('td')
+            if len(cols) < 5: continue
             
-            for link in header_links:
-                href = link['href'].lower()
-                for slug, mapped_abbr in SLUG_MAP.items():
-                    if slug in href:
-                        abbr = mapped_abbr
-                        break
-                if abbr: break
-                
+            # Read backwards up the DOM to the closest preceding Team Title Wrapper
+            team_node = row.find_previous(class_=['TeamName', 'TeamLogoNameLockup-name', 'TableBase-title'])
+            if not team_node: continue
+            
+            team_text = team_node.get_text(separator=' ', strip=True).lower()
+            
+            abbr = None
+            for key, val in TEAM_MAP.items():
+                if key in team_text:
+                    abbr = val
+                    break
+                    
             if not abbr: continue
             
-            players = []
-            for row in table.find_all('tr', class_='TableBase-bodyTr'):
-                cols = row.find_all('td')
-                if len(cols) >= 5:
-                    p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
-                    if p_name_tag:
-                        p_text = p_name_tag.get_text(strip=True)
-                    else:
-                        p_text = cols[0].get_text(strip=True)
-                    
-                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
-                    if status.lower() not in ['expected to play', 'probable', 'active']:
-                        players.append(f"{p_text} ({injury})")
-            if players: news[abbr] = players 
+            p_name_tag = cols[0].find('a') or cols[0].find('span', class_='CellPlayerName--long')
+            p_text = p_name_tag.get_text(strip=True) if p_name_tag else cols[0].get_text(strip=True)
+            
+            injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
+            if status.lower() not in ['expected to play', 'probable', 'active']:
+                if abbr not in news: news[abbr] = []
+                news[abbr].append(f"{p_text} ({injury})")
+        
+        # Deduplicate to ensure clean lists
+        for key in news:
+            news[key] = list(set(news[key]))
+            
         return news
     except: return {}
 
@@ -256,14 +267,11 @@ def predict_game(h, a, standings, injuries, b2b_set):
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
-        # Extremely robust suffix stripping
+        # Extremely robust suffix stripping (Sr, Jr, II, III)
         raw = scraped_string.lower().split(" (")[0].replace(".", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         
         for star in STAR_PLAYERS:
-            # Strip suffixes from our list as well just to be perfectly safe
             s = star.lower().replace(".", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-            
-            # Substring match (e.g. "stephen curry" matches "stephen curry")
             if s in raw or raw in s:
                 return 5.5, "Star"
         return 1.5, "Role"
