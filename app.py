@@ -169,36 +169,36 @@ def get_injuries():
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
         
-        # Robust Substring Matching dictionary
-        TEAM_MAP = {
-            'atlanta': 'ATL', 'boston': 'BOS', 'brooklyn': 'BKN', 'charlotte': 'CHA',
-            'chicago': 'CHI', 'cleveland': 'CLE', 'dallas': 'DAL', 'denver': 'DEN',
-            'detroit': 'DET', 'golden state': 'GSW', 'houston': 'HOU', 'indiana': 'IND',
-            'clippers': 'LAC', 'lakers': 'LAL', 'memphis': 'MEM', 'miami': 'MIA',
-            'milwaukee': 'MIL', 'minnesota': 'MIN', 'new orleans': 'NOP', 'new york': 'NYK',
-            'oklahoma': 'OKC', 'orlando': 'ORL', 'philadelphia': 'PHI', 'phoenix': 'PHO',
-            'portland': 'POR', 'sacramento': 'SAC', 'san antonio': 'SAS', 'toronto': 'TOR',
-            'utah': 'UTA', 'washington': 'WAS'
+        # SLUG MAP: This is the fail-safe. It looks at the actual URL structure
+        # (e.g. /nba/teams/GS/golden-state-warriors/) so it doesn't matter what the visual text is.
+        SLUG_MAP = {
+            '/atl/': 'ATL', '/bos/': 'BOS', '/bkn/': 'BKN', '/cha/': 'CHA',
+            '/chi/': 'CHI', '/cle/': 'CLE', '/dal/': 'DAL', '/den/': 'DEN',
+            '/det/': 'DET', '/gs/': 'GSW', '/hou/': 'HOU', '/ind/': 'IND',
+            '/lac/': 'LAC', '/lal/': 'LAL', '/mem/': 'MEM', '/mia/': 'MIA',
+            '/mil/': 'MIL', '/min/': 'MIN', '/no/': 'NOP', '/ny/': 'NYK',
+            '/okc/': 'OKC', '/orl/': 'ORL', '/phi/': 'PHI', '/pho/': 'PHO',
+            '/por/': 'POR', '/sac/': 'SAC', '/sa/': 'SAS', '/tor/': 'TOR',
+            '/uta/': 'UTA', '/was/': 'WAS'
         }
         
         for table in soup.find_all('div', class_='TableBase'):
-            team_raw = table.find('span', class_='TeamName')
-            if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
-            if not team_raw: continue
-            
-            team_text = team_raw.get_text(strip=True).lower()
-            
-            # Use Substring logic instead of strict exact matching
+            # Grab all links inside the header area
+            header_links = table.find_all('a', href=True)
             abbr = None
-            for key, val in TEAM_MAP.items():
-                if key in team_text:
-                    abbr = val
-                    break
-                    
+            
+            # Fail-safe Check: Look for the specific team URL slug
+            for link in header_links:
+                href = link['href'].lower()
+                for slug, mapped_abbr in SLUG_MAP.items():
+                    if slug in href:
+                        abbr = mapped_abbr
+                        break
+                if abbr: break
+                
             if not abbr: continue
             
             players = []
-            # Robust Player Name Extraction
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
