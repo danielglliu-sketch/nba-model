@@ -166,10 +166,9 @@ def get_standings():
                 losses = int(stats.get('losses', {}).get('value', 0))
                 win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
                 
-                # --- NEW: Extract Last 10 Data ---
                 l10_pct = win_pct
                 l10_record = "0-0"
-                for key in ['lastten', 'last10', 'l10', 'last10games']:
+                for key in ['lasttengames', 'lastten', 'last10', 'l10', 'last10games']:
                     if key in stats:
                         l10_record = stats[key].get('displayValue', '0-0')
                         try:
@@ -267,7 +266,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     
     factors, total = [], 0.0
     
-    # 1. Win % Edge (Blended if use_l10 is True)
+    # 1. Win % Edge
     h_pct = h_std['win_pct']
     a_pct = a_std['win_pct']
     
@@ -294,7 +293,6 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     def get_player_impact(scraped_string):
         raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         
-        # 1. Get Base Magnitude Tier
         val, tier = 1.0, "Role"
         for star in SUPERSTARS:
             s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
@@ -308,7 +306,6 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
                 s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
                 if s == raw or s in raw or raw in s: val, tier = 2.0, "High-Impact"; break
                 
-        # 2. Get Offensive vs Defensive Archetype Split
         archetype = "Balanced"
         for p in DEFENSIVE_LIABILITIES:
             s = p.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
@@ -439,7 +436,6 @@ with tab2:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"#### 🏠 {game['h_name']}")
-                    # Added L10 visual readout safely alongside the base record
                     st.write(f"**Record:** {pred['h_std'].get('record', '0-0')} *(L10: {pred['h_std'].get('l10_record', 'N/A')})*")
                     for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
                 with col2:
