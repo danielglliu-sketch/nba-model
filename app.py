@@ -249,14 +249,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
     hca_why = f"Altitude Advantage for {h}" if h == 'DEN' else f"Advantage for {h}"
     factors.append({"icon": "🏠", "name": "Home Court", "adj": hca, "why": hca_why})
 
-    # 3. Efficiency (Net Rating Edge)
-    h_net = h_td['off_rtg'] - h_td['def_rtg']
-    a_net = a_td['off_rtg'] - a_td['def_rtg']
-    net_edge = (h_net - a_net) * 0.6
-    total += net_edge
-    factors.append({"icon": "⚖️", "name": "Net Rating Edge", "adj": net_edge, "why": "Combined Off/Def efficiency"})
-
-    # 4. INJURY DETECTION (TIERED PENALTIES)
+    # 3. INJURY DETECTION (TIERED PENALTIES)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
@@ -285,14 +278,21 @@ def predict_game(h, a, standings, injuries, b2b_set):
             details.append(f"{p.split(' (')[0]} ({tier})")
         return pen, details
 
+    h_pen, h_det = calc_injury_penalty(h_inj) if h_inj else (0.0, [])
+    a_pen, a_det = calc_injury_penalty(a_inj) if a_inj else (0.0, [])
+
+    # 4. Efficiency (Injury-Adjusted Net Rating)
+    h_net = (h_td['off_rtg'] - h_td['def_rtg']) - h_pen
+    a_net = (a_td['off_rtg'] - a_td['def_rtg']) - a_pen
+    net_edge = (h_net - a_net) * 0.6
+    total += net_edge
+    
+    factors.append({"icon": "⚖️", "name": "Adj. Net Rating Edge", "adj": net_edge, "why": "Net Rating adjusted for active roster"})
+
     if h_inj:
-        p, d = calc_injury_penalty(h_inj)
-        total -= p
-        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": -p, "why": f"Missing: {', '.join(d)}"})
+        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": 0.0, "why": f"Impact built into Net Rating. Missing: {', '.join(h_det)}"})
     if a_inj:
-        p, d = calc_injury_penalty(a_inj)
-        total += p
-        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": p, "why": f"Missing: {', '.join(d)}"})
+        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": f"Impact built into Net Rating. Missing: {', '.join(a_det)}"})
 
     # 5. BACK-TO-BACK FATIGUE
     if h in b2b_set:
