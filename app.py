@@ -161,21 +161,36 @@ def get_standings():
         for conf in data.get('children', []):
             for entry in conf.get('standings', {}).get('entries', []):
                 abbr = norm(entry['team']['abbreviation'])
+                
+                # 1. Base Stats
                 stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
                 wins = int(stats.get('wins', {}).get('value', 0))
                 losses = int(stats.get('losses', {}).get('value', 0))
                 win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
                 
+                # 2. Bulletproof L10 Extraction
                 l10_pct = win_pct
                 l10_record = "0-0"
+                
+                # Check standard stats first
                 for key in ['lasttengames', 'lastten', 'last10', 'l10', 'last10games']:
                     if key in stats:
                         l10_record = stats[key].get('displayValue', '0-0')
-                        try:
-                            l10_w, l10_l = map(int, l10_record.split('-'))
-                            l10_pct = l10_w / (l10_w + l10_l) if (l10_w + l10_l) > 0 else win_pct
-                        except: pass
                         break
+                        
+                # If not in standard stats, dig into the "records" array
+                if l10_record == "0-0" and 'records' in entry:
+                    for rec in entry['records']:
+                        if rec.get('name') == 'lastTen':
+                            l10_record = rec.get('summary', '0-0')
+                            break
+                            
+                # Calculate the raw L10 percentage
+                try:
+                    l10_w, l10_l = map(int, l10_record.split('-'))
+                    l10_pct = l10_w / (l10_w + l10_l) if (l10_w + l10_l) > 0 else win_pct
+                except: 
+                    pass
                 
                 result[abbr] = {
                     'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
@@ -266,7 +281,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     
     factors, total = [], 0.0
     
-    # 1. Win % Edge
+    # 1. Win % Edge (Blended if use_l10 is True)
     h_pct = h_std['win_pct']
     a_pct = a_std['win_pct']
     
@@ -293,6 +308,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     def get_player_impact(scraped_string):
         raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         
+        # 1. Get Base Magnitude Tier
         val, tier = 1.0, "Role"
         for star in SUPERSTARS:
             s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
@@ -306,6 +322,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
                 s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
                 if s == raw or s in raw or raw in s: val, tier = 2.0, "High-Impact"; break
                 
+        # 2. Get Offensive vs Defensive Archetype Split
         archetype = "Balanced"
         for p in DEFENSIVE_LIABILITIES:
             s = p.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
