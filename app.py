@@ -51,13 +51,27 @@ HIGH_IMPACT = [
     "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", "Draymond Green", 
     "Nic Claxton", "Walker Kessler", "OG Anunoby", "Matisse Thybulle", "Jose Alvarado",
     "Nickeil Alexander-Walker", "Amen Thompson", "Cason Wallace",
-    # 15+ PPG Scorers & Key Contributors Restored
     "Josh Giddey", "Klay Thompson", "De'Andre Hunter", "Donte DiVincenzo", 
     "Tobias Harris", "Buddy Hield", "PJ Washington", "Bojan Bogdanovic", 
     "Harrison Barnes", "Jordan Clarkson", "Dennis Schroder", "Cameron Johnson",
     "Keegan Murray", "Malik Monk", "Kelly Oubre Jr.", "Jabari Smith Jr.", "Jalen Suggs",
     "Cam Whitmore", "GG Jackson", "Keyonte George", "Josh Hart", "Rui Hachimura",
     "Clint Capela", "Ivica Zubac", "Jonas Valanciunas", "Wendell Carter Jr."
+]
+
+# PLAYER ARCHETYPES (Changes how their injury affects Offense vs Defense)
+DEFENSIVE_LIABILITIES = [
+    "Trae Young", "Damian Lillard", "Luka Doncic", "Tyrese Haliburton",
+    "Tyler Herro", "D'Angelo Russell", "Jordan Poole", "CJ McCollum",
+    "Bradley Beal", "Cam Thomas", "Anfernee Simons", "Zach LaVine",
+    "Buddy Hield", "Bojan Bogdanovic", "Karl-Anthony Towns"
+]
+
+OFFENSIVE_LIABILITIES = [
+    "Rudy Gobert", "Alex Caruso", "Marcus Smart", "Lu Dort", "Herbert Jones", 
+    "Draymond Green", "Nic Claxton", "Walker Kessler", "OG Anunoby", 
+    "Matisse Thybulle", "Jose Alvarado", "Amen Thompson", "Cason Wallace",
+    "Clint Capela", "Mitchell Robinson"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,7 +203,6 @@ def get_injuries():
                         abbr = val
                         break
             
-            # SURGICAL INJECTION 1: Fail-safe for hidden headers (GSW/LAC/LAL)
             if not abbr:
                 table_html = str(table).lower()
                 if 'golden state' in table_html or '/gs/' in table_html: abbr = 'GSW'
@@ -202,7 +215,6 @@ def get_injuries():
             for row in table.find_all('tr', class_='TableBase-bodyTr'):
                 cols = row.find_all('td')
                 if len(cols) >= 5:
-                    # Extracts the full cell name to avoid grabbing hidden empty spaces
                     p_name_elem = cols[0].find('span', class_='CellPlayerName--long')
                     if not p_name_elem: p_name_elem = cols[0].find('a')
                     p_text = p_name_elem.get_text(strip=True) if p_name_elem else cols[0].get_text(strip=True)
@@ -243,56 +255,85 @@ def predict_game(h, a, standings, injuries, b2b_set):
     total += base_adj
     factors.append({"icon": "📊", "name": "Win % Edge", "adj": base_adj, "why": f"{h} vs {a}"})
 
-    # 2. Home Court (Specialized Altitude Adjustment for Denver)
+    # 2. Home Court
     hca = 5.5 if h == 'DEN' else 3.5
     total += hca
     hca_why = f"Altitude Advantage for {h}" if h == 'DEN' else f"Advantage for {h}"
     factors.append({"icon": "🏠", "name": "Home Court", "adj": hca, "why": hca_why})
 
-    # 3. INJURY DETECTION (TIERED PENALTIES)
+    # 3. INJURY DETECTION (ARCHETYPE PENALTIES)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
         raw = scraped_string.lower().split(" (")[0].replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
         
+        # 1. Get Base Magnitude Tier
+        val, tier = 1.0, "Role"
         for star in SUPERSTARS:
             s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-            if s == raw or s in raw or raw in s: return 8.0, "Superstar"
+            if s == raw or s in raw or raw in s: val, tier = 8.0, "Superstar"; break
+        if tier == "Role":
+            for star in ALL_STARS:
+                s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+                if s == raw or s in raw or raw in s: val, tier = 4.5, "All-Star"; break
+        if tier == "Role":
+            for star in HIGH_IMPACT:
+                s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+                if s == raw or s in raw or raw in s: val, tier = 2.0, "High-Impact"; break
+                
+        # 2. Get Offensive vs Defensive Archetype Split
+        archetype = "Balanced"
+        for p in DEFENSIVE_LIABILITIES:
+            s = p.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            if s == raw or s in raw or raw in s: archetype = "Def_Liability"; break
+        for p in OFFENSIVE_LIABILITIES:
+            s = p.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
+            if s == raw or s in raw or raw in s: archetype = "Off_Liability"; break
             
-        for star in ALL_STARS:
-            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-            if s == raw or s in raw or raw in s: return 4.5, "All-Star"
-            
-        for star in HIGH_IMPACT:
-            s = star.lower().replace(".", "").replace("'", "").replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "").strip()
-            if s == raw or s in raw or raw in s: return 2.0, "High-Impact"
-            
-        return 1.0, "Role"
+        return val, tier, archetype
 
     def calc_injury_penalty(inj_list):
-        pen = 0.0
+        o_pen, d_pen = 0.0, 0.0
         details = []
         for p in inj_list:
-            val, tier = get_player_impact(p)
-            pen += val
+            val, tier, archetype = get_player_impact(p)
+            
+            if archetype == "Def_Liability":
+                o = val * 1.3
+                d = val * -0.3 # Negative means defense GETS BETTER without them
+            elif archetype == "Off_Liability":
+                o = val * -0.3 # Negative means offense GETS BETTER without them
+                d = val * 1.3
+            else:
+                o = val * 0.6
+                d = val * 0.4
+                
+            o_pen += o
+            d_pen += d
             details.append(f"{p.split(' (')[0]} ({tier})")
-        return pen, details
+        return o_pen, d_pen, details
 
-    h_pen, h_det = calc_injury_penalty(h_inj) if h_inj else (0.0, [])
-    a_pen, a_det = calc_injury_penalty(a_inj) if a_inj else (0.0, [])
+    h_off_pen, h_def_pen, h_det = calc_injury_penalty(h_inj) if h_inj else (0.0, 0.0, [])
+    a_off_pen, a_def_pen, a_det = calc_injury_penalty(a_inj) if a_inj else (0.0, 0.0, [])
 
     # 4. Efficiency (Injury-Adjusted Net Rating)
-    h_net = (h_td['off_rtg'] - h_td['def_rtg']) - h_pen
-    a_net = (a_td['off_rtg'] - a_td['def_rtg']) - a_pen
+    adj_h_off = h_td['off_rtg'] - h_off_pen
+    adj_h_def = h_td['def_rtg'] + h_def_pen  # + makes defense worse
+    h_net = adj_h_off - adj_h_def
+    
+    adj_a_off = a_td['off_rtg'] - a_off_pen
+    adj_a_def = a_td['def_rtg'] + a_def_pen
+    a_net = adj_a_off - adj_a_def
+    
     net_edge = (h_net - a_net) * 0.6
     total += net_edge
     
-    factors.append({"icon": "⚖️", "name": "Adj. Net Rating Edge", "adj": net_edge, "why": "Net Rating adjusted for active roster"})
+    factors.append({"icon": "⚖️", "name": "Adj. Net Rating Edge", "adj": net_edge, "why": "Net Rating adjusted dynamically by player archetype"})
 
     if h_inj:
-        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": 0.0, "why": f"Impact built into Net Rating. Missing: {', '.join(h_det)}"})
+        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": 0.0, "why": f"Impact baked into Net Rating. Missing: {', '.join(h_det)}"})
     if a_inj:
-        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": f"Impact built into Net Rating. Missing: {', '.join(a_det)}"})
+        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": f"Impact baked into Net Rating. Missing: {', '.join(a_det)}"})
 
     # 5. BACK-TO-BACK FATIGUE
     if h in b2b_set:
@@ -302,7 +343,7 @@ def predict_game(h, a, standings, injuries, b2b_set):
         total += 4.0
         factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 4.0, "why": f"{a} played yesterday."})
 
-    # 6. TANKING PENALTY (Late Season April 2026 Logic)
+    # 6. TANKING PENALTY
     if h_std['win_pct'] < 0.350:
         total -= 7.0
         factors.append({"icon": "📉", "name": f"{h} Tanking Penalty", "adj": -7.0, "why": "Incentivized lottery prioritization."})
