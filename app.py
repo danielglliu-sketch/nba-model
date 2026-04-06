@@ -162,10 +162,27 @@ def get_standings():
             for entry in conf.get('standings', {}).get('entries', []):
                 abbr = norm(entry['team']['abbreviation'])
                 stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
-                wins, losses = int(stats.get('wins', {}).get('value', 0)), int(stats.get('losses', {}).get('value', 0))
+                wins = int(stats.get('wins', {}).get('value', 0))
+                losses = int(stats.get('losses', {}).get('value', 0))
+                win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
+                
+                # --- NEW: Extract Last 10 Data ---
+                l10_pct = win_pct
+                l10_record = "0-0"
+                for key in ['lastten', 'last10', 'l10', 'last10games']:
+                    if key in stats:
+                        l10_record = stats[key].get('displayValue', '0-0')
+                        try:
+                            l10_w, l10_l = map(int, l10_record.split('-'))
+                            l10_pct = l10_w / (l10_w + l10_l) if (l10_w + l10_l) > 0 else win_pct
+                        except: pass
+                        break
+                
                 result[abbr] = {
                     'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
-                    'win_pct': wins / (wins + losses) if (wins + losses) > 0 else 0.5,
+                    'win_pct': win_pct,
+                    'l10_pct': l10_pct,
+                    'l10_record': l10_record,
                     'home_record': stats.get('home', {}).get('displayValue', '0-0'),
                     'away_record': stats.get('road', {}).get('displayValue', '0-0')
                 }
@@ -242,7 +259,7 @@ def get_back_to_back():
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. PREDICTION ENGINE 
 # ─────────────────────────────────────────────────────────────────────────────
-def predict_game(h, a, standings, injuries, b2b_set):
+def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
     a_td = TEAM_DATA.get(a, {'off_rtg': 112, 'def_rtg': 115})
     h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
@@ -250,10 +267,20 @@ def predict_game(h, a, standings, injuries, b2b_set):
     
     factors, total = [], 0.0
     
-    # 1. Win % Edge
-    base_adj = (h_std['win_pct'] - a_std['win_pct']) * 25.0
+    # 1. Win % Edge (Blended if use_l10 is True)
+    h_pct = h_std['win_pct']
+    a_pct = a_std['win_pct']
+    
+    if use_l10:
+        h_l10 = h_std.get('l10_pct', h_pct)
+        a_l10 = a_std.get('l10_pct', a_pct)
+        h_pct = (h_pct * 0.6) + (h_l10 * 0.4)
+        a_pct = (a_pct * 0.6) + (a_l10 * 0.4)
+        
+    base_adj = (h_pct - a_pct) * 25.0
     total += base_adj
-    factors.append({"icon": "📊", "name": "Win % Edge", "adj": base_adj, "why": f"{h} vs {a}"})
+    edge_name = "Blended Win % Edge (L10)" if use_l10 else "Win % Edge"
+    factors.append({"icon": "📊", "name": edge_name, "adj": base_adj, "why": f"{h} vs {a}"})
 
     # 2. Home Court
     hca = 5.5 if h == 'DEN' else 3.5
@@ -371,24 +398,51 @@ if b2b:
 else:
     st.sidebar.info("No teams on back-to-backs today.")
 
-if not slate:
-    st.info("No games scheduled for today.")
-else:
-    for game in slate:
-        h, a = game['h'], game['a']
-        pred = predict_game(h, a, standings, injuries, b2b)
-        with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
-            st.markdown(f"### 🏆 {pred['winner']} Wins")
-            for f in pred['factors']:
-                color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
-                st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
-            st.divider()
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"#### 🏠 {game['h_name']}")
-                st.write(f"**Record:** {pred['h_std'].get('record', '0-0')}")
-                for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
-            with col2:
-                st.markdown(f"#### ✈️ {game['a_name']}")
-                st.write(f"**Record:** {pred['a_std'].get('record', '0-0')}")
-                for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
+tab1, tab2 = st.tabs(["📊 Standard Model", "🔥 L10 Enhanced Model"])
+
+with tab1:
+    if not slate:
+        st.info("No games scheduled for today.")
+    else:
+        for game in slate:
+            h, a = game['h'], game['a']
+            pred = predict_game(h, a, standings, injuries, b2b, use_l10=False)
+            with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
+                st.markdown(f"### 🏆 {pred['winner']} Wins")
+                for f in pred['factors']:
+                    color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
+                    st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+                st.divider()
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"#### 🏠 {game['h_name']}")
+                    st.write(f"**Record:** {pred['h_std'].get('record', '0-0')}")
+                    for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
+                with col2:
+                    st.markdown(f"#### ✈️ {game['a_name']}")
+                    st.write(f"**Record:** {pred['a_std'].get('record', '0-0')}")
+                    for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
+
+with tab2:
+    if not slate:
+        st.info("No games scheduled for today.")
+    else:
+        for game in slate:
+            h, a = game['h'], game['a']
+            pred = predict_game(h, a, standings, injuries, b2b, use_l10=True)
+            with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
+                st.markdown(f"### 🏆 {pred['winner']} Wins")
+                for f in pred['factors']:
+                    color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
+                    st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+                st.divider()
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"#### 🏠 {game['h_name']}")
+                    # Added L10 visual readout safely alongside the base record
+                    st.write(f"**Record:** {pred['h_std'].get('record', '0-0')} *(L10: {pred['h_std'].get('l10_record', 'N/A')})*")
+                    for inj in pred['h_inj']: st.warning(f"🤕 {inj}")
+                with col2:
+                    st.markdown(f"#### ✈️ {game['a_name']}")
+                    st.write(f"**Record:** {pred['a_std'].get('record', '0-0')} *(L10: {pred['a_std'].get('l10_record', 'N/A')})*")
+                    for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
