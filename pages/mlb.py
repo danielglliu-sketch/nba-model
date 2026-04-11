@@ -3,181 +3,185 @@ import requests
 from datetime import datetime, timedelta
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="MLB Master AI 2026", page_icon="⚾", layout="wide")
+st.set_page_config(page_title="MLB Master AI", page_icon="⚾", layout="wide")
+
+st.sidebar.title("⚙️ System Tools")
+if st.sidebar.button("🔄 Force Data Refresh"):
+    st.cache_data.clear()
+    st.sidebar.success("Cache cleared! Pulling today's slate.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚨 Sabermetric BvP Intelligence (Career Stats vs Today's Pitchers) 🚨
+# 🏟️ PARK FACTORS (Multipliers for Run Environments)
+# > 100 = Hitter Friendly (Coors Field) | < 100 = Pitcher Friendly (Petco Park)
 # ─────────────────────────────────────────────────────────────────────────────
-# This acts as the "Brain" for Batter vs Pitcher performance integration.
-BVP_LIBRARY = {
-    "Jake Irvin": {
-        "LAD": [
-            {"name": "Shohei Ohtani", "stat": ".364 AVG / 4 HR", "ops": "1.250", "notes": "Pitcher Killer"},
-            {"name": "Mookie Betts", "stat": ".357 AVG", "ops": ".980", "notes": "Elite timing"},
-            {"name": "Will Smith", "stat": ".310 AVG", "ops": ".915", "notes": "Hard-hit specialist"}
-        ]
-    },
-    "Jack Kochanowicz": {
-        "SEA": [
-            {"name": "Julio Rodriguez", "stat": ".714 AVG (5/7)", "ops": "1.800", "notes": "Dominates the slider"},
-            {"name": "Cal Raleigh", "stat": ".600 AVG / 2 HR", "ops": "2.100", "notes": "Power advantage"}
-        ]
-    },
-    "Ryan Weathers": {
-        "NYY": [
-            {"name": "Aaron Judge", "stat": ".333 AVG / 2 HR", "ops": "1.150", "notes": "Left-on-Right power"},
-            {"name": "Juan Soto", "stat": ".450 OBP", "ops": "1.005", "notes": "Elite discipline"}
-        ]
-    },
-    "Shota Imanaga": {
-        "CLE": [
-            {"name": "David Fry", "stat": "1.500 OPS", "ops": "1.500", "notes": "LHP Specialist"},
-            {"name": "Austin Hedges", "stat": ".500 AVG", "ops": "1.100", "notes": "Sample size edge"}
-        ]
-    }
+PARK_FACTORS = {
+    'COL': 1.12, 'CIN': 1.08, 'BOS': 1.07, 'LAA': 1.04, 'BAL': 1.03,
+    'ATL': 1.02, 'CHW': 1.02, 'TEX': 1.02, 'KC': 1.01, 'PHI': 1.01,
+    'LAD': 1.00, 'MIN': 1.00, 'TOR': 1.00, 'HOU': 0.99, 'WSH': 0.99,
+    'ARI': 0.98, 'CHC': 0.98, 'SF': 0.98, 'MIL': 0.97, 'NYY': 0.97,
+    'PIT': 0.97, 'TB': 0.96, 'CLE': 0.95, 'MIA': 0.95, 'OAK': 0.95,
+    'SD': 0.94, 'DET': 0.94, 'STL': 0.93, 'NYM': 0.93, 'SEA': 0.91
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. 2026 POWER RANKINGS & ALL-STAR LIST
-# ─────────────────────────────────────────────────────────────────────────────
-TEAM_DATA = {
-    'LAD': {'ops': .798, 'era': 3.40}, 'NYY': {'ops': .785, 'era': 3.70}, 'ATL': {'ops': .770, 'era': 3.55},
-    'BAL': {'ops': .785, 'era': 3.80}, 'PHI': {'ops': .770, 'era': 3.45}, 'CLE': {'ops': .735, 'era': 3.60},
-    'MIL': {'ops': .745, 'era': 3.70}, 'HOU': {'ops': .765, 'era': 3.75}, 'SEA': {'ops': .720, 'era': 3.35},
-    'DET': {'ops': .740, 'era': 3.65}, 'ARI': {'ops': .745, 'era': 4.15}, 'KC':  {'ops': .755, 'era': 3.85},
-    'SD':  {'ops': .760, 'era': 3.55}, 'SF':  {'ops': .730, 'era': 3.70}, 'MIN': {'ops': .750, 'era': 3.90},
-    'TOR': {'ops': .750, 'era': 3.95}, 'NYM': {'ops': .760, 'era': 3.85}, 'TEX': {'ops': .765, 'era': 4.05},
-    'CHC': {'ops': .740, 'era': 3.75}, 'BOS': {'ops': .755, 'era': 4.10}, 'STL': {'ops': .740, 'era': 4.10},
-    'CIN': {'ops': .750, 'era': 4.20}, 'PIT': {'ops': .725, 'era': 3.80}, 'ARI': {'ops': .745, 'era': 4.15},
-    'WAS': {'ops': .725, 'era': 4.40}, 'LAA': {'ops': .710, 'era': 4.50}, 'MIA': {'ops': .700, 'era': 4.30},
-    'ATH': {'ops': .690, 'era': 4.80}, 'COL': {'ops': .720, 'era': 5.20}, 'CWS': {'ops': .680, 'era': 4.90}
-}
-
-MLB_STARS = ["Shohei Ohtani", "Aaron Judge", "Juan Soto", "Mookie Betts", "Bobby Witt Jr.", 
-             "Gunnar Henderson", "Paul Skenes", "Tarik Skubal", "Chris Sale", "Shota Imanaga"]
-
-def norm(abbr):
-    mapping = {'WSH': 'WAS', 'WSN': 'WAS', 'KCA': 'KC', 'SDG': 'SD', 'SFO': 'SF', 'TBR': 'TB', 'LAN': 'LAD', 'NYN': 'NYM', 'OAK': 'ATH'}
+def norm_mlb(abbr):
+    # Normalize ESPN MLB abbreviations to standard 3-letter codes
+    mapping = {'CHW': 'CHW', 'CWS': 'CHW', 'KAN': 'KC', 'TAM': 'TB', 'SFO': 'SF', 'SDP': 'SD'}
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. DATA FETCHERS (RECURSIVE FOR ALL 30 TEAMS)
+# 1. AUTOMATED DAILY FETCHERS (ESPN API)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
-def get_full_standings():
-    url = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/standings"
-    try:
-        data = requests.get(url, timeout=10).json()
-        res = {}
-        # Recursive loop to catch AL and NL (All 30 Teams)
-        for league in data.get('children', []):
-            for division in league.get('children', []):
-                for entry in division.get('standings', {}).get('entries', []):
-                    abbr = norm(entry['team']['abbreviation'])
-                    stats = {s['name']: s['displayValue'] for s in entry['stats']}
-                    v_stats = {s['name']: s['value'] for s in entry['stats']}
-                    res[abbr] = {
-                        'win_pct': v_stats.get('winPercent', 0.5),
-                        'overall': stats.get('summary', '0-0'),
-                        'home': stats.get('home', '0-0'),
-                        'away': stats.get('road', '0-0')
-                    }
-        return res
-    except: return {}
-
-@st.cache_data(ttl=300)
 def get_mlb_slate():
-    today_str = (datetime.utcnow() - timedelta(hours=7)).strftime('%Y%m%d')
+    """Fetches today's games, teams, and probable starting pitchers."""
+    today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today_str}"
+    
     try:
-        data = requests.get(url, timeout=10).json()
+        data = requests.get(url, timeout=5).json()
         games = []
         for event in data.get('events', []):
             comp = event['competitions'][0]
-            h_raw = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
-            a_raw = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
-            if h_raw and a_raw:
-                # Safe Probables Detection
-                h_prob = h_raw.get('probables', [{}])[0] if h_raw.get('probables') else {}
-                a_prob = a_raw.get('probables', [{}])[0] if a_raw.get('probables') else {}
-                h_sp = h_prob.get('athlete', {}).get('displayName', 'TBD')
-                a_sp = a_prob.get('athlete', {}).get('displayName', 'TBD')
-                h_sp_rec = h_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA') if h_prob.get('statistics') else '0-0, 0.00 ERA'
-                a_sp_rec = a_prob.get('statistics', [{}])[0].get('displayValue', '0-0, 0.00 ERA') if a_prob.get('statistics') else '0-0, 0.00 ERA'
-                games.append({'h': norm(h_raw['team']['abbreviation']), 'a': norm(a_raw['team']['abbreviation']),
-                              'h_name': h_raw['team']['displayName'], 'a_name': a_raw['team']['displayName'],
-                              'h_sp': h_sp, 'a_sp': a_sp, 'h_sp_rec': h_sp_rec, 'a_sp_rec': a_sp_rec})
+            home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
+            away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            
+            if home and away:
+                # Extract Probable Pitchers if available
+                home_sp = "TBD"
+                away_sp = "TBD"
+                if 'probables' in home and len(home['probables']) > 0:
+                    home_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+                if 'probables' in away and len(away['probables']) > 0:
+                    away_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+
+                games.append({
+                    'h': norm_mlb(home['team']['abbreviation']), 
+                    'a': norm_mlb(away['team']['abbreviation']),
+                    'h_name': home['team']['displayName'], 
+                    'a_name': away['team']['displayName'],
+                    'h_sp': home_sp,
+                    'a_sp': away_sp,
+                    'h_record': home.get('records', [{'summary': '0-0'}])[0]['summary'],
+                    'a_record': away.get('records', [{'summary': '0-0'}])[0]['summary']
+                })
         return games
     except: return []
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. PREDICTION ENGINE (BvP & RECORD INTEGRATED)
-# ─────────────────────────────────────────────────────────────────────────────
-def predict_game(h, a, h_sp, a_sp, standings):
-    h_td, a_td = TEAM_DATA.get(h, {'ops': .740, 'era': 4.10}), TEAM_DATA.get(a, {'ops': .740, 'era': 4.10})
-    h_std, a_std = standings.get(h, {'win_pct': 0.5, 'overall': '0-0', 'home': '0-0', 'away': '0-0'}), standings.get(a, {'win_pct': 0.5, 'overall': '0-0', 'home': '0-0', 'away': '0-0'})
+@st.cache_data(ttl=600)
+def get_mlb_fatigue():
+    """Checks yesterday's games to see who played (bullpen tax / travel fatigue)."""
+    played_yesterday = set()
+    yesterday_str = (datetime.utcnow() - timedelta(days=1, hours=5)).strftime('%Y%m%d')
+    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={yesterday_str}"
     
-    factors, total = [], 0.0
-    
-    # 1. Batter vs Pitcher (BvP) Impact
-    h_killers = BVP_LIBRARY.get(a_sp, {}).get(h, [])
-    a_killers = BVP_LIBRARY.get(h_sp, {}).get(a, [])
-    
-    if h_killers:
-        adj = min(6.0, len(h_killers) * 2.0)
-        total += adj
-        factors.append({"icon": "⚔️", "name": f"{h} BvP Edge", "adj": adj, "why": f"{len(h_killers)} hitters dominate {a_sp}"})
-    if a_killers:
-        adj = min(6.0, len(a_killers) * 2.0)
-        total -= adj
-        factors.append({"icon": "⚔️", "name": f"{a} BvP Edge", "adj": -adj, "why": f"{len(a_killers)} hitters dominate {h_sp}"})
-
-    # 2. Ace Bonus
-    if any(s.lower() in h_sp.lower() for s in MLB_STARS): total += 6.5; factors.append({"icon": "🔥", "name": f"{h} Ace Bonus", "adj": 6.5, "why": f"{h_sp} is a Star SP."})
-    if any(s.lower() in a_sp.lower() for s in MLB_STARS): total -= 6.5; factors.append({"icon": "🔥", "name": f"{a} Ace Bonus", "adj": -6.5, "why": f"{a_sp} is a Star SP."})
-
-    # 3. Standard Stats
-    total += (h_td['ops'] - a_td['ops']) * 120.0
-    total += (h_std['win_pct'] - a_std['win_pct']) * 15.0 + 2.5 # Home Advantage
-    
-    prob = max(5.0, min(95.0, 50.0 + total))
-    return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 
-            'h_std': h_std, 'a_std': a_std, 'h_killers': h_killers, 'a_killers': a_killers}
+    try:
+        data = requests.get(url, timeout=5).json()
+        for event in data.get('events', []):
+            comp = event['competitions'][0]
+            for c in comp['competitors']:
+                played_yesterday.add(norm_mlb(c['team']['abbreviation']))
+    except: pass
+    return played_yesterday
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. USER INTERFACE
+# 2. THE PREDICTION ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("⚾ MLB Master AI Predictor 2026")
-st.sidebar.info("Market Date: April 4, 2026")
+def predict_mlb_game(game, fatigue_set):
+    h, a = game['h'], game['a']
+    
+    factors = []
+    total_edge = 0.0
+    
+    # --- 1. Basic Win/Loss Momentum ---
+    # Safely calculate win percentage from record strings (e.g., "45-32")
+    try:
+        hw, hl = map(int, game['h_record'].split('-'))
+        aw, al = map(int, game['a_record'].split('-'))
+        h_pct = hw / (hw + hl) if (hw + hl) > 0 else 0.500
+        a_pct = aw / (aw + al) if (aw + al) > 0 else 0.500
+    except:
+        h_pct, a_pct = 0.500, 0.500
+        
+    record_edge = (h_pct - a_pct) * 20.0
+    total_edge += record_edge
+    factors.append({"icon": "📊", "name": "Team Momentum Edge", "adj": record_edge, "why": f"Overall Win % diff between {h} and {a}"})
 
-standings, slate = get_full_standings(), get_mlb_slate()
+    # --- 2. Home Field Advantage ---
+    # Baseball home field is worth exactly the final at-bat (approx 1.5 - 2.0% equity)
+    total_edge += 1.8
+    factors.append({"icon": "🏠", "name": "Last At-Bat Advantage", "adj": 1.8, "why": "Home team guaranteed the bottom of the 9th if trailing."})
 
-if not slate or len(standings) < 15:
-    st.warning("🔄 Bullpen is warming up... Syncing 30-team data and today's BvP matchups.")
+    # --- 3. Park Factor Dynamics ---
+    park_factor = PARK_FACTORS.get(h, 1.00)
+    if park_factor > 1.02:
+        factors.append({"icon": "🏟️", "name": "Hitter's Park", "adj": 0.0, "why": f"{h} is highly prone to home runs and extra bases."})
+    elif park_factor < 0.98:
+        factors.append({"icon": "🏟️", "name": "Pitcher's Park", "adj": 0.0, "why": f"{h} suppresses runs and heavily favors the SP."})
+
+    # --- 4. Starting Pitcher Uncertainty / Matchup ---
+    # (In a V2 of this app, you would plug SP ERA vs Team OPS here)
+    if game['h_sp'] == "TBD":
+        total_edge -= 3.0
+        factors.append({"icon": "❓", "name": f"{h} Pitching Instability", "adj": -3.0, "why": "Using an opener or undecided spot-starter."})
+    if game['a_sp'] == "TBD":
+        total_edge += 3.0
+        factors.append({"icon": "❓", "name": f"{a} Pitching Instability", "adj": 3.0, "why": "Using an opener or undecided spot-starter."})
+
+    # --- 5. Bullpen Fatigue & Travel ---
+    h_tired = h in fatigue_set
+    a_tired = a in fatigue_set
+    
+    if h_tired and not a_tired:
+        total_edge -= 2.5
+        factors.append({"icon": "🥵", "name": f"{h} Bullpen Tax", "adj": -2.5, "why": f"{h} played yesterday, {a} is rested."})
+    elif a_tired and not h_tired:
+        total_edge += 2.5
+        factors.append({"icon": "🥵", "name": f"{a} Bullpen Tax", "adj": 2.5, "why": f"{a} played yesterday, {h} is rested."})
+    elif a_tired and h_tired:
+        # If both played, the away team is penalized slightly more for having to travel late at night
+        total_edge += 1.0
+        factors.append({"icon": "✈️", "name": f"{a} Travel Fatigue", "adj": 1.0, "why": "Both teams played yesterday, but Away team had to travel."})
+
+    # Calculate final probability (Capped between 5% and 95%)
+    prob = max(5.0, min(95.0, 50.0 + total_edge))
+    winner = h if prob >= 50.0 else a
+    conf = prob if prob >= 50.0 else 100.0 - prob
+    
+    return {'winner': winner, 'conf': conf, 'factors': factors}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. USER INTERFACE
+# ─────────────────────────────────────────────────────────────────────────────
+st.title("⚾ MLB Master AI Predictor")
+current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
+st.markdown(f"**Market Date:** {current_market_date}")
+st.divider()
+
+slate = get_mlb_slate()
+fatigue_set = get_mlb_fatigue()
+
+if not slate:
+    st.info("No games scheduled for today or API is waiting for updates.")
 else:
-    for g in slate:
-        p = predict_game(g['h'], g['a'], g['h_sp'], g['a_sp'], standings)
-        with st.expander(f"{g['a_name']} vs {g['h_name']} | Winner: {p['winner']} ({p['conf']:.1f}%)"):
-            st.markdown(f"### 🏆 {p['winner']} Wins")
-            for f in p['factors']:
+    for game in slate:
+        pred = predict_mlb_game(game, fatigue_set)
+        
+        # Display the expander with the SP Matchup right in the title
+        expander_title = f"{game['a_name']} ({game['a_sp']}) @ {game['h_name']} ({game['h_sp']}) | Winner: {pred['winner']} ({pred['conf']:.1f}%)"
+        
+        with st.expander(expander_title):
+            st.markdown(f"### 🏆 {pred['winner']} Projected to Win")
+            for f in pred['factors']:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
-                st.markdown(f"{f['icon']} **{f['name']}**: {f['adj']:+.1f} pts — {f['why']}", unsafe_allow_html=True)
-            
-            if p['h_killers'] or p['a_killers']:
-                st.markdown("#### 📉 Notable BvP Matchups")
-                c1, c2 = st.columns(2)
-                with c1:
-                    for k in p['h_killers']: st.success(f"**{k['name']}**: {k['stat']} ({k['notes']})")
-                with c2:
-                    for k in p['a_killers']: st.error(f"**{k['name']}**: {k['stat']} ({k['notes']})")
+                st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
             
             st.divider()
             col1, col2 = st.columns(2)
             with col1:
-                st.markdown(f"#### 🏠 {g['h_name']}")
-                st.write(f"**SP:** {g['h_sp']} ({g['h_sp_rec']})")
-                st.write(f"**Overall:** {p['h_std']['overall']} | **Home:** {p['h_std']['home']}")
+                st.markdown(f"#### ✈️ Away: {game['a_name']}")
+                st.write(f"**Record:** {game['a_record']}")
+                st.write(f"**Starting Pitching:** {game['a_sp']}")
             with col2:
-                st.markdown(f"#### ✈️ {g['a_name']}")
-                st.write(f"**SP:** {g['a_sp']} ({g['a_sp_rec']})")
-                st.write(f"**Overall:** {p['a_std']['overall']} | **Road:** {p['a_std']['away']}")
+                st.markdown(f"#### 🏠 Home: {game['h_name']}")
+                st.write(f"**Record:** {game['h_record']}")
+                st.write(f"**Starting Pitching:** {game['h_sp']}")
