@@ -11,8 +11,37 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared! Pulling today's slate.")
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 🚨 MANUAL OVERRIDES & MLB TALENT TIERS (The "Best Guess" Engine) 🚨
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ACES (+4.0 Edge) - Cy Young Contenders, Elite SIERA/K-BB%
+ACES = [
+    "Tarik Skubal", "Zack Wheeler", "Corbin Burnes", "Chris Sale", "Cole Ragans", 
+    "Paul Skenes", "Logan Webb", "Gerrit Cole", "Tyler Glasnow", "Yoshinobu Yamamoto", 
+    "Framber Valdez", "Max Fried", "Dylan Cease", "Shota Imanaga", "Hunter Greene", 
+    "Spencer Strider", "Shohei Ohtani", "Jared Jones", "Jacob deGrom"
+]
+
+# SOLID STARTERS (+1.5 Edge) - High-End #2s and #3s, reliable Stuff+
+SOLID_STARTERS = [
+    "Aaron Nola", "Sonny Gray", "Freddy Peralta", "Justin Steele", "Seth Lugo", 
+    "Michael King", "Zac Gallen", "George Kirby", "Logan Gilbert", "Luis Castillo", 
+    "Kevin Gausman", "Tanner Houck", "Grayson Rodriguez", "Jack Flaherty", 
+    "Reynaldo Lopez", "Ronel Blanco", "Bailey Ober", "Pablo Lopez", "Justin Verlander",
+    "Max Scherzer", "Joe Musgrove", "Yu Darvish", "Nathan Eovaldi"
+]
+
+# TEAM TIERS (Bullpens & Lineups)
+ELITE_BULLPENS = ['CLE', 'MIL', 'ATL', 'PHI', 'LAD', 'NYY', 'BAL', 'SD']
+LIABILITY_BULLPENS = ['CHW', 'COL', 'MIA', 'LAA', 'WSH', 'TOR', 'OAK']
+
+ELITE_LINEUPS = ['LAD', 'NYY', 'BAL', 'PHI', 'ATL', 'HOU', 'SD']
+WEAK_LINEUPS = ['CHW', 'MIA', 'COL', 'LAA', 'WSH', 'OAK']
+
+ELITE_DEFENSES = ['CLE', 'TEX', 'ARI', 'MIL', 'TOR'] # Elite OAA / Catcher Framing
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 🏟️ PARK FACTORS (Multipliers for Run Environments)
-# > 1.00 = Hitter Friendly (Coors Field) | < 1.00 = Pitcher Friendly (Petco Park)
 # ─────────────────────────────────────────────────────────────────────────────
 PARK_FACTORS = {
     'COL': 1.12, 'CIN': 1.08, 'BOS': 1.07, 'LAA': 1.04, 'BAL': 1.03,
@@ -24,7 +53,6 @@ PARK_FACTORS = {
 }
 
 def norm_mlb(abbr):
-    # Normalize ESPN MLB abbreviations to standard 3-letter codes
     mapping = {'CHW': 'CHW', 'CWS': 'CHW', 'KAN': 'KC', 'TAM': 'TB', 'SFO': 'SF', 'SDP': 'SD'}
     return mapping.get(abbr, abbr)
 
@@ -46,7 +74,6 @@ def get_mlb_slate():
             away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             
             if home and away:
-                # Extract Probable Pitchers if available
                 home_sp = "TBD"
                 away_sp = "TBD"
                 if 'probables' in home and len(home['probables']) > 0:
@@ -93,7 +120,6 @@ def predict_mlb_game(game, fatigue_set):
     total_edge = 0.0
     
     # --- 1. Basic Win/Loss Momentum ---
-    # Safely calculate win percentage from record strings (e.g., "45-32")
     try:
         hw, hl = map(int, game['h_record'].split('-'))
         aw, al = map(int, game['a_record'].split('-'))
@@ -107,61 +133,92 @@ def predict_mlb_game(game, fatigue_set):
     factors.append({"icon": "📊", "name": "Team Momentum Edge", "adj": record_edge, "why": f"Overall Win % diff between {h} and {a}"})
 
     # --- 2. Home Field Advantage ---
-    # Baseball home field is worth exactly the final at-bat (approx 1.5 - 2.0% equity)
     total_edge += 1.8
     factors.append({"icon": "🏠", "name": "Last At-Bat Advantage", "adj": 1.8, "why": "Home team guaranteed the bottom of the 9th if trailing."})
 
     # --- 3. Park Factor Dynamics & Familiarity Edge ---
     park_factor = PARK_FACTORS.get(h, 1.00)
-    
-    # Calculate familiarity edge: The more extreme the park, the bigger the home roster advantage
     park_edge = abs(1.0 - park_factor) * 15.0 
     total_edge += park_edge
 
     if park_factor > 1.01:
-        adv = "Batters 🏏"
-        dis = "Pitchers ⚾"
-        desc = f"Hitter-Friendly ({park_factor}x Runs)"
+        adv, dis, desc = "Batters 🏏", "Pitchers ⚾", f"Hitter-Friendly ({park_factor}x Runs)"
     elif park_factor < 0.99:
-        adv = "Pitchers ⚾"
-        dis = "Batters 🏏"
-        desc = f"Pitcher-Friendly ({park_factor}x Runs)"
+        adv, dis, desc = "Pitchers ⚾", "Batters 🏏", f"Pitcher-Friendly ({park_factor}x Runs)"
     else:
-        adv = "Neutral"
-        dis = "Neutral"
-        desc = "Neutral Park"
+        adv, dis, desc = "Neutral", "Neutral", "Neutral Park"
         
-    factors.append({
-        "icon": "🏟️", 
-        "name": f"Park Factor: {desc}", 
-        "adj": park_edge, 
-        "why": f"Advantage: {adv} | Disadvantage: {dis} | {h} is built for this park."
-    })
+    factors.append({"icon": "🏟️", "name": f"Park Factor: {desc}", "adj": park_edge, "why": f"Advantage: {adv} | Disadvantage: {dis} | {h} is built for this park."})
 
-    # --- 4. Starting Pitcher Uncertainty / Matchup ---
-    if game['h_sp'] == "TBD":
-        total_edge -= 3.0
-        factors.append({"icon": "❓", "name": f"{h} Pitching Instability", "adj": -3.0, "why": "Using an opener or undecided spot-starter."})
-    if game['a_sp'] == "TBD":
-        total_edge += 3.0
-        factors.append({"icon": "❓", "name": f"{a} Pitching Instability", "adj": 3.0, "why": "Using an opener or undecided spot-starter."})
+    # ─────────────────────────────────────────────────────────
+    # THE "BEST GUESS" ADVANCED SABERMETRICS ENGINE
+    # ─────────────────────────────────────────────────────────
+    
+    def evaluate_pitcher(sp_name):
+        if sp_name == "TBD": return -3.0, "Pitching Instability (Spot Starter/Bullpen Game)"
+        for ace in ACES:
+            if ace.lower() in sp_name.lower(): return 4.0, f"Elite Ace Advantage (Top SIERA/Stuff+)"
+        for solid in SOLID_STARTERS:
+            if solid.lower() in sp_name.lower(): return 1.5, f"Solid Starter Advantage (Reliable Metrics)"
+        return 0.0, "Average Starting Pitcher"
 
-    # --- 5. Bullpen Fatigue & Travel ---
+    # A. Starting Pitching (The Heaviest Weight)
+    h_sp_val, h_sp_why = evaluate_pitcher(game['h_sp'])
+    a_sp_val, a_sp_why = evaluate_pitcher(game['a_sp'])
+    
+    if h_sp_val != 0:
+        total_edge += h_sp_val
+        factors.append({"icon": "🎯", "name": f"{h} SP Matchup", "adj": h_sp_val, "why": h_sp_why})
+    if a_sp_val != 0:
+        total_edge -= a_sp_val
+        factors.append({"icon": "🎯", "name": f"{a} SP Matchup", "adj": -a_sp_val, "why": a_sp_why})
+
+    # B. Offensive Matchups (wOBA / wRC+ Estimates)
+    lineup_edge = 0.0
+    if h in ELITE_LINEUPS: lineup_edge += 2.5
+    elif h in WEAK_LINEUPS: lineup_edge -= 2.5
+    if a in ELITE_LINEUPS: lineup_edge -= 2.5
+    elif a in WEAK_LINEUPS: lineup_edge += 2.5
+    
+    if lineup_edge != 0.0:
+        total_edge += lineup_edge
+        factors.append({"icon": "🏏", "name": "Lineup Talent Edge", "adj": lineup_edge, "why": "Estimated advantage in team wRC+ and rolling wOBA."})
+
+    # C. Bullpen Quality (xFIP Estimates)
+    bp_edge = 0.0
+    if h in ELITE_BULLPENS: bp_edge += 1.5
+    elif h in LIABILITY_BULLPENS: bp_edge -= 1.5
+    if a in ELITE_BULLPENS: bp_edge -= 1.5
+    elif a in LIABILITY_BULLPENS: bp_edge += 1.5
+    
+    if bp_edge != 0.0:
+        total_edge += bp_edge
+        factors.append({"icon": "🔥", "name": "Bullpen Talent Edge", "adj": bp_edge, "why": "Estimated advantage in late-inning relief quality (xFIP)."})
+
+    # D. Defense & Game Calling (OAA)
+    def_edge = 0.0
+    if h in ELITE_DEFENSES: def_edge += 1.0
+    if a in ELITE_DEFENSES: def_edge -= 1.0
+    
+    if def_edge != 0.0:
+        total_edge += def_edge
+        factors.append({"icon": "🧤", "name": "Defense & Framing", "adj": def_edge, "why": "Team Outs Above Average (OAA) and Catcher Framing edge."})
+
+    # E. Live Travel Fatigue & Bullpen Workload
     h_tired = h in fatigue_set
     a_tired = a in fatigue_set
     
     if h_tired and not a_tired:
         total_edge -= 2.5
-        factors.append({"icon": "🥵", "name": f"{h} Bullpen Tax", "adj": -2.5, "why": f"{h} played yesterday, {a} is rested."})
+        factors.append({"icon": "🥵", "name": f"{h} Bullpen Workload", "adj": -2.5, "why": f"{h} played yesterday, {a} is rested. Top relievers may be unavailable."})
     elif a_tired and not h_tired:
         total_edge += 2.5
-        factors.append({"icon": "🥵", "name": f"{a} Bullpen Tax", "adj": 2.5, "why": f"{a} played yesterday, {h} is rested."})
+        factors.append({"icon": "🥵", "name": f"{a} Bullpen Workload", "adj": 2.5, "why": f"{a} played yesterday, {h} is rested. Top relievers may be unavailable."})
     elif a_tired and h_tired:
-        # If both played, the away team is penalized slightly more for having to travel late at night
         total_edge += 1.0
-        factors.append({"icon": "✈️", "name": f"{a} Travel Fatigue", "adj": 1.0, "why": "Both teams played yesterday, but Away team had to travel."})
+        factors.append({"icon": "✈️", "name": f"{a} Travel Fatigue", "adj": 1.0, "why": "Both teams played yesterday, but Away team suffers late-night travel fatigue."})
 
-    # Calculate final probability (Capped between 5% and 95%)
+    # Calculate final probability
     prob = max(5.0, min(95.0, 50.0 + total_edge))
     winner = h if prob >= 50.0 else a
     conf = prob if prob >= 50.0 else 100.0 - prob
@@ -192,7 +249,6 @@ else:
     for game in slate:
         pred = predict_mlb_game(game, fatigue_set)
         
-        # Display the expander with the SP Matchup right in the title
         expander_title = f"{game['a_name']} ({game['a_sp']}) @ {game['h_name']} ({game['h_sp']}) | Winner: {pred['winner']} ({pred['conf']:.1f}%)"
         
         with st.expander(expander_title):
@@ -203,7 +259,6 @@ else:
             
             st.divider()
             
-            # --- NEW PARK FACTOR UI DISPLAY ---
             st.markdown("#### 🏟️ Stadium Analytics")
             st.write(f"**Park Factor:** {pred['park_factor']:.2f}x average runs")
             st.write(f"**Advantage:** {pred['park_adv']} | **Disadvantage:** {pred['park_dis']}")
