@@ -12,7 +12,7 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🏟️ PARK FACTORS (Multipliers for Run Environments)
-# > 100 = Hitter Friendly (Coors Field) | < 100 = Pitcher Friendly (Petco Park)
+# > 1.00 = Hitter Friendly (Coors Field) | < 1.00 = Pitcher Friendly (Petco Park)
 # ─────────────────────────────────────────────────────────────────────────────
 PARK_FACTORS = {
     'COL': 1.12, 'CIN': 1.08, 'BOS': 1.07, 'LAA': 1.04, 'BAL': 1.03,
@@ -111,15 +111,34 @@ def predict_mlb_game(game, fatigue_set):
     total_edge += 1.8
     factors.append({"icon": "🏠", "name": "Last At-Bat Advantage", "adj": 1.8, "why": "Home team guaranteed the bottom of the 9th if trailing."})
 
-    # --- 3. Park Factor Dynamics ---
+    # --- 3. Park Factor Dynamics & Familiarity Edge ---
     park_factor = PARK_FACTORS.get(h, 1.00)
-    if park_factor > 1.02:
-        factors.append({"icon": "🏟️", "name": "Hitter's Park", "adj": 0.0, "why": f"{h} is highly prone to home runs and extra bases."})
-    elif park_factor < 0.98:
-        factors.append({"icon": "🏟️", "name": "Pitcher's Park", "adj": 0.0, "why": f"{h} suppresses runs and heavily favors the SP."})
+    
+    # Calculate familiarity edge: The more extreme the park, the bigger the home roster advantage
+    park_edge = abs(1.0 - park_factor) * 15.0 
+    total_edge += park_edge
+
+    if park_factor > 1.01:
+        adv = "Batters 🏏"
+        dis = "Pitchers ⚾"
+        desc = f"Hitter-Friendly ({park_factor}x Runs)"
+    elif park_factor < 0.99:
+        adv = "Pitchers ⚾"
+        dis = "Batters 🏏"
+        desc = f"Pitcher-Friendly ({park_factor}x Runs)"
+    else:
+        adv = "Neutral"
+        dis = "Neutral"
+        desc = "Neutral Park"
+        
+    factors.append({
+        "icon": "🏟️", 
+        "name": f"Park Factor: {desc}", 
+        "adj": park_edge, 
+        "why": f"Advantage: {adv} | Disadvantage: {dis} | {h} is built for this park."
+    })
 
     # --- 4. Starting Pitcher Uncertainty / Matchup ---
-    # (In a V2 of this app, you would plug SP ERA vs Team OPS here)
     if game['h_sp'] == "TBD":
         total_edge -= 3.0
         factors.append({"icon": "❓", "name": f"{h} Pitching Instability", "adj": -3.0, "why": "Using an opener or undecided spot-starter."})
@@ -147,7 +166,14 @@ def predict_mlb_game(game, fatigue_set):
     winner = h if prob >= 50.0 else a
     conf = prob if prob >= 50.0 else 100.0 - prob
     
-    return {'winner': winner, 'conf': conf, 'factors': factors}
+    return {
+        'winner': winner, 
+        'conf': conf, 
+        'factors': factors,
+        'park_factor': park_factor,
+        'park_adv': adv,
+        'park_dis': dis
+    }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. USER INTERFACE
@@ -174,6 +200,13 @@ else:
             for f in pred['factors']:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
                 st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
+            
+            st.divider()
+            
+            # --- NEW PARK FACTOR UI DISPLAY ---
+            st.markdown("#### 🏟️ Stadium Analytics")
+            st.write(f"**Park Factor:** {pred['park_factor']:.2f}x average runs")
+            st.write(f"**Advantage:** {pred['park_adv']} | **Disadvantage:** {pred['park_dis']}")
             
             st.divider()
             col1, col2 = st.columns(2)
