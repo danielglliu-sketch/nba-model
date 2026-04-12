@@ -21,37 +21,34 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success(f"Cache cleared! Pulling slate for {selected_date}.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚨 MANUAL OVERRIDES & MLB SABERMETRIC TIERS 🚨
+# 🚨 DYNAMIC OVERRIDES (Fixing the Static Tier Decay) 🚨
 # ─────────────────────────────────────────────────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.subheader("🛠️ Daily Manual Overrides")
+st.sidebar.caption("Update these lists directly in the app to remove resting/injured players or add hot streaks!")
 
-# 1. STARTING PITCHING (SIERA, K-BB%, Stuff+)
-ACES = [
-    "Tarik Skubal", "Zack Wheeler", "Corbin Burnes", "Chris Sale", "Cole Ragans", 
-    "Paul Skenes", "Logan Webb", "Gerrit Cole", "Tyler Glasnow", "Yoshinobu Yamamoto", 
-    "Framber Valdez", "Max Fried", "Dylan Cease", "Shota Imanaga", "Hunter Greene", 
-    "Spencer Strider", "Shohei Ohtani", "Jared Jones", "Jacob deGrom"
-]
+with st.sidebar.expander("Edit Player/Team Tiers", expanded=False):
+    aces_input = st.text_area("ACES", "Tarik Skubal, Zack Wheeler, Corbin Burnes, Chris Sale, Cole Ragans, Paul Skenes, Logan Webb, Gerrit Cole, Tyler Glasnow, Yoshinobu Yamamoto, Framber Valdez, Max Fried, Dylan Cease, Shota Imanaga, Hunter Greene, Spencer Strider, Shohei Ohtani, Jared Jones, Jacob deGrom")
+    ACES = [x.strip() for x in aces_input.split(',')]
 
-SOLID_STARTERS = [
-    "Aaron Nola", "Sonny Gray", "Freddy Peralta", "Justin Steele", "Seth Lugo", 
-    "Michael King", "Zac Gallen", "George Kirby", "Logan Gilbert", "Luis Castillo", 
-    "Kevin Gausman", "Tanner Houck", "Grayson Rodriguez", "Jack Flaherty", 
-    "Reynaldo Lopez", "Ronel Blanco", "Bailey Ober", "Pablo Lopez", "Justin Verlander",
-    "Max Scherzer", "Joe Musgrove", "Yu Darvish", "Nathan Eovaldi"
-]
+    solid_input = st.text_area("SOLID STARTERS", "Aaron Nola, Sonny Gray, Freddy Peralta, Justin Steele, Seth Lugo, Michael King, Zac Gallen, George Kirby, Logan Gilbert, Luis Castillo, Kevin Gausman, Tanner Houck, Grayson Rodriguez, Jack Flaherty, Reynaldo Lopez, Ronel Blanco, Bailey Ober, Pablo Lopez, Justin Verlander, Max Scherzer, Joe Musgrove, Yu Darvish, Nathan Eovaldi")
+    SOLID_STARTERS = [x.strip() for x in solid_input.split(',')]
 
-# 2. OFFENSIVE MATCHUPS (Rolling wOBA & Platoon wRC+)
-ELITE_LINEUPS = ['LAD', 'NYY', 'BAL', 'PHI', 'ATL', 'HOU', 'SD']
-WEAK_LINEUPS = ['CHW', 'MIA', 'COL', 'LAA', 'WSH', 'OAK']
+    elite_lineups_input = st.text_area("ELITE LINEUPS", "LAD, NYY, BAL, PHI, ATL, HOU, SD")
+    ELITE_LINEUPS = [x.strip() for x in elite_lineups_input.split(',')]
 
+    weak_lineups_input = st.text_area("WEAK LINEUPS", "CHW, MIA, COL, LAA, WSH, OAK")
+    WEAK_LINEUPS = [x.strip() for x in weak_lineups_input.split(',')]
+
+    elite_bullpens_input = st.text_area("ELITE BULLPENS", "CLE, MIL, ATL, PHI, LAD, NYY, BAL, SD")
+    ELITE_BULLPENS = [x.strip() for x in elite_bullpens_input.split(',')]
+
+    liability_bullpens_input = st.text_area("LIABILITY BULLPENS", "CHW, COL, MIA, LAA, WSH, TOR, OAK")
+    LIABILITY_BULLPENS = [x.strip() for x in liability_bullpens_input.split(',')]
+
+# Platoon Splits & Defenses (Kept Static to save space)
 LEFTY_MASHERS = ['ATL', 'LAD', 'BAL'] 
 RIGHTY_MASHERS = ['NYY', 'PHI', 'HOU'] 
-
-# 3. BULLPEN (xFIP & Workload)
-ELITE_BULLPENS = ['CLE', 'MIL', 'ATL', 'PHI', 'LAD', 'NYY', 'BAL', 'SD']
-LIABILITY_BULLPENS = ['CHW', 'COL', 'MIA', 'LAA', 'WSH', 'TOR', 'OAK']
-
-# 5. DEFENSE AND GAME CALLING (OAA & Catcher Framing)
 ELITE_DEFENSES = ['CLE', 'TEX', 'ARI', 'MIL', 'TOR', 'SEA'] 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,25 +82,44 @@ def get_mlb_slate(date_str):
             away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             
             if home and away:
-                home_sp = "TBD"
-                away_sp = "TBD"
+                h_sp, a_sp = "TBD", "TBD"
+                h_era, a_era = 3.50, 3.50 # Base fallback
+                
+                # EXTRACT LIVE ERA
                 if 'probables' in home and len(home['probables']) > 0:
-                    home_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+                    h_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+                    stats = home['probables'][0].get('statistics', []) or home['probables'][0].get('stats', [])
+                    for stat in stats:
+                        if stat.get('abbreviation') == 'ERA':
+                            try: h_era = float(stat.get('displayValue', 3.50))
+                            except: pass
+
                 if 'probables' in away and len(away['probables']) > 0:
-                    away_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+                    a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+                    stats = away['probables'][0].get('statistics', []) or away['probables'][0].get('stats', [])
+                    for stat in stats:
+                        if stat.get('abbreviation') == 'ERA':
+                            try: a_era = float(stat.get('displayValue', 3.50))
+                            except: pass
+
+                # EXTRACT LIVE VEGAS ODDS
+                vegas_str = "N/A"
+                if 'odds' in comp and len(comp['odds']) > 0:
+                    vegas_str = comp['odds'][0].get('details', 'N/A')
 
                 games.append({
                     'h': norm_mlb(home['team']['abbreviation']), 
                     'a': norm_mlb(away['team']['abbreviation']),
                     'h_name': home['team']['displayName'], 
                     'a_name': away['team']['displayName'],
-                    'h_sp': home_sp,
-                    'a_sp': away_sp,
+                    'h_sp': h_sp,
+                    'a_sp': a_sp,
+                    'h_era': h_era,
+                    'a_era': a_era,
+                    'vegas': vegas_str,
                     'h_record': home.get('records', [{'summary': '0-0'}])[0]['summary'],
                     'a_record': away.get('records', [{'summary': '0-0'}])[0]['summary'],
-                    'game_time_utc': event.get('date', ''),
-                    'h_era': 3.50, # Placeholder for live ERA
-                    'a_era': 3.50  # Placeholder for live ERA
+                    'game_time_utc': event.get('date', '')
                 })
         return games
     except: return []
@@ -187,8 +203,8 @@ def predict_mlb_game(game, fatigue_set):
             
         for ace in ACES:
             if ace.lower() in sp_name.lower(): 
-                # FAIL-SAFE 3: Slump Check (ERA Proxy)
-                if era > 4.50: return 1.5, f"Slumping Ace (ERA > 4.50, downgraded to Solid)"
+                # FAIL-SAFE 3: Slump Check (Real ERA Proxy)
+                if era > 4.50: return 1.5, f"Slumping Ace (ERA: {era:.2f}, downgraded to Solid)"
                 return 4.0, f"Elite Ace (Top SIERA/K-BB%/Stuff+)"
         for solid in SOLID_STARTERS:
             if solid.lower() in sp_name.lower(): return 1.5, f"Solid Starter (Reliable Metrics/Velocity)"
@@ -244,10 +260,28 @@ def predict_mlb_game(game, fatigue_set):
         total_edge += def_edge
         factors.append({"icon": "🧤", "name": "Defense & Framing", "adj": def_edge, "why": "Team Outs Above Average (OAA) and Catcher Framing edge."})
 
-    # E. Live Travel Fatigue & Weather
-    factors.append({"icon": "⛅", "name": "Weather/Umpire (Neutralized)", "adj": 0.0, "why": "Wind density and Umpire tendencies assumed neutral."})
+    # ─────────────────────────────────────────────────────────
+    # FAIL-SAFE 6: VEGAS SHARP MONEY TETHER
+    # ─────────────────────────────────────────────────────────
+    vegas_edge = 0.0
+    vegas_str = game.get('vegas', 'N/A')
+    if vegas_str != 'N/A' and ' ' in vegas_str:
+        try:
+            parts = vegas_str.split(' ')
+            fav_team = parts[0].upper()
+            odds = int(parts[-1])
+            if odds < -100:
+                implied_prob = abs(odds) / (abs(odds) + 100.0)
+                vegas_pts = (implied_prob - 0.50) * 15.0 # Translates odds into a point advantage
+                if h in fav_team or fav_team in h: vegas_edge = vegas_pts
+                else: vegas_edge = -vegas_pts
+        except: pass
 
-    # FAIL-SAFE 2 LOGIC: Check who played yesterday and if it was a blowout
+    if vegas_edge != 0.0:
+        total_edge += vegas_edge
+        factors.append({"icon": "🎰", "name": "Sharp Vegas Money", "adj": vegas_edge, "why": f"Vegas Insider Line: {vegas_str} (Baking in unlisted factors/weather)."})
+
+    # E. Live Travel Fatigue
     h_played_yest, a_played_yest = False, False
     h_blowout_rest, a_blowout_rest = False, False
     played_each_other = False
@@ -328,8 +362,8 @@ else:
             with col1:
                 st.markdown(f"#### ✈️ Away: {game['a_name']}")
                 st.write(f"**Record:** {game['a_record']}")
-                st.write(f"**Starting Pitching:** {game['a_sp']}")
+                st.write(f"**Starting Pitching:** {game['a_sp']} *(Live ERA: {game.get('a_era', 'N/A')})*")
             with col2:
                 st.markdown(f"#### 🏠 Home: {game['h_name']}")
                 st.write(f"**Record:** {game['h_record']}")
-                st.write(f"**Starting Pitching:** {game['h_sp']}")
+                st.write(f"**Starting Pitching:** {game['h_sp']} *(Live ERA: {game.get('h_era', 'N/A')})*")
