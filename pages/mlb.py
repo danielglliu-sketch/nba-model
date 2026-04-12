@@ -6,9 +6,20 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="MLB Master AI", page_icon="⚾", layout="wide")
 
 st.sidebar.title("⚙️ System Tools")
+
+# NEW: Date Selector
+selected_date = st.sidebar.date_input(
+    "📅 Select Slate Date",
+    datetime.now().date()
+)
+# Convert selected date to string formats needed for API and Display
+target_date_str = selected_date.strftime('%Y%m%d')
+target_yesterday_str = (selected_date - timedelta(days=1)).strftime('%Y%m%d')
+
+
 if st.sidebar.button("🔄 Force Data Refresh"):
     st.cache_data.clear()
-    st.sidebar.success("Cache cleared! Pulling today's slate.")
+    st.sidebar.success(f"Cache cleared! Pulling slate for {selected_date}.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🚨 MANUAL OVERRIDES & MLB SABERMETRIC TIERS 🚨
@@ -67,10 +78,9 @@ def norm_mlb(abbr):
 # 1. AUTOMATED DAILY FETCHERS (ESPN API)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
-def get_mlb_slate():
-    """Fetches today's games, teams, and probable starting pitchers."""
-    today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
-    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={today_str}"
+def get_mlb_slate(date_str):
+    """Fetches games, teams, and probable starting pitchers for a specific date."""
+    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={date_str}"
     
     try:
         data = requests.get(url, timeout=5).json()
@@ -102,10 +112,9 @@ def get_mlb_slate():
     except: return []
 
 @st.cache_data(ttl=600)
-def get_mlb_fatigue():
+def get_mlb_fatigue(yesterday_str):
     """Checks yesterday's games to see who played (bullpen tax / travel fatigue)."""
     played_yesterday = set()
-    yesterday_str = (datetime.utcnow() - timedelta(days=1, hours=5)).strftime('%Y%m%d')
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={yesterday_str}"
     
     try:
@@ -264,15 +273,15 @@ def predict_mlb_game(game, fatigue_set):
 # 3. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("⚾ MLB Master AI Predictor")
-current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
-st.markdown(f"**Market Date:** {current_market_date}")
+st.markdown(f"**Market Date:** {selected_date.strftime('%B %d, %Y')}")
 st.divider()
 
-slate = get_mlb_slate()
-fatigue_set = get_mlb_fatigue()
+# Pass the dynamic date strings into the fetchers
+slate = get_mlb_slate(target_date_str)
+fatigue_set = get_mlb_fatigue(target_yesterday_str)
 
 if not slate:
-    st.info("No games scheduled for today or API is waiting for updates.")
+    st.info(f"No games scheduled for {selected_date} or API is waiting for updates.")
 else:
     for game in slate:
         pred = predict_mlb_game(game, fatigue_set)
