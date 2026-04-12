@@ -367,10 +367,10 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
         elif core_missing >= 4:
             multiplier = 2.00 # 100% compounding penalty (Total Collapse)
             
-        return o_pen * multiplier, d_pen * multiplier, details
+        return o_pen * multiplier, d_pen * multiplier, details, multiplier
 
-    h_off_pen, h_def_pen, h_det = calc_injury_penalty(h_inj) if h_inj else (0.0, 0.0, [])
-    a_off_pen, a_def_pen, a_det = calc_injury_penalty(a_inj) if a_inj else (0.0, 0.0, [])
+    h_off_pen, h_def_pen, h_det, h_mult = calc_injury_penalty(h_inj) if h_inj else (0.0, 0.0, [], 1.0)
+    a_off_pen, a_def_pen, a_det, a_mult = calc_injury_penalty(a_inj) if a_inj else (0.0, 0.0, [], 1.0)
 
     # 4. Efficiency (Injury-Adjusted Net Rating)
     adj_h_off = h_td['off_rtg'] - h_off_pen
@@ -387,9 +387,13 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     factors.append({"icon": "⚖️", "name": "Adj. Net Rating Edge", "adj": net_edge, "why": "Net Rating adjusted dynamically by player archetype"})
 
     if h_inj:
-        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": 0.0, "why": f"Impact baked into Net Rating. Missing: {', '.join(h_det)}"})
+        h_why = f"Impact baked into Net Rating. Missing: {', '.join(h_det)}"
+        if h_mult > 1.0: h_why += f" (🚨 System Collapse: {h_mult}x Penalty)"
+        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": 0.0, "why": h_why})
     if a_inj:
-        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": f"Impact baked into Net Rating. Missing: {', '.join(a_det)}"})
+        a_why = f"Impact baked into Net Rating. Missing: {', '.join(a_det)}"
+        if a_mult > 1.0: a_why += f" (🚨 System Collapse: {a_mult}x Penalty)"
+        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": a_why})
 
     # 5. BACK-TO-BACK FATIGUE
     if h in b2b_set:
