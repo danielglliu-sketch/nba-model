@@ -302,7 +302,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     hca_why = f"Altitude Advantage for {h}" if h == 'DEN' else f"Advantage for {h}"
     factors.append({"icon": "🏠", "name": "Home Court", "adj": hca, "why": hca_why})
 
-    # 3. INJURY DETECTION (ARCHETYPE PENALTIES)
+    # 3. INJURY DETECTION (ARCHETYPE PENALTIES & SYSTEM COLLAPSE)
     h_inj, a_inj = injuries.get(h, []), injuries.get(a, [])
     
     def get_player_impact(scraped_string):
@@ -336,9 +336,14 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     def calc_injury_penalty(inj_list):
         o_pen, d_pen = 0.0, 0.0
         details = []
+        core_missing = 0
+        
         for p in inj_list:
             val, tier, archetype = get_player_impact(p)
             
+            if tier in ["Superstar", "All-Star", "High-Impact"]:
+                core_missing += 1
+                
             if archetype == "Def_Liability":
                 o = val * 1.3
                 d = val * -0.3 # Negative means defense GETS BETTER without them
@@ -352,7 +357,17 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
             o_pen += o
             d_pen += d
             details.append(f"{p.split(' (')[0]} ({tier})")
-        return o_pen, d_pen, details
+            
+        # 🚨 EXPONENTIAL SYSTEM COLLAPSE PENALTY 🚨
+        multiplier = 1.0
+        if core_missing == 2:
+            multiplier = 1.25 # 25% compounding penalty
+        elif core_missing == 3:
+            multiplier = 1.50 # 50% compounding penalty
+        elif core_missing >= 4:
+            multiplier = 2.00 # 100% compounding penalty (Total Collapse)
+            
+        return o_pen * multiplier, d_pen * multiplier, details
 
     h_off_pen, h_def_pen, h_det = calc_injury_penalty(h_inj) if h_inj else (0.0, 0.0, [])
     a_off_pen, a_def_pen, a_det = calc_injury_penalty(a_inj) if a_inj else (0.0, 0.0, [])
