@@ -7,7 +7,7 @@ st.set_page_config(page_title="MLB Master AI", page_icon="⚾", layout="wide")
 
 st.sidebar.title("⚙️ System Tools")
 
-# NEW: Date Selector
+# Date Selector
 selected_date = st.sidebar.date_input(
     "📅 Select Slate Date",
     datetime.now().date()
@@ -15,7 +15,6 @@ selected_date = st.sidebar.date_input(
 # Convert selected date to string formats needed for API and Display
 target_date_str = selected_date.strftime('%Y%m%d')
 target_yesterday_str = (selected_date - timedelta(days=1)).strftime('%Y%m%d')
-
 
 if st.sidebar.button("🔄 Force Data Refresh"):
     st.cache_data.clear()
@@ -26,7 +25,6 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 1. STARTING PITCHING (SIERA, K-BB%, Stuff+)
-# ACES (+4.0 Edge) - Elite SIERA (<3.50) & Elite K-BB%
 ACES = [
     "Tarik Skubal", "Zack Wheeler", "Corbin Burnes", "Chris Sale", "Cole Ragans", 
     "Paul Skenes", "Logan Webb", "Gerrit Cole", "Tyler Glasnow", "Yoshinobu Yamamoto", 
@@ -34,7 +32,6 @@ ACES = [
     "Spencer Strider", "Shohei Ohtani", "Jared Jones", "Jacob deGrom"
 ]
 
-# SOLID STARTERS (+1.5 Edge) - High-End #2s and #3s, reliable Stuff+
 SOLID_STARTERS = [
     "Aaron Nola", "Sonny Gray", "Freddy Peralta", "Justin Steele", "Seth Lugo", 
     "Michael King", "Zac Gallen", "George Kirby", "Logan Gilbert", "Luis Castillo", 
@@ -47,16 +44,15 @@ SOLID_STARTERS = [
 ELITE_LINEUPS = ['LAD', 'NYY', 'BAL', 'PHI', 'ATL', 'HOU', 'SD']
 WEAK_LINEUPS = ['CHW', 'MIA', 'COL', 'LAA', 'WSH', 'OAK']
 
-# Platoon Splits (Teams that mash specific handedness)
-LEFTY_MASHERS = ['ATL', 'LAD', 'BAL'] # Elite wRC+ vs LHP
-RIGHTY_MASHERS = ['NYY', 'PHI', 'HOU'] # Elite wRC+ vs RHP
+LEFTY_MASHERS = ['ATL', 'LAD', 'BAL'] 
+RIGHTY_MASHERS = ['NYY', 'PHI', 'HOU'] 
 
 # 3. BULLPEN (xFIP & Workload)
 ELITE_BULLPENS = ['CLE', 'MIL', 'ATL', 'PHI', 'LAD', 'NYY', 'BAL', 'SD']
 LIABILITY_BULLPENS = ['CHW', 'COL', 'MIA', 'LAA', 'WSH', 'TOR', 'OAK']
 
 # 5. DEFENSE AND GAME CALLING (OAA & Catcher Framing)
-ELITE_DEFENSES = ['CLE', 'TEX', 'ARI', 'MIL', 'TOR', 'SEA'] # Elite OAA / Catcher Framing
+ELITE_DEFENSES = ['CLE', 'TEX', 'ARI', 'MIL', 'TOR', 'SEA'] 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🏟️ 4. ENVIRONMENTAL FACTORS (Park Factors)
@@ -79,9 +75,7 @@ def norm_mlb(abbr):
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_mlb_slate(date_str):
-    """Fetches games, teams, and probable starting pitchers for a specific date."""
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={date_str}"
-    
     try:
         data = requests.get(url, timeout=5).json()
         games = []
@@ -106,17 +100,18 @@ def get_mlb_slate(date_str):
                     'h_sp': home_sp,
                     'a_sp': away_sp,
                     'h_record': home.get('records', [{'summary': '0-0'}])[0]['summary'],
-                    'a_record': away.get('records', [{'summary': '0-0'}])[0]['summary']
+                    'a_record': away.get('records', [{'summary': '0-0'}])[0]['summary'],
+                    'game_time_utc': event.get('date', ''),
+                    'h_era': 3.50, # Placeholder for live ERA
+                    'a_era': 3.50  # Placeholder for live ERA
                 })
         return games
     except: return []
 
 @st.cache_data(ttl=600)
 def get_mlb_fatigue(yesterday_str):
-    """Checks yesterday's games to see who played (bullpen tax / travel fatigue)."""
     played_yesterday = set()
     url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={yesterday_str}"
-    
     try:
         data = requests.get(url, timeout=5).json()
         for event in data.get('events', []):
@@ -124,10 +119,15 @@ def get_mlb_fatigue(yesterday_str):
             h = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
             a = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             if h and a:
-                # Store the matchup to detect "Fake Travel"
                 h_abbr = norm_mlb(h['team']['abbreviation'])
                 a_abbr = norm_mlb(a['team']['abbreviation'])
-                played_yesterday.add((h_abbr, a_abbr)) # Store tuple of who played who
+                
+                # FAIL-SAFE 2: The Blowout Check
+                h_score = int(h.get('score', '0') or 0)
+                a_score = int(a.get('score', '0') or 0)
+                is_blowout = abs(h_score - a_score) >= 5
+                
+                played_yesterday.add((h_abbr, a_abbr, is_blowout))
     except: pass
     return played_yesterday
 
@@ -136,16 +136,26 @@ def get_mlb_fatigue(yesterday_str):
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_mlb_game(game, fatigue_set):
     h, a = game['h'], game['a']
-    
     factors = []
     total_edge = 0.0
     
-    # --- 1. Basic Win/Loss Momentum (With Regression to Mean) ---
+    # --- Date & Time Parsing for Fail-Safes ---
+    try:
+        game_dt_utc = datetime.strptime(game['game_time_utc'], '%Y-%m-%dT%H:%M:%SZ')
+        game_dt_est = game_dt_utc - timedelta(hours=5)
+        current_dt_est = datetime.utcnow() - timedelta(hours=5)
+        hours_until_game = (game_dt_est - current_dt_est).total_seconds() / 3600.0
+        is_day_game = game_dt_est.hour < 16
+        is_rest_day = game_dt_est.weekday() in [2, 3, 6] # Wed, Thu, Sun
+    except:
+        hours_until_game = 5.0
+        is_day_game = False
+        is_rest_day = False
+    
+    # --- 1. Basic Win/Loss Momentum ---
     try:
         hw, hl = map(int, game['h_record'].split('-'))
         aw, al = map(int, game['a_record'].split('-'))
-        
-        # Regression to mean: Add 10 hypothetical 50/50 games to stabilize early season math
         h_pct = (hw + 5) / (hw + hl + 10) if (hw + hl) > 0 else 0.500
         a_pct = (aw + 5) / (aw + al + 10) if (aw + al) > 0 else 0.500
     except:
@@ -161,31 +171,32 @@ def predict_mlb_game(game, fatigue_set):
 
     # --- 3. Park Factor Dynamics ---
     park_factor = PARK_FACTORS.get(h, 1.00)
-    
-    if park_factor > 1.01:
-        adv, dis, desc = "Batters 🏏", "Pitchers ⚾", f"Hitter-Friendly ({park_factor}x Runs)"
-    elif park_factor < 0.99:
-        adv, dis, desc = "Pitchers ⚾", "Batters 🏏", f"Pitcher-Friendly ({park_factor}x Runs)"
-    else:
-        adv, dis, desc = "Neutral", "Neutral", "Neutral Park"
-        
+    if park_factor > 1.01: adv, dis, desc = "Batters 🏏", "Pitchers ⚾", f"Hitter-Friendly ({park_factor}x Runs)"
+    elif park_factor < 0.99: adv, dis, desc = "Pitchers ⚾", "Batters 🏏", f"Pitcher-Friendly ({park_factor}x Runs)"
+    else: adv, dis, desc = "Neutral", "Neutral", "Neutral Park"
     factors.append({"icon": "🏟️", "name": f"Park Factor: {desc}", "adj": 0.0, "why": f"Advantage: {adv} | Disadvantage: {dis} | Modifies total expected runs."})
 
     # ─────────────────────────────────────────────────────────
-    # THE SABERMETRICS ENGINE (SIERA, wOBA, OAA)
+    # THE SABERMETRICS ENGINE 
     # ─────────────────────────────────────────────────────────
-    
-    def evaluate_pitcher(sp_name):
-        if sp_name == "TBD": return -3.0, "Pitching Instability (Spot Starter/Bullpen Game)"
+    def evaluate_pitcher(sp_name, era, hours_to_game):
+        if sp_name == "TBD":
+            # FAIL-SAFE 4: The 11:00 AM Rule (Early TBD Ignored)
+            if hours_to_game > 3.0: return 0.0, "TBD (Awaiting Announcement - Early)"
+            else: return -3.0, "Pitching Instability (Late TBD / Bullpen Game)"
+            
         for ace in ACES:
-            if ace.lower() in sp_name.lower(): return 4.0, f"Elite Ace (Top SIERA/K-BB%/Stuff+)"
+            if ace.lower() in sp_name.lower(): 
+                # FAIL-SAFE 3: Slump Check (ERA Proxy)
+                if era > 4.50: return 1.5, f"Slumping Ace (ERA > 4.50, downgraded to Solid)"
+                return 4.0, f"Elite Ace (Top SIERA/K-BB%/Stuff+)"
         for solid in SOLID_STARTERS:
             if solid.lower() in sp_name.lower(): return 1.5, f"Solid Starter (Reliable Metrics/Velocity)"
         return 0.0, "Average Starting Pitcher"
 
-    # A. Starting Pitching (SIERA, K-BB%, Stuff+, Velocity)
-    h_sp_val, h_sp_why = evaluate_pitcher(game['h_sp'])
-    a_sp_val, a_sp_why = evaluate_pitcher(game['a_sp'])
+    # A. Starting Pitching
+    h_sp_val, h_sp_why = evaluate_pitcher(game['h_sp'], game.get('h_era', 3.5), hours_until_game)
+    a_sp_val, a_sp_why = evaluate_pitcher(game['a_sp'], game.get('a_era', 3.5), hours_until_game)
     
     if h_sp_val != 0:
         total_edge += h_sp_val
@@ -194,17 +205,20 @@ def predict_mlb_game(game, fatigue_set):
         total_edge -= a_sp_val
         factors.append({"icon": "🎯", "name": f"{a} SP Matchup", "adj": -a_sp_val, "why": a_sp_why})
 
-    # B. Offensive Matchups (Rolling wOBA & Platoon wRC+)
+    # B. Offensive Matchups 
     lineup_edge = 0.0
+    h_bonus, a_bonus = 2.0, 2.0
     
-    # Base Lineup Talent
-    if h in ELITE_LINEUPS: lineup_edge += 2.0
+    # FAIL-SAFE 1: Sunday/Getaway Day Game Check
+    if is_rest_day and is_day_game:
+        h_bonus, a_bonus = 1.0, 1.0
+        factors.append({"icon": "🛌", "name": "Rest Day Dynamics", "adj": 0.0, "why": "Sunday/Getaway Day Game: Elite Lineup bonuses cut in half."})
+    
+    if h in ELITE_LINEUPS: lineup_edge += h_bonus
     elif h in WEAK_LINEUPS: lineup_edge -= 2.0
-    if a in ELITE_LINEUPS: lineup_edge -= 2.0
+    if a in ELITE_LINEUPS: lineup_edge -= a_bonus
     elif a in WEAK_LINEUPS: lineup_edge += 2.0
     
-    # Platoon Split Simulation (If Team hits well against SP handedness)
-    # Note: Requires live API to perfectly match Handedness, assuming generic edge here
     if h in LEFTY_MASHERS or h in RIGHTY_MASHERS: lineup_edge += 0.5
     if a in LEFTY_MASHERS or a in RIGHTY_MASHERS: lineup_edge -= 0.5
 
@@ -212,51 +226,61 @@ def predict_mlb_game(game, fatigue_set):
         total_edge += lineup_edge
         factors.append({"icon": "🏏", "name": "Lineup wRC+ & wOBA Edge", "adj": lineup_edge, "why": "Advantage in Rolling wOBA and Platoon splits."})
 
-    # C. Bullpen Quality (xFIP Estimates & Workload)
+    # C. Bullpen Quality
     bp_edge = 0.0
     if h in ELITE_BULLPENS: bp_edge += 1.5
     elif h in LIABILITY_BULLPENS: bp_edge -= 1.5
     if a in ELITE_BULLPENS: bp_edge -= 1.5
     elif a in LIABILITY_BULLPENS: bp_edge += 1.5
-    
     if bp_edge != 0.0:
         total_edge += bp_edge
         factors.append({"icon": "🔥", "name": "Bullpen xFIP Edge", "adj": bp_edge, "why": "Advantage in late-inning relief quality (SIERA/xFIP)."})
 
-    # D. Defense & Game Calling (OAA & Catcher Framing)
+    # D. Defense
     def_edge = 0.0
     if h in ELITE_DEFENSES: def_edge += 1.0
     if a in ELITE_DEFENSES: def_edge -= 1.0
-    
     if def_edge != 0.0:
         total_edge += def_edge
         factors.append({"icon": "🧤", "name": "Defense & Framing", "adj": def_edge, "why": "Team Outs Above Average (OAA) and Catcher Framing edge."})
 
     # E. Live Travel Fatigue & Weather
-    
-    # Weather Placeholder (Requires paid API for live wind)
     factors.append({"icon": "⛅", "name": "Weather/Umpire (Neutralized)", "adj": 0.0, "why": "Wind density and Umpire tendencies assumed neutral."})
 
-    # Check who played yesterday
-    h_played_yest = any(h in match for match in fatigue_set)
-    a_played_yest = any(a in match for match in fatigue_set)
+    # FAIL-SAFE 2 LOGIC: Check who played yesterday and if it was a blowout
+    h_played_yest, a_played_yest = False, False
+    h_blowout_rest, a_blowout_rest = False, False
+    played_each_other = False
     
-    # Did they play EACH OTHER yesterday? (No travel)
-    played_each_other = (h, a) in fatigue_set or (a, h) in fatigue_set
+    for match in fatigue_set:
+        m_h, m_a, m_blowout = match
+        if h == m_h or h == m_a:
+            h_played_yest = True
+            if m_blowout: h_blowout_rest = True
+        if a == m_h or a == m_a:
+            a_played_yest = True
+            if m_blowout: a_blowout_rest = True
+        if (h == m_h and a == m_a) or (a == m_h and h == m_a):
+            played_each_other = True
 
-    if h_played_yest and not a_played_yest:
+    h_bullpen_tax = h_played_yest and not h_blowout_rest
+    a_bullpen_tax = a_played_yest and not a_blowout_rest
+
+    if h_bullpen_tax and not a_bullpen_tax:
         total_edge -= 2.5
-        factors.append({"icon": "🥵", "name": f"{h} Bullpen Workload", "adj": -2.5, "why": f"{h} played yesterday, {a} is rested. Top relievers unavailable."})
-    elif a_played_yest and not h_played_yest:
+        factors.append({"icon": "🥵", "name": f"{h} Bullpen Workload", "adj": -2.5, "why": f"{h} played a close game yesterday, {a} is rested."})
+    elif a_bullpen_tax and not h_bullpen_tax:
         total_edge += 2.5
-        factors.append({"icon": "🥵", "name": f"{a} Bullpen Workload", "adj": 2.5, "why": f"{a} played yesterday, {h} is rested. Top relievers unavailable."})
-    elif a_played_yest and h_played_yest and not played_each_other:
-        # Both played, but not each other, meaning the Away team actually had to travel
+        factors.append({"icon": "🥵", "name": f"{a} Bullpen Workload", "adj": 2.5, "why": f"{a} played a close game yesterday, {h} is rested."})
+    elif h_blowout_rest or a_blowout_rest:
+        factors.append({"icon": "🧹", "name": "Blowout Rest Factor", "adj": 0.0, "why": "Top relievers preserved due to yesterday's blowout."})
+
+    if a_played_yest and h_played_yest and not played_each_other:
         total_edge += 1.0
         factors.append({"icon": "✈️", "name": f"{a} Travel Fatigue", "adj": 1.0, "why": "Away team suffers late-night travel fatigue crossing timezones."})
 
-    # Calculate final probability
-    prob = max(5.0, min(95.0, 50.0 + total_edge))
+    # FAIL-SAFE 5: The Implied Probability Cap (Vegas Max limits)
+    prob = max(35.0, min(65.0, 50.0 + total_edge))
     winner = h if prob >= 50.0 else a
     conf = prob if prob >= 50.0 else 100.0 - prob
     
@@ -276,7 +300,6 @@ st.title("⚾ MLB Master AI Predictor")
 st.markdown(f"**Market Date:** {selected_date.strftime('%B %d, %Y')}")
 st.divider()
 
-# Pass the dynamic date strings into the fetchers
 slate = get_mlb_slate(target_date_str)
 fatigue_set = get_mlb_fatigue(target_yesterday_str)
 
