@@ -38,6 +38,14 @@ with st.sidebar.expander("Edit Pitcher/Lineup Tiers", expanded=False):
 
     low_k_lineups_input = st.text_area("LOW-K LINEUPS (Make high contact)", "HOU, CLE, SD, KC, NYY, ATL")
     LOW_K_LINEUPS = [x.strip() for x in low_k_lineups_input.split(',')]
+    
+    st.sidebar.markdown("---")
+    st.sidebar.caption("📖 BvP HISTORY (Batter vs Pitcher)")
+    bvp_dom_input = st.text_area("HISTORICAL DOMINATION (Pitcher owns today's opponent)", "")
+    BVP_DOMINATION = [x.strip() for x in bvp_dom_input.split(',')] if bvp_dom_input else []
+    
+    bvp_strug_input = st.text_area("HISTORICAL STRUGGLES (Opponent hits this pitcher well)", "")
+    BVP_STRUGGLES = [x.strip() for x in bvp_strug_input.split(',')] if bvp_strug_input else []
 
 # Keeping Bullpens for "Manager Leash" Logic
 ELITE_BULLPENS = ['CLE', 'MIL', 'ATL', 'PHI', 'LAD', 'NYY', 'BAL', 'SD']
@@ -198,6 +206,15 @@ def predict_pitcher_props(game, fatigue_set):
             proj['outs'] += 1.0; proj['ks'] += 0.5
             proj['factors'].append("🛌 Opponent resting stars in Day Game (+1.0 Outs, +0.5 Ks)")
             
+        # 4. BvP HISTORY (Batter vs Pitcher Data Override)
+        if any(x.lower() in sp_name.lower() for x in BVP_DOMINATION if x):
+            proj['ks'] += 1.5; proj['outs'] += 2.0
+            proj['factors'].append("📖 BvP History: Pitcher historically dominates this lineup (+1.5 Ks, +2.0 Outs)")
+            
+        if any(x.lower() in sp_name.lower() for x in BVP_STRUGGLES if x):
+            proj['ks'] -= 1.5; proj['outs'] -= 2.0
+            proj['factors'].append("📖 BvP History: Lineup historically crushes this pitcher (-1.5 Ks, -2.0 Outs)")
+            
         return proj
 
     # Evaluate Both Pitchers
@@ -219,7 +236,7 @@ fatigue_set = get_mlb_fatigue(target_yesterday_str)
 if not slate:
     st.info(f"No games scheduled for {selected_date} or API is waiting for updates.")
 else:
-    for game in slate:
+    for i, game in enumerate(slate):
         props = predict_pitcher_props(game, fatigue_set)
         
         if not props: # TBD Pitchers
@@ -235,7 +252,22 @@ else:
                 st.markdown(f"### ✈️ {a_sp}")
                 st.write(f"**Live ERA:** {game.get('a_era', 'N/A')}")
                 st.markdown(f"🔥 **Proj Strikeouts:** `{props['a_proj']['ks']:.1f}`")
+                
+                # --- NEW UI: AWAY OVER/UNDER ---
+                a_k_line = st.number_input("Vegas K-Line:", value=5.5, step=0.5, key=f"ak_{i}_{game['a']}")
+                if props['a_proj']['ks'] > a_k_line:
+                    st.success(f"📈 AI Edge: **OVER {a_k_line} Ks**")
+                else:
+                    st.warning(f"📉 AI Edge: **UNDER {a_k_line} Ks**")
+                    
                 st.markdown(f"⚾ **Proj Outs:** `{props['a_proj']['outs']:.1f}` (approx {props['a_proj']['outs']/3:.1f} IP)")
+                
+                a_o_line = st.number_input("Vegas Outs Line:", value=15.5, step=0.5, key=f"ao_{i}_{game['a']}")
+                if props['a_proj']['outs'] > a_o_line:
+                    st.success(f"📈 AI Edge: **OVER {a_o_line} Outs**")
+                else:
+                    st.warning(f"📉 AI Edge: **UNDER {a_o_line} Outs**")
+                
                 st.caption("Key Prop Factors:")
                 for f in props['a_proj']['factors']:
                     st.write(f"- {f}")
@@ -245,7 +277,22 @@ else:
                 st.markdown(f"### 🏠 {h_sp}")
                 st.write(f"**Live ERA:** {game.get('h_era', 'N/A')}")
                 st.markdown(f"🔥 **Proj Strikeouts:** `{props['h_proj']['ks']:.1f}`")
+                
+                # --- NEW UI: HOME OVER/UNDER ---
+                h_k_line = st.number_input("Vegas K-Line:", value=5.5, step=0.5, key=f"hk_{i}_{game['h']}")
+                if props['h_proj']['ks'] > h_k_line:
+                    st.success(f"📈 AI Edge: **OVER {h_k_line} Ks**")
+                else:
+                    st.warning(f"📉 AI Edge: **UNDER {h_k_line} Ks**")
+                    
                 st.markdown(f"⚾ **Proj Outs:** `{props['h_proj']['outs']:.1f}` (approx {props['h_proj']['outs']/3:.1f} IP)")
+                
+                h_o_line = st.number_input("Vegas Outs Line:", value=15.5, step=0.5, key=f"ho_{i}_{game['h']}")
+                if props['h_proj']['outs'] > h_o_line:
+                    st.success(f"📈 AI Edge: **OVER {h_o_line} Outs**")
+                else:
+                    st.warning(f"📉 AI Edge: **UNDER {h_o_line} Outs**")
+
                 st.caption("Key Prop Factors:")
                 for f in props['h_proj']['factors']:
                     st.write(f"- {f}")
