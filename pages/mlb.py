@@ -3,7 +3,7 @@ import requests
 from datetime import datetime, timedelta
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="MLB Master AI", page_icon="⚾", layout="wide")
+st.set_page_config(page_title="MLB Master AI - Prop Predictor", page_icon="🎯", layout="wide")
 
 st.sidebar.title("⚙️ System Tools")
 
@@ -12,7 +12,6 @@ selected_date = st.sidebar.date_input(
     "📅 Select Slate Date",
     datetime.now().date()
 )
-# Convert selected date to string formats needed for API and Display
 target_date_str = selected_date.strftime('%Y%m%d')
 target_yesterday_str = (selected_date - timedelta(days=1)).strftime('%Y%m%d')
 
@@ -21,35 +20,28 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success(f"Cache cleared! Pulling slate for {selected_date}.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚨 DYNAMIC OVERRIDES (Fixing the Static Tier Decay) 🚨
+# 🚨 DYNAMIC OVERRIDES (PITCHER PROP SPECIFIC) 🚨
 # ─────────────────────────────────────────────────────────────────────────────
 st.sidebar.markdown("---")
-st.sidebar.subheader("🛠️ Daily Manual Overrides")
-st.sidebar.caption("Update these lists directly in the app to remove resting/injured players or add hot streaks!")
+st.sidebar.subheader("🛠️ Daily Prop Overrides")
+st.sidebar.caption("Update these lists to isolate elite strikeout pitchers and workhorses.")
 
-with st.sidebar.expander("Edit Player/Team Tiers", expanded=False):
-    aces_input = st.text_area("ACES", "Tarik Skubal, Zack Wheeler, Corbin Burnes, Chris Sale, Cole Ragans, Paul Skenes, Logan Webb, Gerrit Cole, Tyler Glasnow, Yoshinobu Yamamoto, Framber Valdez, Max Fried, Dylan Cease, Shota Imanaga, Hunter Greene, Spencer Strider, Shohei Ohtani, Jared Jones, Jacob deGrom")
-    ACES = [x.strip() for x in aces_input.split(',')]
+with st.sidebar.expander("Edit Pitcher/Lineup Tiers", expanded=False):
+    high_whiff_input = st.text_area("HIGH-WHIFF PITCHERS (Elite K-Rate)", "Tarik Skubal, Zack Wheeler, Corbin Burnes, Chris Sale, Cole Ragans, Paul Skenes, Tyler Glasnow, Spencer Strider, Jared Jones, Hunter Greene, Dylan Cease, Shohei Ohtani")
+    HIGH_WHIFF_PITCHERS = [x.strip() for x in high_whiff_input.split(',')]
 
-    solid_input = st.text_area("SOLID STARTERS", "Aaron Nola, Sonny Gray, Freddy Peralta, Justin Steele, Seth Lugo, Michael King, Zac Gallen, George Kirby, Logan Gilbert, Luis Castillo, Kevin Gausman, Tanner Houck, Grayson Rodriguez, Jack Flaherty, Reynaldo Lopez, Ronel Blanco, Bailey Ober, Pablo Lopez, Justin Verlander, Max Scherzer, Joe Musgrove, Yu Darvish, Nathan Eovaldi")
-    SOLID_STARTERS = [x.strip() for x in solid_input.split(',')]
+    workhorse_input = st.text_area("WORKHORSE PITCHERS (Consistent 6+ Innings)", "Logan Webb, Aaron Nola, Zack Wheeler, Corbin Burnes, Max Fried, Justin Steele, Seth Lugo, Kevin Gausman, Framber Valdez, George Kirby, Logan Gilbert")
+    WORKHORSE_PITCHERS = [x.strip() for x in workhorse_input.split(',')]
 
-    elite_lineups_input = st.text_area("ELITE LINEUPS", "LAD, NYY, BAL, PHI, ATL, HOU, SD")
-    ELITE_LINEUPS = [x.strip() for x in elite_lineups_input.split(',')]
+    high_k_lineups_input = st.text_area("HIGH-K LINEUPS (Strike out often)", "COL, CHW, LAA, SEA, OAK, CIN, TB")
+    HIGH_K_LINEUPS = [x.strip() for x in high_k_lineups_input.split(',')]
 
-    weak_lineups_input = st.text_area("WEAK LINEUPS", "CHW, MIA, COL, LAA, WSH, OAK")
-    WEAK_LINEUPS = [x.strip() for x in weak_lineups_input.split(',')]
+    low_k_lineups_input = st.text_area("LOW-K LINEUPS (Make high contact)", "HOU, CLE, SD, KC, NYY, ATL")
+    LOW_K_LINEUPS = [x.strip() for x in low_k_lineups_input.split(',')]
 
-    elite_bullpens_input = st.text_area("ELITE BULLPENS", "CLE, MIL, ATL, PHI, LAD, NYY, BAL, SD")
-    ELITE_BULLPENS = [x.strip() for x in elite_bullpens_input.split(',')]
-
-    liability_bullpens_input = st.text_area("LIABILITY BULLPENS", "CHW, COL, MIA, LAA, WSH, TOR, OAK")
-    LIABILITY_BULLPENS = [x.strip() for x in liability_bullpens_input.split(',')]
-
-# Platoon Splits & Defenses (Kept Static to save space)
-LEFTY_MASHERS = ['ATL', 'LAD', 'BAL'] 
-RIGHTY_MASHERS = ['NYY', 'PHI', 'HOU'] 
-ELITE_DEFENSES = ['CLE', 'TEX', 'ARI', 'MIL', 'TOR', 'SEA'] 
+# Keeping Bullpens for "Manager Leash" Logic
+ELITE_BULLPENS = ['CLE', 'MIL', 'ATL', 'PHI', 'LAD', 'NYY', 'BAL', 'SD']
+LIABILITY_BULLPENS = ['CHW', 'COL', 'MIA', 'LAA', 'WSH', 'TOR', 'OAK']
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🏟️ 4. ENVIRONMENTAL FACTORS (Park Factors)
@@ -83,7 +75,7 @@ def get_mlb_slate(date_str):
             
             if home and away:
                 h_sp, a_sp = "TBD", "TBD"
-                h_era, a_era = 3.50, 3.50 # Base fallback
+                h_era, a_era = 3.50, 3.50 
                 
                 # EXTRACT LIVE ERA
                 if 'probables' in home and len(home['probables']) > 0:
@@ -102,11 +94,6 @@ def get_mlb_slate(date_str):
                             try: a_era = float(stat.get('displayValue', 3.50))
                             except: pass
 
-                # EXTRACT LIVE VEGAS ODDS
-                vegas_str = "N/A"
-                if 'odds' in comp and len(comp['odds']) > 0:
-                    vegas_str = comp['odds'][0].get('details', 'N/A')
-
                 games.append({
                     'h': norm_mlb(home['team']['abbreviation']), 
                     'a': norm_mlb(away['team']['abbreviation']),
@@ -116,9 +103,6 @@ def get_mlb_slate(date_str):
                     'a_sp': a_sp,
                     'h_era': h_era,
                     'a_era': a_era,
-                    'vegas': vegas_str,
-                    'h_record': home.get('records', [{'summary': '0-0'}])[0]['summary'],
-                    'a_record': away.get('records', [{'summary': '0-0'}])[0]['summary'],
                     'game_time_utc': event.get('date', '')
                 })
         return games
@@ -137,200 +121,95 @@ def get_mlb_fatigue(yesterday_str):
             if h and a:
                 h_abbr = norm_mlb(h['team']['abbreviation'])
                 a_abbr = norm_mlb(a['team']['abbreviation'])
-                
-                # FAIL-SAFE 2: The Blowout Check
                 h_score = int(h.get('score', '0') or 0)
                 a_score = int(a.get('score', '0') or 0)
                 is_blowout = abs(h_score - a_score) >= 5
-                
                 played_yesterday.add((h_abbr, a_abbr, is_blowout))
     except: pass
     return played_yesterday
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE PREDICTION ENGINE
+# 2. THE PROP PREDICTION ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-def predict_mlb_game(game, fatigue_set):
+def predict_pitcher_props(game, fatigue_set):
     h, a = game['h'], game['a']
-    factors = []
-    total_edge = 0.0
+    h_sp, a_sp = game['h_sp'], game['a_sp']
     
-    # --- Date & Time Parsing for Fail-Safes ---
+    # Baseline Projections (Average MLB Starter: 5.0 IP / 15 Outs, 5.0 Ks)
+    h_proj = {'ks': 5.0, 'outs': 15.0, 'factors': []}
+    a_proj = {'ks': 5.0, 'outs': 15.0, 'factors': []}
+    
+    if h_sp == "TBD" or a_sp == "TBD":
+        return None # Skip prop generation if pitchers aren't announced
+
+    # --- Date & Time Parsing ---
     try:
         game_dt_utc = datetime.strptime(game['game_time_utc'], '%Y-%m-%dT%H:%M:%SZ')
         game_dt_est = game_dt_utc - timedelta(hours=5)
-        current_dt_est = datetime.utcnow() - timedelta(hours=5)
-        hours_until_game = (game_dt_est - current_dt_est).total_seconds() / 3600.0
         is_day_game = game_dt_est.hour < 16
         is_rest_day = game_dt_est.weekday() in [2, 3, 6] # Wed, Thu, Sun
     except:
-        hours_until_game = 5.0
-        is_day_game = False
-        is_rest_day = False
-    
-    # --- 1. Basic Win/Loss Momentum ---
-    try:
-        hw, hl = map(int, game['h_record'].split('-'))
-        aw, al = map(int, game['a_record'].split('-'))
-        h_pct = (hw + 5) / (hw + hl + 10) if (hw + hl) > 0 else 0.500
-        a_pct = (aw + 5) / (aw + al + 10) if (aw + al) > 0 else 0.500
-    except:
-        h_pct, a_pct = 0.500, 0.500
-        
-    record_edge = (h_pct - a_pct) * 20.0
-    total_edge += record_edge
-    factors.append({"icon": "📊", "name": "Regressed Momentum Edge", "adj": record_edge, "why": f"Overall Win % diff between {h} and {a} (stabilized)."})
+        is_day_game = False; is_rest_day = False
 
-    # --- 2. Home Field Advantage ---
-    total_edge += 1.8
-    factors.append({"icon": "🏠", "name": "Last At-Bat Advantage", "adj": 1.8, "why": "Home team guaranteed the bottom of the 9th if trailing."})
-
-    # --- 3. Park Factor Dynamics ---
-    park_factor = PARK_FACTORS.get(h, 1.00)
-    if park_factor > 1.01: adv, dis, desc = "Batters 🏏", "Pitchers ⚾", f"Hitter-Friendly ({park_factor}x Runs)"
-    elif park_factor < 0.99: adv, dis, desc = "Pitchers ⚾", "Batters 🏏", f"Pitcher-Friendly ({park_factor}x Runs)"
-    else: adv, dis, desc = "Neutral", "Neutral", "Neutral Park"
-    factors.append({"icon": "🏟️", "name": f"Park Factor: {desc}", "adj": 0.0, "why": f"Advantage: {adv} | Disadvantage: {dis} | Modifies total expected runs."})
-
-    # ─────────────────────────────────────────────────────────
-    # THE SABERMETRICS ENGINE 
-    # ─────────────────────────────────────────────────────────
-    def evaluate_pitcher(sp_name, era, hours_to_game):
-        if sp_name == "TBD":
-            # FAIL-SAFE 4: The 11:00 AM Rule (Early TBD Ignored)
-            if hours_to_game > 3.0: return 0.0, "TBD (Awaiting Announcement - Early)"
-            else: return -3.0, "Pitching Instability (Late TBD / Bullpen Game)"
-            
-        for ace in ACES:
-            if ace.lower() in sp_name.lower(): 
-                # FAIL-SAFE 3: Slump Check (Real ERA Proxy)
-                if era > 4.50: return 1.5, f"Slumping Ace (ERA: {era:.2f}, downgraded to Solid)"
-                return 4.0, f"Elite Ace (Top SIERA/K-BB%/Stuff+)"
-        for solid in SOLID_STARTERS:
-            if solid.lower() in sp_name.lower(): return 1.5, f"Solid Starter (Reliable Metrics/Velocity)"
-        return 0.0, "Average Starting Pitcher"
-
-    # A. Starting Pitching
-    h_sp_val, h_sp_why = evaluate_pitcher(game['h_sp'], game.get('h_era', 3.5), hours_until_game)
-    a_sp_val, a_sp_why = evaluate_pitcher(game['a_sp'], game.get('a_era', 3.5), hours_until_game)
-    
-    if h_sp_val != 0:
-        total_edge += h_sp_val
-        factors.append({"icon": "🎯", "name": f"{h} SP Matchup", "adj": h_sp_val, "why": h_sp_why})
-    if a_sp_val != 0:
-        total_edge -= a_sp_val
-        factors.append({"icon": "🎯", "name": f"{a} SP Matchup", "adj": -a_sp_val, "why": a_sp_why})
-
-    # B. Offensive Matchups 
-    lineup_edge = 0.0
-    h_bonus, a_bonus = 2.0, 2.0
-    
-    # FAIL-SAFE 1: Sunday/Getaway Day Game Check
-    if is_rest_day and is_day_game:
-        h_bonus, a_bonus = 1.0, 1.0
-        factors.append({"icon": "🛌", "name": "Rest Day Dynamics", "adj": 0.0, "why": "Sunday/Getaway Day Game: Elite Lineup bonuses cut in half."})
-    
-    if h in ELITE_LINEUPS: lineup_edge += h_bonus
-    elif h in WEAK_LINEUPS: lineup_edge -= 2.0
-    if a in ELITE_LINEUPS: lineup_edge -= a_bonus
-    elif a in WEAK_LINEUPS: lineup_edge += 2.0
-    
-    if h in LEFTY_MASHERS or h in RIGHTY_MASHERS: lineup_edge += 0.5
-    if a in LEFTY_MASHERS or a in RIGHTY_MASHERS: lineup_edge -= 0.5
-
-    if lineup_edge != 0.0:
-        total_edge += lineup_edge
-        factors.append({"icon": "🏏", "name": "Lineup wRC+ & wOBA Edge", "adj": lineup_edge, "why": "Advantage in Rolling wOBA and Platoon splits."})
-
-    # C. Bullpen Quality
-    bp_edge = 0.0
-    if h in ELITE_BULLPENS: bp_edge += 1.5
-    elif h in LIABILITY_BULLPENS: bp_edge -= 1.5
-    if a in ELITE_BULLPENS: bp_edge -= 1.5
-    elif a in LIABILITY_BULLPENS: bp_edge += 1.5
-    if bp_edge != 0.0:
-        total_edge += bp_edge
-        factors.append({"icon": "🔥", "name": "Bullpen xFIP Edge", "adj": bp_edge, "why": "Advantage in late-inning relief quality (SIERA/xFIP)."})
-
-    # D. Defense
-    def_edge = 0.0
-    if h in ELITE_DEFENSES: def_edge += 1.0
-    if a in ELITE_DEFENSES: def_edge -= 1.0
-    if def_edge != 0.0:
-        total_edge += def_edge
-        factors.append({"icon": "🧤", "name": "Defense & Framing", "adj": def_edge, "why": "Team Outs Above Average (OAA) and Catcher Framing edge."})
-
-    # ─────────────────────────────────────────────────────────
-    # FAIL-SAFE 6: VEGAS SHARP MONEY TETHER
-    # ─────────────────────────────────────────────────────────
-    vegas_edge = 0.0
-    vegas_str = game.get('vegas', 'N/A')
-    if vegas_str != 'N/A' and ' ' in vegas_str:
-        try:
-            parts = vegas_str.split(' ')
-            fav_team = parts[0].upper()
-            odds = int(parts[-1])
-            if odds < -100:
-                implied_prob = abs(odds) / (abs(odds) + 100.0)
-                vegas_pts = (implied_prob - 0.50) * 15.0 # Translates odds into a point advantage
-                if h in fav_team or fav_team in h: vegas_edge = vegas_pts
-                else: vegas_edge = -vegas_pts
-        except: pass
-
-    if vegas_edge != 0.0:
-        total_edge += vegas_edge
-        factors.append({"icon": "🎰", "name": "Sharp Vegas Money", "adj": vegas_edge, "why": f"Vegas Insider Line: {vegas_str} (Baking in unlisted factors/weather)."})
-
-    # E. Live Travel Fatigue
-    h_played_yest, a_played_yest = False, False
-    h_blowout_rest, a_blowout_rest = False, False
-    played_each_other = False
-    
+    # --- Fatigue Parsing (For Manager Leash Logic) ---
+    h_bullpen_tax, a_bullpen_tax = False, False
     for match in fatigue_set:
         m_h, m_a, m_blowout = match
-        if h == m_h or h == m_a:
-            h_played_yest = True
-            if m_blowout: h_blowout_rest = True
-        if a == m_h or a == m_a:
-            a_played_yest = True
-            if m_blowout: a_blowout_rest = True
-        if (h == m_h and a == m_a) or (a == m_h and h == m_a):
-            played_each_other = True
+        if (h == m_h or h == m_a) and not m_blowout: h_bullpen_tax = True
+        if (a == m_h or a == m_a) and not m_blowout: a_bullpen_tax = True
 
-    h_bullpen_tax = h_played_yest and not h_blowout_rest
-    a_bullpen_tax = a_played_yest and not a_blowout_rest
+    # --- PARK FACTORS ---
+    park_factor = PARK_FACTORS.get(h, 1.00)
+    if park_factor < 0.98: # Pitcher Friendly
+        h_proj['outs'] += 1.0; a_proj['outs'] += 1.0
+        h_proj['factors'].append("🏟️ Pitcher-Friendly Park (+1.0 Outs)")
+        a_proj['factors'].append("🏟️ Pitcher-Friendly Park (+1.0 Outs)")
 
-    if h_bullpen_tax and not a_bullpen_tax:
-        total_edge -= 2.5
-        factors.append({"icon": "🥵", "name": f"{h} Bullpen Workload", "adj": -2.5, "why": f"{h} played a close game yesterday, {a} is rested."})
-    elif a_bullpen_tax and not h_bullpen_tax:
-        total_edge += 2.5
-        factors.append({"icon": "🥵", "name": f"{a} Bullpen Workload", "adj": 2.5, "why": f"{a} played a close game yesterday, {h} is rested."})
-    elif h_blowout_rest or a_blowout_rest:
-        factors.append({"icon": "🧹", "name": "Blowout Rest Factor", "adj": 0.0, "why": "Top relievers preserved due to yesterday's blowout."})
+    def evaluate_sp_props(sp_name, sp_era, opp_team, my_bullpen_tired, proj):
+        # 1. Strikeout Logic
+        is_high_whiff = any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS)
+        if is_high_whiff:
+            proj['ks'] += 1.5
+            proj['factors'].append("🎯 Elite Whiff Rate (+1.5 Ks)")
+            
+        if opp_team in HIGH_K_LINEUPS:
+            proj['ks'] += 1.0; proj['outs'] += 0.5
+            proj['factors'].append("🏏 Opponent is High-K Lineup (+1.0 Ks, +0.5 Outs)")
+        elif opp_team in LOW_K_LINEUPS:
+            proj['ks'] -= 1.5
+            proj['factors'].append("🏏 Opponent makes High Contact (-1.5 Ks)")
 
-    if a_played_yest and h_played_yest and not played_each_other:
-        total_edge += 1.0
-        factors.append({"icon": "✈️", "name": f"{a} Travel Fatigue", "adj": 1.0, "why": "Away team suffers late-night travel fatigue crossing timezones."})
+        # 2. Outs Recorded (Manager Leash) Logic
+        is_workhorse = any(x.lower() in sp_name.lower() for x in WORKHORSE_PITCHERS)
+        if is_workhorse:
+            if sp_era < 4.50:
+                proj['outs'] += 2.0
+                proj['factors'].append("🐎 Workhorse Tendency (+2.0 Outs)")
+            else:
+                proj['factors'].append("⚠️ Workhorse Slumping (ERA > 4.50, no Out bonus)")
+        
+        if my_bullpen_tired:
+            proj['outs'] += 1.0
+            proj['ks'] += 0.5
+            proj['factors'].append("🥵 Bullpen Fatigued -> Longer Leash (+1.0 Outs, +0.5 Ks)")
 
-    # FAIL-SAFE 5: The Implied Probability Cap (Vegas Max limits)
-    prob = max(35.0, min(65.0, 50.0 + total_edge))
-    winner = h if prob >= 50.0 else a
-    conf = prob if prob >= 50.0 else 100.0 - prob
+        # 3. Sunday/Getaway Day "Rest" Logic
+        if is_rest_day and is_day_game:
+            proj['outs'] += 1.0; proj['ks'] += 0.5
+            proj['factors'].append("🛌 Opponent resting stars in Day Game (+1.0 Outs, +0.5 Ks)")
+            
+        return proj
+
+    # Evaluate Both Pitchers
+    h_proj = evaluate_sp_props(h_sp, game.get('h_era', 3.5), a, h_bullpen_tax, h_proj)
+    a_proj = evaluate_sp_props(a_sp, game.get('a_era', 3.5), h, a_bullpen_tax, a_proj)
     
-    return {
-        'winner': winner, 
-        'conf': conf, 
-        'factors': factors,
-        'park_factor': park_factor,
-        'park_adv': adv,
-        'park_dis': dis
-    }
+    return {'h_proj': h_proj, 'a_proj': a_proj}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("⚾ MLB Master AI Predictor")
+st.title("🎯 MLB Pitcher Prop AI")
 st.markdown(f"**Market Date:** {selected_date.strftime('%B %d, %Y')}")
 st.divider()
 
@@ -341,29 +220,32 @@ if not slate:
     st.info(f"No games scheduled for {selected_date} or API is waiting for updates.")
 else:
     for game in slate:
-        pred = predict_mlb_game(game, fatigue_set)
+        props = predict_pitcher_props(game, fatigue_set)
         
-        expander_title = f"{game['a_name']} ({game['a_sp']}) @ {game['h_name']} ({game['h_sp']}) | Winner: {pred['winner']} ({pred['conf']:.1f}%)"
+        if not props: # TBD Pitchers
+            continue
+            
+        h_sp, a_sp = game['h_sp'], game['a_sp']
         
-        with st.expander(expander_title):
-            st.markdown(f"### 🏆 {pred['winner']} Projected to Win")
-            for f in pred['factors']:
-                color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888888"
-                st.markdown(f"{f['icon']} **{f['name']}**: <span style='color:{color}; font-weight:bold;'>{f['adj']:+.1f} pts</span> — {f['why']}", unsafe_allow_html=True)
-            
-            st.divider()
-            
-            st.markdown("#### 🏟️ Stadium Analytics")
-            st.write(f"**Park Factor:** {pred['park_factor']:.2f}x average runs")
-            st.write(f"**Advantage:** {pred['park_adv']} | **Disadvantage:** {pred['park_dis']}")
-            
-            st.divider()
+        with st.expander(f"⚾ {a_sp} ({game['a']}) vs {h_sp} ({game['h']})"):
             col1, col2 = st.columns(2)
+            
+            # AWAY PITCHER
             with col1:
-                st.markdown(f"#### ✈️ Away: {game['a_name']}")
-                st.write(f"**Record:** {game['a_record']}")
-                st.write(f"**Starting Pitching:** {game['a_sp']} *(Live ERA: {game.get('a_era', 'N/A')})*")
+                st.markdown(f"### ✈️ {a_sp}")
+                st.write(f"**Live ERA:** {game.get('a_era', 'N/A')}")
+                st.markdown(f"🔥 **Proj Strikeouts:** `{props['a_proj']['ks']:.1f}`")
+                st.markdown(f"⚾ **Proj Outs:** `{props['a_proj']['outs']:.1f}` (approx {props['a_proj']['outs']/3:.1f} IP)")
+                st.caption("Key Prop Factors:")
+                for f in props['a_proj']['factors']:
+                    st.write(f"- {f}")
+                    
+            # HOME PITCHER
             with col2:
-                st.markdown(f"#### 🏠 Home: {game['h_name']}")
-                st.write(f"**Record:** {game['h_record']}")
-                st.write(f"**Starting Pitching:** {game['h_sp']} *(Live ERA: {game.get('h_era', 'N/A')})*")
+                st.markdown(f"### 🏠 {h_sp}")
+                st.write(f"**Live ERA:** {game.get('h_era', 'N/A')}")
+                st.markdown(f"🔥 **Proj Strikeouts:** `{props['h_proj']['ks']:.1f}`")
+                st.markdown(f"⚾ **Proj Outs:** `{props['h_proj']['outs']:.1f}` (approx {props['h_proj']['outs']/3:.1f} IP)")
+                st.caption("Key Prop Factors:")
+                for f in props['h_proj']['factors']:
+                    st.write(f"- {f}")
