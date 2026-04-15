@@ -7,15 +7,20 @@ import pybaseball as pyb
 import difflib
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="MLB Quant AI - Restoration", page_icon="🎲", layout="wide")
+st.set_page_config(page_title="MLB Quant AI - 100% Data Fix", page_icon="🎲", layout="wide")
+
+# --- DATA SAFETY: CACHE PURGING ---
+from pybaseball import cache
+cache.enable() # Ensure cache is on but manageable
 
 st.sidebar.title("⚙️ The Quant Controls")
 selected_date = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
 target_date_str = selected_date.strftime('%Y%m%d')
 
-if st.sidebar.button("🔄 Force Data Refresh"):
+if st.sidebar.button("🚨 NUCLEAR RESET: Clear Cache & Refresh"):
+    cache.purge() # This kills the "League Average" ghost
     st.cache_data.clear()
-    st.sidebar.success("Slate refreshed!")
+    st.sidebar.success("Cache Purged! Re-scraping 2026 data...")
 
 odds_api_key = st.sidebar.text_input("The Odds API Key (Optional):", type="password")
 
@@ -36,35 +41,54 @@ with st.sidebar.expander("1. Lineup Discipline & Aggression"):
     BOOM_BUST_PITCHERS = [x.strip() for x in boom_bust_input.split(',')]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATION: THE FUZZY DATA ENGINE
+# 🤖 AUTOMATION: THE MULTI-SOURCE DATA ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=3600)
 def get_pitcher_stats_database():
+    """Tries FanGraphs first, then Baseball-Reference if empty."""
     try:
+        # Source 1: FanGraphs (Detailed)
         df = pyb.pitching_stats(2026, qual=0)
-        for col in ['K%', 'BB%']:
-            if df[col].dtype == object:
-                df[col] = df[col].str.rstrip('%').astype('float') / 100.0
-        df['Leash'] = ((df['IP'] / df['GS']) * 14 + 8).clip(55, 105)
-        df['Auto_PPA'] = 3.8 + (df['BB%'] * 7.5) 
-        return df.set_index('Name')[['K%', 'BB%', 'Leash', 'Auto_PPA']].to_dict('index')
-    except: return {}
+        if df.empty:
+            # Source 2: Baseball-Reference Fallback
+            df = pyb.pitching_stats_bref(2026)
+            
+        if not df.empty:
+            # Standardization
+            for col in ['K%', 'BB%']:
+                if col in df.columns and df[col].dtype == object:
+                    df[col] = df[col].str.rstrip('%').astype('float') / 100.0
+                elif col not in df.columns: # Handle BRef col names if needed
+                    if col == 'K%': df['K%'] = df['SO'] / df['BF']
+                    if col == 'BB%': df['BB%'] = df['BB'] / df['BF']
+            
+            # Calculate Leash (Strict 2026 Workload)
+            df['Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
+            df['Auto_PPA'] = 3.8 + (df['BB%'] * 7.5)
+            
+            return df.set_index('Name')[['K%', 'BB%', 'Leash', 'Auto_PPA']].to_dict('index')
+    except Exception as e:
+        st.sidebar.error(f"Scraper Error: {e}")
+    return {}
 
 STATS_DB = get_pitcher_stats_database()
+st.sidebar.metric("📊 Database Status", f"{len(STATS_DB)} Pitchers Found")
 
 def get_automated_metrics(pitcher_name):
     all_names = list(STATS_DB.keys())
-    matches = difflib.get_close_matches(pitcher_name, all_names, n=1, cutoff=0.55)
+    matches = difflib.get_close_matches(pitcher_name, all_names, n=1, cutoff=0.5)
+    
     if matches:
         match = STATS_DB[matches[0]]
         k_rate = match['K%']
+        # COMMAND DECAY FIX
         if match['BB%'] > 0.12:
-            k_rate = k_rate * 0.70 # Command Decay Fix
+            k_rate = k_rate * 0.70 
         return k_rate, match['Leash'], match['Auto_PPA'], match['BB%'], matches[0]
-    return 0.22, 95.0, 3.8, 0.08, "⚠️ LEAGUE AVERAGE"
+    return 0.22, 95.0, 3.8, 0.08, "⚠️ DATA MISSING (Using League Avg)"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. FETCHERS & ENGINE
+# 1. FETCHERS & ENGINE (PRESERVED)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_mlb_slate(date_str):
@@ -79,8 +103,10 @@ def get_mlb_slate(date_str):
             if home and away:
                 h_name = home['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in home else 'TBD'
                 a_name = away['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in away else 'TBD'
+                
                 h_k, h_leash, h_ppa, h_bb, h_full = get_automated_metrics(h_name)
                 a_k, a_leash, a_ppa, a_bb, a_full = get_automated_metrics(a_name)
+
                 games.append({
                     'h_team': home['team']['abbreviation'], 'a_team': away['team']['abbreviation'],
                     'h_sp': h_name, 'a_sp': a_name, 'h_full': h_full, 'a_full': a_full,
@@ -93,13 +119,24 @@ def get_mlb_slate(date_str):
 def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, pitch_limit, ppa, num_sims=10000):
     if sp_name == "TBD": return None
     pos, neg = [], []
-    factors = [f"📊 Adjusted K%: {base_k_rate*100:.1f}%"]
-    if opp_team in AGGRESSIVE_LINEUPS: neg.append(0.025); factors.append("⚠️ Quick Out Aggressor")
+    factors = [f"📊 True K%: {base_k_rate*100:.1f}%"]
+
+    if opp_team in AGGRESSIVE_LINEUPS:
+        neg.append(0.025); factors.append("⚠️ Quick Out Aggressor")
+
     w_high_k = 0.03 if not use_ml_weights else 0.03 * (1.2 if opp_team in HIGH_K_LINEUPS else 1.0)
-    if bb_rate > 0.12: w_high_k = w_high_k * 0.4 # Matchup Dampener
-    if opp_team in HIGH_K_LINEUPS: pos.append(w_high_k)
-    elif opp_team in LOW_K_LINEUPS: neg.append(0.04)
+    if bb_rate > 0.12:
+        w_high_k = w_high_k * 0.4 
+        factors.append("🚫 High-K Boost Dampened")
+
+    if opp_team in HIGH_K_LINEUPS:
+        pos.append(w_high_k); factors.append(f"🏏 Opponent Boost (+{w_high_k*100:.1f}%)")
+    elif opp_team in LOW_K_LINEUPS:
+        neg.append(0.04); factors.append("🛡️ Elite Contact Opponent (-4.0%)")
+
+    pos.sort(reverse=True); neg.sort(reverse=True)
     adj_k_rate = base_k_rate + sum(v*(0.5**i) for i,v in enumerate(pos)) - sum(v*(0.5**i) for i,v in enumerate(neg))
+    
     rates = np.random.normal(adj_k_rate, 0.03, num_sims)
     sims = np.random.binomial(int(pitch_limit / ppa), np.clip(rates, 0.05, 0.65))
     return {'sims': sims, 'factors': factors}
@@ -107,7 +144,10 @@ def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, pitch_limit, ppa, n
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. UI & BEST BETS
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🎲 MLB Quant AI: Best Bets Restored")
+st.title("🎲 MLB Quant AI: 100% Data Fix Edition")
+
+if not STATS_DB:
+    st.error("🚨 CRITICAL: The 2026 Database is empty. Press the 'NUCLEAR RESET' button in the sidebar to fix.")
 
 best_bets_container = st.container()
 best_bets_data = []
@@ -134,18 +174,16 @@ if slate:
                     elif prob < 42: st.error(f"📉 {100-prob:.1f}% UNDER")
                     st.bar_chart(pd.Series(res['sims']).value_counts().sort_index())
                     
-                    # Population of Best Bets
-                    if "LEAGUE AVERAGE" not in full:
+                    if "DATA MISSING" not in full:
                         if prob >= 59.0 or prob <= 41.0:
                             best_bets_data.append({'sp': name, 'line': line, 'prob': prob, 'side': side})
 
     with best_bets_container:
         st.subheader("⭐ Premium Best Bets (Validated Data Only)")
         if not best_bets_data:
-            st.info("No high-confidence bets identified for this slate.")
+            st.info("No high-confidence bets identified.")
         else:
             for bet in best_bets_data:
                 label = "OVER" if bet['prob'] > 50 else "UNDER"
                 edge = bet['prob'] if label == "OVER" else 100 - bet['prob']
-                st.success(f"**{bet['sp']}** ({bet['side']}) | **{label} {bet['line']} Ks** | Confidence: **{edge:.1f}%**")
-        st.divider()
+                st.success(f"**{bet['sp']}** | **{label} {bet['line']} Ks** | Confidence: **{edge:.1f}%**")
