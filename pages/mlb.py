@@ -42,8 +42,8 @@ with st.sidebar.expander("1. Lineup Discipline & Aggression", expanded=False):
     low_k_lineups_input = st.text_area("ELITE CONTACT LINEUPS", "HOU, CLE, SD, KC, NYY, ATL")
     LOW_K_LINEUPS = [x.strip() for x in low_k_lineups_input.split(',')]
     
-    # PURGED: Reid and other legacy names removed from here
-    boom_bust_input = st.text_area("BOOM-OR-BUST PITCHERS", "Blake Snell, Hunter Greene, Nick Pivetta")
+    # Reid is kept here to serve as the exclusion list for Best Bets
+    boom_bust_input = st.text_area("BOOM-OR-BUST PITCHERS", "Reid Detmers, Blake Snell, Hunter Greene, Nick Pivetta")
     BOOM_BUST_PITCHERS = [x.strip() for x in boom_bust_input.split(',')]
 
 with st.sidebar.expander("2. Environment & Matchup", expanded=False):
@@ -77,8 +77,10 @@ TEAM_WHIFF_VULNERABILITY = {
 
 @st.cache_data(ttl=3600)
 def get_pitcher_mix(sp_name):
-    # PURGED: Legacy hardcoded mixes removed. Shane and King kept for tracking.
     mix = {
+        'Dylan Cease': {'Slider': 0.45, 'Fastball': 0.40},
+        'Logan Webb': {'Changeup': 0.35, 'Sinker': 0.35},
+        'Corbin Burnes': {'Cutter': 0.45, 'Curve': 0.20},
         'Michael King': {'Sinker': 0.30, 'Slider': 0.25, 'Changeup': 0.20},
         'Shane McClanahan': {'Four-Seamer': 0.35, 'Changeup': 0.25, 'Curve': 0.20}
     }
@@ -102,9 +104,9 @@ def get_pitcher_stats_database():
             if df[col].dtype == object:
                 df[col] = df[col].str.rstrip('%').astype('float') / 100.0
         
-        # Automation Logic
+        # Calculate Workload Logic
         df['Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
-        df['Auto_PPA'] = 3.8 + (df['BB%'] * 7.0)
+        df['Auto_PPA'] = 3.8 + (df['BB%'] * 7.5)
         
         return df.set_index('Name')[['K%', 'BB%', 'Leash', 'Auto_PPA']].to_dict('index')
     except: return {}
@@ -121,7 +123,7 @@ def get_automated_pitcher_metrics(pitcher_name):
     
     if match:
         k_rate = match['K%']
-        # SHANE FIX: Command Penalty (30% raw cut to K-rate if wild)
+        # SHANE FIX: Hard Command Penalty
         if match['BB%'] > 0.12:
             k_rate = k_rate * 0.70 
         return k_rate, match['Leash'], match['Auto_PPA'], match['BB%'], matches[0]
@@ -174,19 +176,17 @@ def get_live_odds(api_key):
     except: return {}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. MONTE CARLO ENGINE (WITH SHANE FIX)
+# 2. MONTE CARLO ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
 def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, pitch_limit=95, ppa=3.8, num_sims=10000):
     if sp_name == "TBD": return None
     
-    factors = [f"📊 Adjusted K%: {base_k_rate*100:.1f}%"] 
     pos, neg = [], []
-
-    # SHANE FIX: Matchup Dampener (Wild pitchers cannot fully exploit high-K lineups)
     w_high_k = 0.03 if not use_ml_weights else 0.03 * (1.2 if opp_team in HIGH_K_LINEUPS else 1.0)
+    
+    # SHANE FIX: Wild pitchers cannot exploit high-K lineups
     if bb_rate > 0.12:
         w_high_k = w_high_k * 0.4 
-        factors.append("🚫 Boost Dampened (Wild Command)")
 
     if opp_team in AGGRESSIVE_LINEUPS: neg.append(0.025)
     if opp_team in HIGH_K_LINEUPS: pos.append(w_high_k)
@@ -205,7 +205,7 @@ def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, pitch_limit=95, ppa
     batters_faced = int(pitch_limit / ppa)
     sims = np.random.binomial(n=batters_faced, p=game_k_rates)
     
-    return {'sims': sims, 'factors': factors}
+    return {'sims': sims, 'adj_rate': adj_k_rate}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. UI
@@ -255,9 +255,9 @@ if slate:
                     else: st.warning(f"⚖️ Line is sharp ({prob:.1f}% Over)")
                     
                     st.bar_chart(pd.Series(proj['sims']).value_counts(normalize=True).sort_index() * 100)
-                    for f in proj['factors']: st.write(f"- {f}")
                     
-                    if prob >= 58.0 or prob <= 42.0:
+                    # REID FILTER: Checks if name is in BOOM_BUST_PITCHERS before recommending
+                    if (prob >= 58.0 or prob <= 42.0) and not any(x.lower() in name.lower() for x in BOOM_BUST_PITCHERS if x):
                         best_bets_data.append({'sp': name, 'line': k_line, 'prob': prob, 'side': side})
 
     with best_bets_container:
