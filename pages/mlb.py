@@ -93,7 +93,6 @@ def calculate_automated_arsenal_score(sp_name, opp_team):
         score += (usage * (vulnerability - 1))
     return score
 
-# --- FIX: LIVE 2026 DYNAMIC BASELINE SCRAPER ---
 @st.cache_data(ttl=86400)
 def get_k_rate_database():
     base_dict = {
@@ -102,7 +101,6 @@ def get_k_rate_database():
         'Michael King': 0.22, 'Aaron Nola': 0.25
     }
     try:
-        # Changes target to current 2026 season with low qualification hurdle
         df = pyb.pitching_stats(2026, qual=1)
         if df['K%'].dtype == object:
             df['K%'] = df['K%'].str.rstrip('%').astype('float') / 100.0
@@ -246,7 +244,8 @@ if slate:
             for side, proj, name, team, opp, line_key in [('✈️', a_proj, game['a_sp'], game['a'], game['h'], 'ak'), ('🏠', h_proj, game['h_sp'], game['h'], game['a'], 'hk')]:
                 with (col1 if side == '✈️' else col2):
                     st.markdown(f"### {side} {name}")
-                    k_line = live_odds.get(name, st.number_input("Vegas Line:", 5.5, 10.5, 5.5, 0.5, key=f"{line_key}_{i}_{team}"))
+                    # FIX: Lowered min_value from 5.5 to 0.5 to allow for all line types
+                    k_line = live_odds.get(name, st.number_input("Vegas Line:", 0.5, 12.5, 5.5, 0.5, key=f"{line_key}_{i}_{team}"))
                     over_prob = (np.sum(proj['simulations'] > k_line) / 10000) * 100
                     if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                     elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
