@@ -59,7 +59,6 @@ with st.sidebar.expander("3. Predictability (Best Bets Filter)", expanded=False)
     analytics_teams_input = st.text_area("STRICT ANALYTICS TEAMS (Predictable Leash)", "TB, LAD, MIL, BAL")
     ANALYTICS_TEAMS = [x.strip() for x in analytics_teams_input.split(',')]
 
-# --- NEW: ARSENAL MATCHING ---
 with st.sidebar.expander("4. Advanced Arsenal Matching", expanded=False):
     st.caption("Statcast Pitch distribution vs lineup Whiff Rates.")
     st.info("Automation enabled: Model now pulls 2024 pitch-mix data and team-level weakness matrix.")
@@ -83,15 +82,12 @@ TEAM_WHIFF_VULNERABILITY = {
     'SEA': {'Slider': 1.15, 'Fastball': 1.05, 'Curve': 1.10},
     'COL': {'Slider': 1.20, 'Fastball': 1.10, 'Changeup': 1.05},
     'CHW': {'Slider': 1.10, 'Fastball': 1.12, 'Curve': 1.08},
-    'NYY': {'Slider': 0.92, 'Fastball': 0.95, 'Changeup': 0.98}, # Hard to strike out
-    'HOU': {'Slider': 0.85, 'Fastball': 0.88, 'Curve': 0.90}, # Elite contact
+    'NYY': {'Slider': 0.92, 'Fastball': 0.95, 'Changeup': 0.98}, 
+    'HOU': {'Slider': 0.85, 'Fastball': 0.88, 'Curve': 0.90}, 
 }
 
 @st.cache_data(ttl=3600)
 def get_pitcher_mix(sp_name):
-    """Mocks Statcast data using pybaseball logic for common pitchers."""
-    # In a full-depth app, this would use pyb.statcast_pitcher(start_dt, end_dt, player_id)
-    # Using a lookup for common pitchers to avoid API timeout lag
     mix = {
         'Dylan Cease': {'Slider': 0.45, 'Fastball': 0.40},
         'Logan Webb': {'Changeup': 0.35, 'Sinker': 0.35},
@@ -163,13 +159,14 @@ def get_live_odds(api_key):
     except: return {}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE (WITH EFFICIENCY, VARIANCE, & AUTOMATED ARSENAL)
+# 2. THE MONTE CARLO ENGINE (WITH EXPONENTIAL DECAY REGULARIZATION)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, extra_bp_pitches=0, num_sims=10000):
     if sp_name == "TBD": return None
     
-    adj_k_rate = base_k_rate
     factors = []
+    positive_boosts = []
+    negative_penalties = []
 
     # --- ML Scaling Math ---
     w_whiff = 0.04 * (1.5 - base_k_rate) if use_ml_weights else 0.04
@@ -178,49 +175,62 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=9
     w_framing = 0.015 if not use_ml_weights else 0.015 * (1 + (0.30 - base_k_rate)) 
     
     if any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS):
-        adj_k_rate += w_whiff
-        factors.append(f"🎯 Elite Whiff Rate (+{w_whiff*100:.1f}% K-Prob)")
+        positive_boosts.append(w_whiff)
+        factors.append(f"🎯 Elite Whiff Rate (+{w_whiff*100:.1f}% raw)")
 
     if opp_team in HIGH_K_LINEUPS:
-        adj_k_rate += w_high_k
-        factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}% K-Prob)")
+        positive_boosts.append(w_high_k)
+        factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}% raw)")
     elif opp_team in LOW_K_LINEUPS:
-        adj_k_rate -= w_low_k
-        factors.append(f"🛡️ Elite Contact Opponent (-{w_low_k*100:.1f}% K-Prob)")
+        negative_penalties.append(w_low_k)
+        factors.append(f"🛡️ Elite Contact Opponent (-{w_low_k*100:.1f}% raw)")
 
     # --- AUTOMATED ARSENAL MATCHING ---
     arsenal_score = calculate_automated_arsenal_score(sp_name, opp_team)
     if arsenal_score > 1.02:
-        bonus = (arsenal_score - 1.0) * 0.15 # Scale to a ~2-4% boost
-        adj_k_rate += bonus
-        factors.append(f"⚾ Auto-Arsenal: Favorable Matchup (+{bonus*100:.1f}% K-Prob)")
+        bonus = (arsenal_score - 1.0) * 0.15 
+        positive_boosts.append(bonus)
+        factors.append(f"⚾ Auto-Arsenal: Favorable Matchup (+{bonus*100:.1f}% raw)")
     elif arsenal_score < 0.98:
         penalty = (1.0 - arsenal_score) * 0.15
-        adj_k_rate -= penalty
-        factors.append(f"⚾ Auto-Arsenal: Poor Matchup (-{penalty*100:.1f}% K-Prob)")
+        negative_penalties.append(penalty)
+        factors.append(f"⚾ Auto-Arsenal: Poor Matchup (-{penalty*100:.1f}% raw)")
 
     # Manual Overrides (Still active)
     if any(x.lower() in sp_name.lower() for x in ELITE_ARSENAL if x):
-        adj_k_rate += 0.05
-        factors.append("🛠️ Manual Arsenal Matchup: Elite (+5.0% K-Prob)")
+        positive_boosts.append(0.05)
+        factors.append("🛠️ Manual Arsenal Matchup: Elite (+5.0% raw)")
     if any(x.lower() in sp_name.lower() for x in POOR_ARSENAL if x):
-        adj_k_rate -= 0.05
-        factors.append("🛠️ Manual Arsenal Matchup: Poor (-5.0% K-Prob)")
+        negative_penalties.append(0.05)
+        factors.append("🛠️ Manual Arsenal Matchup: Poor (-5.0% raw)")
 
+    if park in COLD_GAMES:
+        positive_boosts.append(0.02)
+        factors.append("🥶 Dense/Cold Air (+2.0% raw)")
+
+    my_team = park if is_home else opp_team
+    if any(x in my_team for x in ELITE_CATCHERS):
+        positive_boosts.append(w_framing)
+        factors.append(f"🧤 Elite Catcher Framing (+{w_framing*100:.1f}% raw)")
+
+    # --- REGULARIZATION APPLIED HERE ---
+    positive_boosts.sort(reverse=True)
+    negative_penalties.sort(reverse=True)
+
+    reg_pos = sum(val * (0.5 ** i) for i, val in enumerate(positive_boosts))
+    reg_neg = sum(val * (0.5 ** i) for i, val in enumerate(negative_penalties))
+
+    adj_k_rate = base_k_rate + reg_pos - reg_neg
+
+    if len(positive_boosts) > 1 or len(negative_penalties) > 1:
+        factors.append(f"🗜️ Regularization Applied (Capped double-counting overlap)")
+
+    # Park Factors applied last as a scaler
     park_k_factor = K_PARK_FACTORS.get(park, 1.00)
     if park_k_factor != 1.00:
         adj_k_rate = adj_k_rate * park_k_factor
         val = (park_k_factor - 1) * 100
         factors.append(f"🏟️ Park Visibility Scaler ({val:+.1f}%)")
-
-    if park in COLD_GAMES:
-        adj_k_rate += 0.02
-        factors.append("🥶 Dense/Cold Air (+2.0% K-Prob)")
-
-    my_team = park if is_home else opp_team
-    if any(x in my_team for x in ELITE_CATCHERS):
-        adj_k_rate += w_framing
-        factors.append(f"🧤 Elite Catcher Framing (+{w_framing*100:.1f}% K-Prob)")
 
     adj_k_rate = max(0.10, min(0.45, adj_k_rate))
 
