@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 import pybaseball as pyb
+import difflib
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="MLB Quant AI - Monte Carlo K-Model", page_icon="🎲", layout="wide")
@@ -80,7 +81,8 @@ def get_pitcher_mix(sp_name):
         'Logan Webb': {'Changeup': 0.35, 'Sinker': 0.35},
         'Corbin Burnes': {'Cutter': 0.45, 'Curve': 0.20},
         'Reid Detmers': {'Slider': 0.30, 'Fastball': 0.40, 'Curve': 0.20},
-        'Michael King': {'Sinker': 0.30, 'Slider': 0.25, 'Changeup': 0.20}
+        'Michael King': {'Sinker': 0.30, 'Slider': 0.25, 'Changeup': 0.20},
+        'Shane McClanahan': {'Four-Seamer': 0.35, 'Changeup': 0.25, 'Curve': 0.20}
     }
     return mix.get(sp_name, {'Fastball': 0.50, 'Slider': 0.20})
 
@@ -93,36 +95,42 @@ def calculate_automated_arsenal_score(sp_name, opp_team):
         score += (usage * (vulnerability - 1))
     return score
 
-# --- UPDATED: AUTOMATED 2026 STATS (K%, BB%, LEASH, PPA) ---
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
     try:
-        df = pyb.pitching_stats(2026, qual=1)
+        # FIXED: qual=0 catches Shane/low-inning pitchers returning from injury
+        df = pyb.pitching_stats(2026, qual=0)
         for col in ['K%', 'BB%']:
             if df[col].dtype == object:
                 df[col] = df[col].str.rstrip('%').astype('float') / 100.0
         
-        # Calculate Leash: Avg Pitches per game (Proxy)
-        df['Leash'] = ((df['IP'] / df['GS']) * 15 + 15).clip(60, 105)
-        # Calculate Walk Tax: High BB% increases P/PA
-        df['Auto_PPA'] = 3.8 + (df['BB%'] * 2.5)
+        # Calculate Strict Leash for 2026 returning starters
+        df['Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
+        # FIXED: Aggressive Walk Tax multiplier (from 2.5 to 7.0)
+        df['Auto_PPA'] = 3.8 + (df['BB%'] * 7.0)
         
-        return df.set_index('Name')[['K%', 'Leash', 'Auto_PPA']].to_dict('index')
+        return df.set_index('Name')[['K%', 'BB%', 'Leash', 'Auto_PPA']].to_dict('index')
     except:
         return {}
 
 STATS_DB = get_pitcher_stats_database()
 
 def get_automated_pitcher_metrics(pitcher_name):
-    match = STATS_DB.get(pitcher_name)
-    if not match:
-        for name, data in STATS_DB.items():
-            if name.split(' ')[-1] == pitcher_name.split(' ')[-1]:
-                match = data
-                break
+    # FIXED: Fuzzy Name Matching prevents "League Average" ghost for Shane/S. McClanahan
+    all_names = list(STATS_DB.keys())
+    matches = difflib.get_close_matches(pitcher_name, all_names, n=1, cutoff=0.55)
+    
+    match = None
+    if matches:
+        match = STATS_DB[matches[0]]
+    
     if match:
-        return match['K%'], match['Leash'], match['Auto_PPA']
-    return 0.22, 95.0, 3.8 # Defaults
+        k_rate = match['K%']
+        # FIXED: Command Penalty (30% raw cut to K-rate if wild)
+        if match['BB%'] > 0.12:
+            k_rate = k_rate * 0.70 
+        return k_rate, match['Leash'], match['Auto_PPA'], match['BB%'], matches[0]
+    return 0.22, 95.0, 3.8, 0.08, "⚠️ Data Missing" # Defaults
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. FETCHERS
@@ -138,18 +146,17 @@ def get_mlb_slate(date_str):
             home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
             away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
             if home and away:
-                h_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in home else 'TBD'
-                a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in away else 'TBD'
+                h_sp_raw = home['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in home else 'TBD'
+                a_sp_raw = away['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in away else 'TBD'
                 
-                # Fetch automated baseline, leash, and ppa
-                h_k, h_leash, h_ppa = get_automated_pitcher_metrics(h_sp)
-                a_k, a_leash, a_ppa = get_automated_pitcher_metrics(a_sp)
+                h_k, h_leash, h_ppa, h_bb, h_full = get_automated_pitcher_metrics(h_sp_raw)
+                a_k, a_leash, a_ppa, a_bb, a_full = get_automated_metrics(a_sp_raw)
 
                 games.append({
                     'h': home['team']['abbreviation'], 'a': away['team']['abbreviation'],
-                    'h_sp': h_sp, 'a_sp': a_sp,
-                    'h_base_k_rate': h_k, 'h_leash': h_leash, 'h_ppa': h_ppa,
-                    'a_base_k_rate': a_k, 'a_leash': a_leash, 'a_ppa': a_ppa
+                    'h_sp': h_sp_raw, 'a_sp': a_sp_raw, 'h_full': h_full, 'a_full': a_full,
+                    'h_base_k_rate': h_k, 'h_leash': h_leash, 'h_ppa': h_ppa, 'h_bb': h_bb,
+                    'a_base_k_rate': a_k, 'a_leash': a_leash, 'a_ppa': a_ppa, 'a_bb': a_bb
                 })
         return games
     except: return []
@@ -172,37 +179,41 @@ def get_live_odds(api_key):
     except: return {}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. MONTE CARLO ENGINE (WITH "QUICK OUT" PENALTY)
+# 2. MONTE CARLO ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, extra_bp_pitches=0, num_sims=10000):
+def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, extra_bp_pitches=0, num_sims=10000):
     if sp_name == "TBD": return None
     
-    factors = [f"📊 True Baseline K%: {base_k_rate*100:.1f}%"] 
+    factors = [f"📊 Adjusted K%: {base_k_rate*100:.1f}%"] 
     positive_boosts = []
     negative_penalties = []
 
     if opp_team in AGGRESSIVE_LINEUPS:
         penalty = 0.025 
         negative_penalties.append(penalty)
-        factors.append(f"⚠️ Quick Out Aggressor (-{penalty*100:.1f}% raw)")
+        factors.append(f"⚠️ Quick Out Aggressor (-2.5%)")
 
+    # Matchup Logic
     w_high_k = 0.03 if not use_ml_weights else 0.03 * (1.2 if is_home else 1.0)
-    w_low_k = 0.04 if not use_ml_weights else 0.04 * (1.2 if not is_home else 1.0)
-    w_framing = 0.015 if not use_ml_weights else 0.015 * (1 + (0.30 - base_k_rate)) 
+    
+    # FIXED: Matchup Dampener (Wild pitchers cannot exploit high-K lineups)
+    if bb_rate > 0.12:
+        w_high_k = w_high_k * 0.4 
+        factors.append("🚫 Boost Dampened (Wild Command)")
 
     if opp_team in HIGH_K_LINEUPS:
         positive_boosts.append(w_high_k)
-        factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}% raw)")
+        factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}%)")
     elif opp_team in LOW_K_LINEUPS:
-        negative_penalties.append(w_low_k)
-        factors.append(f"🛡️ Elite Contact Opponent (-{w_low_k*100:.1f}% raw)")
+        negative_penalties.append(0.04)
+        factors.append(f"🛡️ Elite Contact Opponent (-4.0%)")
 
     # Arsenal
     arsenal_score = calculate_automated_arsenal_score(sp_name, opp_team)
     if arsenal_score > 1.02:
         bonus = (arsenal_score - 1.0) * 0.15 
         positive_boosts.append(bonus)
-        factors.append(f"⚾ Auto-Arsenal Matchup (+{bonus*100:.1f}% raw)")
+        factors.append(f"⚾ Auto-Arsenal Matchup (+{bonus*100:.1f}%)")
 
     # Regularization
     positive_boosts.sort(reverse=True)
@@ -242,21 +253,21 @@ if slate:
     for i, game in enumerate(slate):
         if game['h_sp'] == "TBD" or game['a_sp'] == "TBD": continue
         with st.expander(f"⚾ {game['a_sp']} vs {game['h_sp']} ({game['h']})"):
-            col_l1, col_l2 = st.columns(2)
-            # Away Pitcher Sliders
-            with col_l1:
-                pl_a = st.slider(f"{game['a_sp']} Max Pitches", 60, 115, int(game['a_leash']), key=f"pl_a_{i}")
-                ppa_a = st.slider(f"{game['h']} P/PA", 3.0, 5.0, float(game['a_ppa']), step=0.1, key=f"ppa_a_{i}")
-            # Home Pitcher Sliders
-            with col_l2:
-                pl_h = st.slider(f"{game['h_sp']} Max Pitches", 60, 115, int(game['h_leash']), key=f"pl_h_{i}")
-                ppa_h = st.slider(f"{game['a']} P/PA", 3.0, 5.0, float(game['h_ppa']), step=0.1, key=f"ppa_h_{i}")
+            # FIXED: Data HUD shows you exactly what the model found
+            st.caption(f"📊 **Data Source** | Away: {game['a_full']} ({game['a_bb']*100:.1f}% BB) | Home: {game['h_full']} ({game['h_bb']*100:.1f}% BB)")
             
-            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['h'], game['h'], False, pl_a, ppa_a)
-            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['a'], game['h'], True, pl_h, ppa_h)
+            col_l1, col_l2 = st.columns(2)
+            with col_l1:
+                pl_a = st.slider(f"{game['a_sp']} Max Pitches", 40, 115, int(game['a_leash']), key=f"pl_a_{i}")
+                ppa_a = st.slider(f"{game['h']} P/PA", 3.0, 5.5, float(game['a_ppa']), step=0.1, key=f"ppa_a_{i}")
+            with col_l2:
+                pl_h = st.slider(f"{game['h_sp']} Max Pitches", 40, 115, int(game['h_leash']), key=f"pl_h_{i}")
+                ppa_h = st.slider(f"{game['a']} P/PA", 3.0, 5.5, float(game['h_ppa']), step=0.1, key=f"ppa_h_{i}")
+            
+            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['a_bb'], game['h'], game['h'], False, pl_a, ppa_a)
+            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['h_bb'], game['a'], game['h'], True, pl_h, ppa_h)
 
             col1, col2 = st.columns(2)
-            # Setup for loops
             pitchers_data = [
                 ('✈️', a_proj, game['a_sp'], game['a'], game['h'], 'ak'), 
                 ('🏠', h_proj, game['h_sp'], game['h'], game['a'], 'hk')
@@ -268,22 +279,22 @@ if slate:
                     k_line = live_odds.get(name, st.number_input("Vegas Line:", 0.5, 12.5, 5.5, 0.5, key=f"{line_key}_{i}_{team}"))
                     over_prob = (np.sum(proj['simulations'] > k_line) / 10000) * 100
                     
-                    if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
-                    elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
+                    if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance OVER**")
+                    elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance UNDER**")
                     else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over)")
                     
                     st.bar_chart(proj['distribution'])
                     for f in proj['factors']: st.write(f"- {f}")
                     
-                    if (over_prob >= 56.0 or over_prob <= 44.0) and not any(x.lower() in name.lower() for x in BOOM_BUST_PITCHERS if x):
-                        if team in ANALYTICS_TEAMS or opp in HIGH_K_LINEUPS:
-                            best_bets_data.append({'sp': name, 'line': k_line, 'prob': over_prob})
+                    if (over_prob >= 58.0 or over_prob <= 42.0) and not any(x.lower() in name.lower() for x in BOOM_BUST_PITCHERS if x):
+                        best_bets_data.append({'sp': name, 'line': k_line, 'prob': over_prob, 'side': side})
 
     with best_bets_container:
         st.subheader("⭐ Quant Identified: Premium Best Bets")
         if not best_bets_data: st.info("No premium best bets identified.")
         else:
             for bet in best_bets_data:
-                s = "OVER" if bet['prob'] >= 56 else "UNDER"
-                st.success(f"**{bet['sp']}** | **{s} {bet['line']} Ks** | Edge: **{(bet['prob'] if s=='OVER' else 100-bet['prob']):.1f}%**")
+                s = "OVER" if bet['prob'] > 50 else "UNDER"
+                edge = bet['prob'] if s == "OVER" else 100 - bet['prob']
+                st.success(f"**{bet['sp']}** ({bet['side']}) | **{s} {bet['line']} Ks** | Confidence: **{edge:.1f}%**")
         st.divider()
