@@ -33,7 +33,6 @@ with st.sidebar.expander("1. Arsenal & Discipline", expanded=False):
     low_k_lineups_input = st.text_area("ELITE CONTACT LINEUPS (Opp K% - 4%)", "HOU, CLE, SD, KC, NYY, ATL")
     LOW_K_LINEUPS = [x.strip() for x in low_k_lineups_input.split(',')]
     
-    # --- NEW: VARIANCE OVERRIDE ---
     boom_bust_input = st.text_area("BOOM-OR-BUST PITCHERS (High Variance)", "Reid Detmers, Ryan Weathers, Blake Snell, Hunter Greene, Nick Pivetta")
     BOOM_BUST_PITCHERS = [x.strip() for x in boom_bust_input.split(',')]
 
@@ -43,6 +42,13 @@ with st.sidebar.expander("2. Environment & Matchup", expanded=False):
     
     elite_catchers = st.text_area("ELITE FRAMING CATCHERS (K% + 1.5%)", "Patrick Bailey, Austin Hedges, Jonah Heim, Cal Raleigh, William Contreras")
     ELITE_CATCHERS = [x.strip() for x in elite_catchers.split(',')]
+
+with st.sidebar.expander("3. Predictability (Best Bets Filter)", expanded=False):
+    workhorse_input = st.text_area("WORKHORSE PITCHERS (Low Variance)", "Logan Webb, Aaron Nola, Framber Valdez, Zach Eflin, George Kirby")
+    WORKHORSE_PITCHERS = [x.strip() for x in workhorse_input.split(',')]
+
+    analytics_teams_input = st.text_area("STRICT ANALYTICS TEAMS (Predictable Leash)", "TB, LAD, MIL, BAL")
+    ANALYTICS_TEAMS = [x.strip() for x in analytics_teams_input.split(',')]
 
 # Strikeout Park Factors (Used to scale probability)
 K_PARK_FACTORS = {
@@ -169,6 +175,10 @@ st.title("🎲 MLB Quant AI: Monte Carlo Simulator")
 st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the true mathematical probability of hitting a Vegas Prop line.")
 st.divider()
 
+# --- BEST BETS PLACEHOLDER ---
+best_bets_container = st.container()
+best_bets_data = []
+
 slate = get_mlb_slate(target_date_str)
 
 if not slate:
@@ -204,6 +214,16 @@ else:
                 over_hits = np.sum(a_proj['simulations'] > a_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
+                # --- BEST BET FILTER CHECK ---
+                is_boom = any(x.lower() in game['a_sp'].lower() for x in BOOM_BUST_PITCHERS if x)
+                if not is_boom and (over_prob >= 56.0 or over_prob <= 44.0):
+                    is_wh = any(x.lower() in game['a_sp'].lower() for x in WORKHORSE_PITCHERS if x)
+                    if is_wh or game['a'] in ANALYTICS_TEAMS or game['h'] in HIGH_K_LINEUPS:
+                        best_bets_data.append({
+                            'sp': game['a_sp'], 'line': a_k_line, 'prob': over_prob,
+                            'wh': is_wh, 'an': game['a'] in ANALYTICS_TEAMS, 'fs': game['h'] in HIGH_K_LINEUPS
+                        })
+                
                 st.markdown(f"**Mean K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
@@ -225,6 +245,16 @@ else:
                 over_hits = np.sum(h_proj['simulations'] > h_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
+                # --- BEST BET FILTER CHECK ---
+                is_boom = any(x.lower() in game['h_sp'].lower() for x in BOOM_BUST_PITCHERS if x)
+                if not is_boom and (over_prob >= 56.0 or over_prob <= 44.0):
+                    is_wh = any(x.lower() in game['h_sp'].lower() for x in WORKHORSE_PITCHERS if x)
+                    if is_wh or game['h'] in ANALYTICS_TEAMS or game['a'] in HIGH_K_LINEUPS:
+                        best_bets_data.append({
+                            'sp': game['h_sp'], 'line': h_k_line, 'prob': over_prob,
+                            'wh': is_wh, 'an': game['h'] in ANALYTICS_TEAMS, 'fs': game['a'] in HIGH_K_LINEUPS
+                        })
+                
                 st.markdown(f"**Mean K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
@@ -236,3 +266,25 @@ else:
 
                 st.caption("Probability Modifiers:")
                 for f in h_proj['factors']: st.write(f"- {f}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. RENDER BEST BETS AT TOP OF PAGE
+# ─────────────────────────────────────────────────────────────────────────────
+if slate:
+    with best_bets_container:
+        st.subheader("⭐ Quant Identified: Premium Best Bets")
+        st.caption("Filtered mathematically for >56% Edge AND Low Variance Matchup Conditions.")
+        if not best_bets_data:
+            st.info("No premium best bets identified on the board right now. Adjust parameters or wait for sharper lines.")
+        else:
+            for bet in best_bets_data:
+                side = "OVER" if bet['prob'] >= 56 else "UNDER"
+                confidence = bet['prob'] if side == "OVER" else (100 - bet['prob'])
+                
+                tags = []
+                if bet['wh']: tags.append("🐎 Workhorse (Low Variance)")
+                if bet['an']: tags.append("🤖 Strict Analytics Leash")
+                if bet['fs']: tags.append("🏏 Free-Swinging Opp")
+                
+                st.success(f"**{bet['sp']}** | **{side} {bet['line']} Ks** | Edge: **{confidence:.1f}%** | Factors: {', '.join(tags)}")
+        st.divider()
