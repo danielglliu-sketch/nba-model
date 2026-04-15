@@ -32,10 +32,7 @@ st.sidebar.caption("These alter the raw K% probability before running the 10k si
 
 use_ml_weights = st.sidebar.checkbox("🤖 Use ML Contextual Weights (XGBoost Emulator)", value=True, help="Instead of flat additions, weights dynamically scale based on baseline K%.")
 
-with st.sidebar.expander("1. Arsenal & Discipline", expanded=False):
-    high_whiff_input = st.text_area("ELITE WHIFF PITCHERS (Base K% + 4%)", "Tarik Skubal, Zack Wheeler, Corbin Burnes, Chris Sale, Cole Ragans, Paul Skenes, Tyler Glasnow, Spencer Strider, Jared Jones, Hunter Greene, Dylan Cease")
-    HIGH_WHIFF_PITCHERS = [x.strip() for x in high_whiff_input.split(',')]
-
+with st.sidebar.expander("1. Lineup Discipline & Variance", expanded=False):
     high_k_lineups_input = st.text_area("HIGH-K LINEUPS (Opp K% + 3%)", "COL, CHW, LAA, SEA, OAK, CIN, TB")
     HIGH_K_LINEUPS = [x.strip() for x in high_k_lineups_input.split(',')]
 
@@ -53,9 +50,6 @@ with st.sidebar.expander("2. Environment & Matchup", expanded=False):
     ELITE_CATCHERS = [x.strip() for x in elite_catchers.split(',')]
 
 with st.sidebar.expander("3. Predictability (Best Bets Filter)", expanded=False):
-    workhorse_input = st.text_area("WORKHORSE PITCHERS (Low Variance)", "Logan Webb, Aaron Nola, Framber Valdez, Zach Eflin, George Kirby")
-    WORKHORSE_PITCHERS = [x.strip() for x in workhorse_input.split(',')]
-
     analytics_teams_input = st.text_area("STRICT ANALYTICS TEAMS (Predictable Leash)", "TB, LAD, MIL, BAL")
     ANALYTICS_TEAMS = [x.strip() for x in analytics_teams_input.split(',')]
 
@@ -113,7 +107,6 @@ def calculate_automated_arsenal_score(sp_name, opp_team):
 # --- NEW: FANGRAPHS / PYBASEBALL TRUE K% SCRAPER ---
 @st.cache_data(ttl=86400)
 def get_k_rate_database():
-    # Hardcoded safety fallbacks to prevent the app from crashing if FanGraphs servers reject the scrape
     base_dict = {
         'Tarik Skubal': 0.30, 'Zack Wheeler': 0.28, 'Corbin Burnes': 0.25, 
         'Reid Detmers': 0.275, 'Ryan Weathers': 0.19, 'Logan Webb': 0.21,
@@ -124,12 +117,11 @@ def get_k_rate_database():
         'Zach Eflin': 0.24, 'George Kirby': 0.23
     }
     try:
-        # Scrapes live FanGraphs K% leaderboards
         df = pyb.pitching_stats(2024, qual=10)
         if df['K%'].dtype == object:
             df['K%'] = df['K%'].str.rstrip('%').astype('float') / 100.0
         scraped_dict = dict(zip(df['Name'], df['K%']))
-        base_dict.update(scraped_dict) # Injects the live real data over the safety fallbacks
+        base_dict.update(scraped_dict) 
     except:
         pass
     return base_dict
@@ -139,11 +131,10 @@ K_RATE_DB = get_k_rate_database()
 def get_baseline_k(pitcher_name):
     if pitcher_name in K_RATE_DB:
         return float(K_RATE_DB[pitcher_name])
-    # Fallback to match by last name if API formatting differs (e.g. "S. Strider" vs "Spencer Strider")
     for name, rate in K_RATE_DB.items():
         if name.split(' ')[-1] == pitcher_name.split(' ')[-1]:
             return float(rate)
-    return 0.22 # Ultimate fallback to league average if totally unknown
+    return 0.22
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
@@ -167,7 +158,6 @@ def get_mlb_slate(date_str):
                 if 'probables' in away and len(away['probables']) > 0:
                     a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
 
-                # --- THE FIX: DYNAMIC BASELINE INJECTION ---
                 h_k_rate = get_baseline_k(h_sp) if h_sp != "TBD" else 0.22
                 a_k_rate = get_baseline_k(a_sp) if a_sp != "TBD" else 0.22
 
@@ -206,19 +196,14 @@ def get_live_odds(api_key):
 def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, extra_bp_pitches=0, num_sims=10000):
     if sp_name == "TBD": return None
     
-    factors = [f"📊 True Baseline K%: {base_k_rate*100:.1f}%"] # Added simple label so you can see the scraper working
+    factors = [f"📊 True Baseline K%: {base_k_rate*100:.1f}%"] 
     positive_boosts = []
     negative_penalties = []
 
     # --- ML Scaling Math ---
-    w_whiff = 0.04 * (1.5 - base_k_rate) if use_ml_weights else 0.04
     w_high_k = 0.03 if not use_ml_weights else 0.03 * (1.2 if is_home else 1.0)
     w_low_k = 0.04 if not use_ml_weights else 0.04 * (1.2 if not is_home else 1.0)
     w_framing = 0.015 if not use_ml_weights else 0.015 * (1 + (0.30 - base_k_rate)) 
-    
-    if any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS):
-        positive_boosts.append(w_whiff)
-        factors.append(f"🎯 Elite Whiff Rate (+{w_whiff*100:.1f}% raw)")
 
     if opp_team in HIGH_K_LINEUPS:
         positive_boosts.append(w_high_k)
@@ -295,7 +280,7 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=9
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. USER INTERFACE (No structural changes)
+# 3. USER INTERFACE 
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🎲 MLB Quant AI: Monte Carlo Simulator")
 st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the true mathematical probability of hitting a Vegas Prop line.")
@@ -343,7 +328,7 @@ else:
                     # Best Bet Filter
                     is_boom = any(x.lower() in name.lower() for x in BOOM_BUST_PITCHERS if x)
                     if not is_boom and (over_prob >= 56.0 or over_prob <= 44.0):
-                        if any(x.lower() in name.lower() for x in WORKHORSE_PITCHERS if x) or team in ANALYTICS_TEAMS or opp in HIGH_K_LINEUPS:
+                        if team in ANALYTICS_TEAMS or opp in HIGH_K_LINEUPS:
                             best_bets_data.append({'sp': name, 'line': k_line, 'prob': over_prob, 'factors': proj['factors']})
 
 if slate:
