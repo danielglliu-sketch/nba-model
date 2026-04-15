@@ -32,6 +32,10 @@ with st.sidebar.expander("1. Arsenal & Discipline", expanded=False):
 
     low_k_lineups_input = st.text_area("ELITE CONTACT LINEUPS (Opp K% - 4%)", "HOU, CLE, SD, KC, NYY, ATL")
     LOW_K_LINEUPS = [x.strip() for x in low_k_lineups_input.split(',')]
+    
+    # --- NEW: VARIANCE OVERRIDE ---
+    boom_bust_input = st.text_area("BOOM-OR-BUST PITCHERS (High Variance)", "Reid Detmers, Ryan Weathers, Blake Snell, Hunter Greene, Nick Pivetta")
+    BOOM_BUST_PITCHERS = [x.strip() for x in boom_bust_input.split(',')]
 
 with st.sidebar.expander("2. Environment & Matchup", expanded=False):
     cold_weather = st.text_area("COLD/WIND IN GAMES (K% + 2%)", "MIN, CHW, DET, CLE, CHC, SF")
@@ -86,25 +90,25 @@ def get_mlb_slate(date_str):
     except: return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE (WITH PITCH EFFICIENCY UPGRADE)
+# 2. THE MONTE CARLO ENGINE (WITH EFFICIENCY & VARIANCE UPGRADES)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, num_sims=10000):
     if sp_name == "TBD": return None
     
-    # --- Step 1: Adjust the True Probability (K%) ---
+    # --- Step 1: Adjust the True Average Probability (K%) ---
     adj_k_rate = base_k_rate
     factors = []
 
     if any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS):
         adj_k_rate += 0.04
-        factors.append("🎯 Elite Whiff Rate (+4% K-Probability)")
+        factors.append("🎯 Elite Whiff Rate (+4% Base K-Probability)")
 
     if opp_team in HIGH_K_LINEUPS:
         adj_k_rate += 0.03
-        factors.append("🏏 High-Chase Opponent (+3% K-Probability)")
+        factors.append("🏏 High-Chase Opponent (+3% Base K-Probability)")
     elif opp_team in LOW_K_LINEUPS:
         adj_k_rate -= 0.04
-        factors.append("🛡️ Elite Contact Opponent (-4% K-Probability)")
+        factors.append("🛡️ Elite Contact Opponent (-4% Base K-Probability)")
 
     park_k_factor = K_PARK_FACTORS.get(park, 1.00)
     if park_k_factor != 1.00:
@@ -114,25 +118,36 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=9
 
     if park in COLD_GAMES:
         adj_k_rate += 0.02
-        factors.append("🥶 Dense/Cold Air (+2% K-Probability)")
+        factors.append("🥶 Dense/Cold Air (+2% Base K-Probability)")
 
     my_team = park if is_home else opp_team
     if any(x in my_team for x in ELITE_CATCHERS):
         adj_k_rate += 0.015
-        factors.append("🧤 Elite Catcher Framing (+1.5% K-Probability)")
+        factors.append("🧤 Elite Catcher Framing (+1.5% Base K-Probability)")
 
-    # Bound the probability between realistic MLB limits (10% to 45%)
+    # Bound the baseline probability 
     adj_k_rate = max(0.10, min(0.45, adj_k_rate))
 
-    # --- Step 2: Execute 10,000 Simulations with Pitch Efficiency ---
+    # --- Step 2: Inject Variance (Standard Deviation) ---
+    is_high_variance = any(x.lower() in sp_name.lower() for x in BOOM_BUST_PITCHERS)
+    std_dev = 0.08 if is_high_variance else 0.03 # 8% swing for wild guys, 3% for average guys
+    
+    # Generate 10,000 different parallel universes where the pitcher is either hot, cold, or average
+    game_k_rates = np.random.normal(loc=adj_k_rate, scale=std_dev, size=num_sims)
+    game_k_rates = np.clip(game_k_rates, 0.05, 0.65) # Keep the math bounds realistic
+
     batters_faced = int(pitch_limit / ppa)
     factors.append(f"⏱️ Pitch Efficiency Cap ({pitch_limit} max pitches @ {ppa:.1f} P/PA = {batters_faced} Batters)")
     
-    # np.random.binomial simulates flipping a weighted coin 'batters_faced' times, 
-    # repeated 'num_sims' times. It returns an array of 10,000 game results.
-    simulated_games = np.random.binomial(n=batters_faced, p=adj_k_rate, size=num_sims)
+    if is_high_variance:
+        factors.append(f"🎢 Boom-or-Bust Variance Applied (±8% K-Rate Swings)")
+    else:
+        factors.append(f"📊 Standard Variance Applied (±3% K-Rate Swings)")
+
+    # --- Step 3: Execute 10,000 Simulations using the variable K-rates ---
+    simulated_games = np.random.binomial(n=batters_faced, p=game_k_rates)
     
-    # --- Step 3: Calculate Distribution Analytics ---
+    # --- Step 4: Calculate Distribution Analytics ---
     mean_ks = np.mean(simulated_games)
     
     # Create a frequency distribution for the chart
@@ -189,7 +204,7 @@ else:
                 over_hits = np.sum(a_proj['simulations'] > a_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
-                st.markdown(f"**True K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
+                st.markdown(f"**Mean K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                 elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
@@ -210,7 +225,7 @@ else:
                 over_hits = np.sum(h_proj['simulations'] > h_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
-                st.markdown(f"**True K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
+                st.markdown(f"**Mean K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                 elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
