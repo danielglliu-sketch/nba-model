@@ -75,8 +75,12 @@ K_PARK_FACTORS = {
     'CHC': 0.97, 'STL': 0.97, 'PIT': 0.97, 'LAA': 0.96, 'HOU': 0.96, 'WSH': 0.95, 'CIN': 0.94, 'ARI': 0.93, 'COL': 0.85 
 }
 
+def norm_mlb(abbr):
+    mapping = {'CHW': 'CHW', 'CWS': 'CHW', 'KAN': 'KC', 'TAM': 'TB', 'SFO': 'SF', 'SDP': 'SD'}
+    return mapping.get(abbr, abbr)
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATED DATA: ARSENAL & TEAM WHIFF MATRIX
+# 🤖 AUTOMATED DATA: TRUE BASELINES & ARSENAL MATRIX
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_WHIFF_VULNERABILITY = {
     'SEA': {'Slider': 1.15, 'Fastball': 1.05, 'Curve': 1.10},
@@ -106,6 +110,41 @@ def calculate_automated_arsenal_score(sp_name, opp_team):
         score += (usage * (vulnerability - 1))
     return score
 
+# --- NEW: FANGRAPHS / PYBASEBALL TRUE K% SCRAPER ---
+@st.cache_data(ttl=86400)
+def get_k_rate_database():
+    # Hardcoded safety fallbacks to prevent the app from crashing if FanGraphs servers reject the scrape
+    base_dict = {
+        'Tarik Skubal': 0.30, 'Zack Wheeler': 0.28, 'Corbin Burnes': 0.25, 
+        'Reid Detmers': 0.275, 'Ryan Weathers': 0.19, 'Logan Webb': 0.21,
+        'Chris Sale': 0.29, 'Cole Ragans': 0.28, 'Paul Skenes': 0.31,
+        'Tyler Glasnow': 0.33, 'Spencer Strider': 0.37, 'Jared Jones': 0.28,
+        'Hunter Greene': 0.30, 'Dylan Cease': 0.29, 'Blake Snell': 0.31,
+        'Nick Pivetta': 0.28, 'Aaron Nola': 0.25, 'Framber Valdez': 0.24,
+        'Zach Eflin': 0.24, 'George Kirby': 0.23
+    }
+    try:
+        # Scrapes live FanGraphs K% leaderboards
+        df = pyb.pitching_stats(2024, qual=10)
+        if df['K%'].dtype == object:
+            df['K%'] = df['K%'].str.rstrip('%').astype('float') / 100.0
+        scraped_dict = dict(zip(df['Name'], df['K%']))
+        base_dict.update(scraped_dict) # Injects the live real data over the safety fallbacks
+    except:
+        pass
+    return base_dict
+
+K_RATE_DB = get_k_rate_database()
+
+def get_baseline_k(pitcher_name):
+    if pitcher_name in K_RATE_DB:
+        return float(K_RATE_DB[pitcher_name])
+    # Fallback to match by last name if API formatting differs (e.g. "S. Strider" vs "Spencer Strider")
+    for name, rate in K_RATE_DB.items():
+        if name.split(' ')[-1] == pitcher_name.split(' ')[-1]:
+            return float(rate)
+    return 0.22 # Ultimate fallback to league average if totally unknown
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -122,16 +161,19 @@ def get_mlb_slate(date_str):
             
             if home and away:
                 h_sp, a_sp = "TBD", "TBD"
-                h_k_rate, a_k_rate = 0.22, 0.22 
                 
                 if 'probables' in home and len(home['probables']) > 0:
                     h_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD')
                 if 'probables' in away and len(away['probables']) > 0:
                     a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
 
+                # --- THE FIX: DYNAMIC BASELINE INJECTION ---
+                h_k_rate = get_baseline_k(h_sp) if h_sp != "TBD" else 0.22
+                a_k_rate = get_baseline_k(a_sp) if a_sp != "TBD" else 0.22
+
                 games.append({
-                    'h': home['team']['abbreviation'], 
-                    'a': away['team']['abbreviation'],
+                    'h': norm_mlb(home['team']['abbreviation']), 
+                    'a': norm_mlb(away['team']['abbreviation']),
                     'h_name': home['team']['displayName'], 
                     'a_name': away['team']['displayName'],
                     'h_sp': h_sp, 'a_sp': a_sp,
@@ -164,7 +206,7 @@ def get_live_odds(api_key):
 def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, extra_bp_pitches=0, num_sims=10000):
     if sp_name == "TBD": return None
     
-    factors = []
+    factors = [f"📊 True Baseline K%: {base_k_rate*100:.1f}%"] # Added simple label so you can see the scraper working
     positive_boosts = []
     negative_penalties = []
 
