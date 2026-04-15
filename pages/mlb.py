@@ -86,9 +86,9 @@ def get_mlb_slate(date_str):
     except: return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE
+# 2. THE MONTE CARLO ENGINE (WITH PITCH EFFICIENCY UPGRADE)
 # ─────────────────────────────────────────────────────────────────────────────
-def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced=22, num_sims=10000):
+def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, pitch_limit=95, ppa=3.8, num_sims=10000):
     if sp_name == "TBD": return None
     
     # --- Step 1: Adjust the True Probability (K%) ---
@@ -124,7 +124,10 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced
     # Bound the probability between realistic MLB limits (10% to 45%)
     adj_k_rate = max(0.10, min(0.45, adj_k_rate))
 
-    # --- Step 2: Execute 10,000 Simulations ---
+    # --- Step 2: Execute 10,000 Simulations with Pitch Efficiency ---
+    batters_faced = int(pitch_limit / ppa)
+    factors.append(f"⏱️ Pitch Efficiency Cap ({pitch_limit} max pitches @ {ppa:.1f} P/PA = {batters_faced} Batters)")
+    
     # np.random.binomial simulates flipping a weighted coin 'batters_faced' times, 
     # repeated 'num_sims' times. It returns an array of 10,000 game results.
     simulated_games = np.random.binomial(n=batters_faced, p=adj_k_rate, size=num_sims)
@@ -162,13 +165,18 @@ else:
 
         with st.expander(f"⚾ {game['a_sp']} vs {game['h_sp']} ({game['h']} Stadium)"):
             
-            # --- Tweak Batters Faced (Leash) ---
-            st.caption("Adjust expected batters faced to dynamically update the simulation (Default is 22, approx 5.2 Innings)")
-            bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 28, 22, key=f"bf_a_{i}")
-            bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 28, 22, key=f"bf_h_{i}")
+            # --- Tweak Pitch Count Efficiency (Leash) ---
+            st.caption("Adjust expected pitch count limit and opponent Pitches per At-Bat (P/PA).")
+            col_l1, col_l2 = st.columns(2)
+            with col_l1:
+                pl_a = st.slider(f"{game['a_sp']} Max Pitches", 60, 115, 95, key=f"pl_a_{i}")
+                ppa_a = st.slider(f"{game['h']} P/PA", 3.0, 5.0, 3.8, step=0.1, key=f"ppa_a_{i}")
+            with col_l2:
+                pl_h = st.slider(f"{game['h_sp']} Max Pitches", 60, 115, 95, key=f"pl_h_{i}")
+                ppa_h = st.slider(f"{game['a']} P/PA", 3.0, 5.0, 3.8, step=0.1, key=f"ppa_h_{i}")
             
-            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['h'], game['h'], False, bf_a)
-            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['a'], game['h'], True, bf_h)
+            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['h'], game['h'], False, pl_a, ppa_a)
+            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['a'], game['h'], True, pl_h, ppa_h)
 
             col1, col2 = st.columns(2)
             
