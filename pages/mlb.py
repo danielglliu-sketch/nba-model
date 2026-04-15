@@ -81,7 +81,7 @@ def get_pitcher_mix(sp_name):
         'Corbin Burnes': {'Cutter': 0.45, 'Curve': 0.20},
         'Reid Detmers': {'Slider': 0.30, 'Fastball': 0.40, 'Curve': 0.20},
         'Michael King': {'Sinker': 0.30, 'Slider': 0.25, 'Changeup': 0.20},
-        'Shane McClanahan': {'Four-Seamer': 0.38, 'Changeup': 0.24, 'Curve': 0.19}
+        'Shane McClanahan': {'Four-Seamer': 0.35, 'Changeup': 0.25, 'Curve': 0.20, 'Slider': 0.20}
     }
     return mix.get(sp_name, {'Fastball': 0.50, 'Slider': 0.20})
 
@@ -94,19 +94,21 @@ def calculate_automated_arsenal_score(sp_name, opp_team):
         score += (usage * (vulnerability - 1))
     return score
 
-# --- AUTOMATED STATS DB: K%, BB%, AND EFFICIENCY ---
+# --- AUTOMATION: DYNAMIC WORKLOAD & COMMAND PENALTY ---
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
     try:
-        # Pulls live 2026 data
-        df = pyb.pitching_stats(2026, qual=1)
+        # Lowering qual to 0 to catch pitchers returning from injury with few starts
+        df = pyb.pitching_stats(2026, qual=0)
         for col in ['K%', 'BB%']:
             if df[col].dtype == object:
                 df[col] = df[col].str.rstrip('%').astype('float') / 100.0
         
         # Calculate Automation Metrics
+        # IP/GS * 15 + 10 is the 2026 'Returning Starter' Leash proxy
         df['Leash'] = ((df['IP'] / df['GS']) * 15 + 10).clip(60, 105)
-        df['Auto_PPA'] = 3.8 + (df['BB%'] * 4.5) # The "Command Tax"
+        # BB% penalty: High walks significantly increase Pitches Per Appearance
+        df['Auto_PPA'] = 3.8 + (df['BB%'] * 5.0) 
         
         stats_db = {}
         for _, row in df.iterrows():
@@ -129,8 +131,13 @@ def get_automated_metrics(pitcher_name):
                 match = data
                 break
     if match:
-        return match['K%'], match['Leash'], match['Auto_PPA']
-    return 0.22, 95.0, 3.8 # Defaults
+        k_rate = match['K%']
+        # COMMAND TAX: If walk rate > 12%, we reduce effective strikeout probability 
+        # because the pitcher is likely out of rhythm or nibbling.
+        if match['BB%'] > 0.12:
+            k_rate = k_rate * 0.80 # 20% volatility penalty
+        return k_rate, match['Leash'], match['Auto_PPA'], match['BB%']
+    return 0.22, 95.0, 3.8, 0.08
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. FETCHERS
@@ -149,15 +156,14 @@ def get_mlb_slate(date_str):
                 h_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in home else 'TBD'
                 a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD') if 'probables' in away else 'TBD'
                 
-                # Fetch automated baseline, leash, and efficiency tax
-                h_k, h_leash, h_ppa = get_automated_metrics(h_sp)
-                a_k, a_leash, a_ppa = get_automated_metrics(a_sp)
+                h_k, h_leash, h_ppa, h_bb = get_automated_metrics(h_sp)
+                a_k, a_leash, a_ppa, a_bb = get_automated_metrics(a_sp)
 
                 games.append({
                     'h': home['team']['abbreviation'], 'a': away['team']['abbreviation'],
                     'h_sp': h_sp, 'a_sp': a_sp,
-                    'h_base_k': h_k, 'h_leash': h_leash, 'h_ppa': h_ppa,
-                    'a_base_k': a_k, 'a_leash': a_leash, 'a_ppa': a_ppa
+                    'h_base_k': h_k, 'h_leash': h_leash, 'h_ppa': h_ppa, 'h_bb': h_bb,
+                    'a_base_k': a_k, 'a_leash': a_leash, 'a_ppa': a_ppa, 'a_bb': a_bb
                 })
         return games
     except: return []
@@ -185,37 +191,35 @@ def get_live_odds(api_key):
 def run_monte_carlo(sp_name, base_k_rate, opp_team, pitch_limit=95, ppa=3.8, num_sims=10000):
     if sp_name == "TBD": return None
     
-    factors = [f"📊 Adjusted Baseline K%: {base_k_rate*100:.1f}%"] 
-    positive_boosts = []
-    negative_penalties = []
+    factors = [f"📊 Workload-Adjusted Baseline K%: {base_k_rate*100:.1f}%"] 
+    pos, neg = [], []
 
     if opp_team in AGGRESSIVE_LINEUPS:
         penalty = 0.025 
-        negative_penalties.append(penalty)
+        neg.append(penalty)
         factors.append(f"⚠️ Quick Out Aggressor (-2.5% raw)")
 
     w_high_k = 0.03 if not use_ml_weights else 0.03 * (1.2 if opp_team in HIGH_K_LINEUPS else 1.0)
     w_low_k = 0.04 if not use_ml_weights else 0.04 
 
     if opp_team in HIGH_K_LINEUPS:
-        positive_boosts.append(w_high_k)
+        pos.append(w_high_k)
         factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}% raw)")
     elif opp_team in LOW_K_LINEUPS:
-        negative_penalties.append(w_low_k)
+        neg.append(w_low_k)
         factors.append(f"🛡️ Elite Contact Opponent (-{w_low_k*100:.1f}% raw)")
 
     # Arsenal
     arsenal_score = calculate_automated_arsenal_score(sp_name, opp_team)
     if arsenal_score > 1.02:
         bonus = (arsenal_score - 1.0) * 0.15 
-        positive_boosts.append(bonus)
+        pos.append(bonus)
         factors.append(f"⚾ Auto-Arsenal Matchup (+{bonus*100:.1f}% raw)")
 
     # Regularization
-    positive_boosts.sort(reverse=True)
-    negative_penalties.sort(reverse=True)
-    reg_pos = sum(val * (0.5 ** i) for i, val in enumerate(positive_boosts))
-    reg_neg = sum(val * (0.5 ** i) for i, val in enumerate(negative_penalties))
+    pos.sort(reverse=True); neg.sort(reverse=True)
+    reg_pos = sum(val * (0.5 ** i) for i, val in enumerate(pos))
+    reg_neg = sum(val * (0.5 ** i) for i, val in enumerate(neg))
     adj_k_rate = base_k_rate + reg_pos - reg_neg
 
     # Variance
@@ -251,12 +255,13 @@ if slate:
         with st.expander(f"⚾ {game['a_sp']} vs {game['h_sp']} ({game['h']})"):
             col_l1, col_l2 = st.columns(2)
             with col_l1:
-                # Use automated default values for leash and efficiency
                 pl_a = st.slider(f"{game['a_sp']} Max Pitches", 60, 115, int(game['a_leash']), key=f"pl_a_{i}")
                 ppa_a = st.slider(f"{game['h']} P/PA", 3.0, 5.0, float(game['a_ppa']), step=0.1, key=f"ppa_a_{i}")
+                if game['a_bb'] > 0.12: st.warning(f"⚠️ Command Warning: {game['a_sp']} BB% is high ({game['a_bb']*100:.1f}%)")
             with col_l2:
                 pl_h = st.slider(f"{game['h_sp']} Max Pitches", 60, 115, int(game['h_leash']), key=f"pl_h_{i}")
                 ppa_h = st.slider(f"{game['a']} P/PA", 3.0, 5.0, float(game['h_ppa']), step=0.1, key=f"ppa_h_{i}")
+                if game['h_bb'] > 0.12: st.warning(f"⚠️ Command Warning: {game['h_sp']} BB% is high ({game['h_bb']*100:.1f}%)")
             
             a_proj = run_monte_carlo(game['a_sp'], game['a_base_k'], game['h'], pl_a, ppa_a)
             h_proj = run_monte_carlo(game['h_sp'], game['h_base_k'], game['a'], pl_h, ppa_h)
