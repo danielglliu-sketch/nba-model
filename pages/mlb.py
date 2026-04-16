@@ -60,6 +60,8 @@ TEAM_MAP = {
     'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH'
 }
 
+# --- AUTOMATED DATA PIPELINE ---
+
 @st.cache_data(ttl=3600)
 def get_live_temp(team_abbr):
     coords = STADIUM_COORDS.get(team_abbr)
@@ -107,18 +109,22 @@ def get_pitcher_stats_database():
             stat = record['stat']
             tbf = stat.get('battersFaced', 0)
             so = stat.get('strikeOuts', 0)
+            bb = stat.get('baseOnBalls', 0)
             gs = stat.get('gamesStarted', 0)
             if tbf == 0: continue
             raw_k = so / tbf
+            raw_bb = bb / tbf
             bf_per_start = max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))
             shrunk_k = (raw_k * tbf + 0.22 * 25) / (tbf + 25)
-            pitcher_db[name] = {'K%': shrunk_k, 'Raw_K%': raw_k, 'Hand': hand, 'SwStr%': raw_k * 0.5, 'BF_per_Start': bf_per_start}
+            pitcher_db[name] = {'K%': shrunk_k, 'Raw_K%': raw_k, 'BB%': raw_bb, 'Hand': hand, 'SwStr%': raw_k * 0.5, 'BF_per_Start': bf_per_start}
         return pitcher_db
     except: return {}
 
 STATS_DB = get_pitcher_stats_database()
 
-def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
+# --- THE MONTE CARLO ENGINE ---
+
+def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
     factors = []
     adj_k_rate = base_k_rate
     
@@ -126,9 +132,13 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, swstr_rate, opp_k_rate, pa
     if raw_k_rate < (base_k_rate - 0.02): 
         factors.append("📉 Form Warning: Actual performance lagging projection.")
     
-    # 2. Sensitive Regression Alert (Lowered to 2.5% to catch over-performance flukes)
-    if raw_k_rate > (base_k_rate + 0.025):
-        factors.append("⚠️ Regression Risk: Pitcher is over-performing (2.5%+ vs Baseline). High risk of cooldown.")
+    # 2. SENSITIVE REGRESSION ALERT (Lowered to 1% to catch the Bubic fluke)
+    if raw_k_rate > (base_k_rate + 0.01):
+        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier (1%+ vs Baseline). High crash risk.")
+    
+    # 3. EFFICIENCY/WALK WARNING (The 'Early Exit' Failsafe)
+    if bb_rate > 0.09:
+        factors.append("⛽ Efficiency Warning: High Walk Rate increases risk of early pull.")
         
     if swstr_rate > 0.135: 
         adj_k_rate += 0.04
@@ -171,7 +181,7 @@ def calculate_ev_percent(win_prob_pct, american_odds):
     return ((prob * payout_ratio) - (1.0 - prob)) * 100.0
 
 st.title("🤖 MLB Quant AI - 100% Autopilot")
-st.markdown("Sensitive Regression Alert (2.5%) now active.")
+st.markdown("Ultra-Sensitive Regression Alert (1%) & Efficiency Failsafe enabled.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -206,21 +216,26 @@ else:
             col1, col2 = st.columns(2)
             for side, sp_name, team, opp_team in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
                 with side:
-                    match = STATS_DB.get(sp_name, {'K%': 0.22, 'Raw_K%': 0.22, 'Hand': 'R', 'SwStr%': 0.11, 'BF_per_Start': 23})
+                    match = STATS_DB.get(sp_name, {'K%': 0.22, 'Raw_K%': 0.22, 'BB%': 0.08, 'Hand': 'R', 'SwStr%': 0.11, 'BF_per_Start': 23})
                     opp_k_rate = SPLITS_DB.get(opp_team, {}).get(match['Hand'], 0.225)
-                    res = run_monte_carlo(sp_name, match['K%'], match['Raw_K%'], match['SwStr%'], opp_k_rate, home_team, match['BF_per_Start'], temp, umpire)
+                    res = run_monte_carlo(sp_name, match['K%'], match['Raw_K%'], match['BB%'], match['SwStr%'], opp_k_rate, home_team, match['BF_per_Start'], temp, umpire)
+                    
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     line = st.number_input("Line:", value=5.5, step=0.5, key=f"L_{sp_name}_{game['gamePk']}")
                     o_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"OO_{sp_name}_{game['gamePk']}")
                     u_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"UO_{sp_name}_{game['gamePk']}")
+                    
                     o_prob = (np.sum(res['simulations'] > line) / 10000) * 100
                     o_ev = calculate_ev_percent(o_prob, o_odds)
                     u_ev = calculate_ev_percent(100 - o_prob, u_odds)
+                    
                     if o_prob > 60: st.success(f"📈 {o_prob:.1f}% Chance OVER")
                     elif o_prob < 40: st.error(f"📉 {100-o_prob:.1f}% Chance UNDER")
                     else: st.warning(f"⚖️ Neutral ({o_prob:.1f}% Over)")
+                    
                     if o_ev > 2.0: st.success(f"🔥 +EV OVER: {o_ev:+.1f}% Edge")
                     elif u_ev > 2.0: st.success(f"🔥 +EV UNDER: {u_ev:+.1f}% Edge")
                     else: st.info(f"🛑 No Edge (EV: {max(o_ev, u_ev):+.1f}%)")
+                    
                     st.bar_chart(pd.Series(res['simulations']).value_counts(normalize=True).sort_index())
                     for f in res['factors']: st.caption(f"- {f}")
