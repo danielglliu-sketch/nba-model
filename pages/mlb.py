@@ -112,7 +112,9 @@ def get_automated_pitcher_metrics(pitcher_name):
         raw_k = match.get('Raw_K%', match['K%'])
         
         return match['K%'], raw_k, match['BB%'], swstr, expected_bf, f"Found: {matches[0]} (Reg K%: {match['K%']*100:.1f}% | Raw: {raw_k*100:.1f}%)"
-    return 0.22, 0.22, 0.08, 0.11, 22, "⚠️ Data Missing (Using League Avg)"
+    
+    # FIX: Generous league average replaced with skeptical replacement-level defaults
+    return 0.18, 0.18, 0.08, 0.09, 18, "⚠️ Data Missing (Using Replacement Defaults)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
@@ -167,7 +169,7 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
     is_struggling = raw_k_rate < (base_k_rate - 0.02)
     
     if is_struggling:
-        # THE FIX: Abandon Optimistic Shrinkage and reset baseline to the ugly raw rate
+        # Abandon Optimistic Shrinkage and reset baseline to the ugly raw rate
         adj_k_rate = raw_k_rate
         factors.append(f"📉 Form Check: Active Struggling. Shrinkage bypassed. Baseline reset to Raw ({raw_k_rate*100:.1f}%)")
         factors.append(f"📉 Form Check: All situational boosts dampened by 50%")
@@ -183,20 +185,22 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
         adj_k_rate += 0.04
         factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% SwStr%) (+4.0% K-Probability)")
 
-    opp_k_diff = opp_k_rate - 0.225 
-    if opp_k_diff > 0:
+    # FIX: PROPORTIONAL MULTIPLIER (Replaces Flat Addition)
+    opp_k_ratio = opp_k_rate / 0.225 
+    
+    if opp_k_ratio > 1.0:
         if bb_rate > 0.11:
-            opp_k_diff = opp_k_diff * 0.5
+            opp_k_ratio = 1.0 + ((opp_k_ratio - 1.0) * 0.5)
             factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Wild Command)")
         elif is_struggling:
-            opp_k_diff = opp_k_diff * 0.5 # Form Check Caps Matchup Boost
+            opp_k_ratio = 1.0 + ((opp_k_ratio - 1.0) * 0.5) # Form Check Caps Matchup Boost
             factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Poor Form)")
         else:
-            factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}% vs Avg): {opp_k_diff*100:+.1f}%")
+            factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): {opp_k_ratio:.2f}x Multiplier")
     else:
-        factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}% vs Avg): {opp_k_diff*100:+.1f}%")
+        factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): {opp_k_ratio:.2f}x Multiplier")
         
-    adj_k_rate += opp_k_diff
+    adj_k_rate = adj_k_rate * opp_k_ratio
 
     park_k_factor = K_PARK_FACTORS.get(park, 1.00)
     if park_k_factor != 1.00:
