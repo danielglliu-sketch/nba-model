@@ -37,10 +37,7 @@ K_PARK_FACTORS = { 'SEA': 1.06, 'TB': 1.05, 'MIA': 1.04, 'SD': 1.04, 'MIL': 1.03
 
 TEAM_MAP = { 'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore Orioles': 'BAL', 'Boston Red Sox': 'BOS', 'Chicago Cubs': 'CHC', 'Chicago White Sox': 'CHW', 'Cincinnati Reds': 'CIN', 'Cleveland Guardians': 'CLE', 'Colorado Rockies': 'COL', 'Detroit Tigers': 'DET', 'Houston Astros': 'HOU', 'Kansas City Royals': 'KC', 'Los Angeles Angels': 'LAA', 'Los Angeles Dodgers': 'LAD', 'Miami Marlins': 'MIA', 'Milwaukee Brewers': 'MIL', 'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK', 'Sacramento Athletics': 'OAK', 'Athletics': 'OAK', 'Philadelphia Phillies': 'PHI', 'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF', 'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB', 'Texas Rangers': 'TEX', 'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH' }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATED DATA PIPELINE
-# ─────────────────────────────────────────────────────────────────────────────
-
+# --- DATA FETCHERS ---
 @st.cache_data(ttl=3600)
 def get_live_temp(team_abbr):
     coords = STADIUM_COORDS.get(team_abbr)
@@ -92,15 +89,12 @@ def get_pitcher_stats_database():
 
 STATS_DB = get_pitcher_stats_database()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE
-# ─────────────────────────────────────────────────────────────────────────────
-
+# --- THE MONTE CARLO ENGINE ---
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
     factors = []
     adj_k_rate = base_k_rate
     
-    # K-Warnings
+    # K-Reporting
     if raw_k_rate < (base_k_rate - 0.02): factors.append("📉 Form Warning: Actual K% lagging projection.")
     if raw_k_rate > (base_k_rate + 0.01): factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier (K%).")
     if bb_rate > 0.09: factors.append("⛽ Efficiency Warning: High Walk Rate (Outs Risk).")
@@ -108,11 +102,12 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rat
         adj_k_rate += 0.04
         factors.append("🎯 Elite Whiff Boost (+4.0%)")
     
-    # Environment Multipliers
+    # Opponent Splines
     opp_ratio = 1.0 + (((opp_k_rate / 0.225) - 1.0) * 0.5)
     adj_k_rate *= opp_ratio
     factors.append(f"🏏 Opponent Split K% ({opp_k_rate*100:.1f}%) applied")
     
+    # Environment Reporting
     if temp < 60:
         adj_k_rate += 0.02
         factors.append(f"🥶 Cold Weather detected (+2.0%)")
@@ -123,16 +118,22 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rat
     elif umpire in UMPIRE_DATABASE["Hitter Friendly (Tight Zone)"]:
         adj_k_rate -= 0.015
         factors.append(f"🧱 Tight Zone Umpire ({umpire}) (-1.5%)")
-    
-    adj_k_rate = max(0.08, min(0.45, adj_k_rate * K_PARK_FACTORS.get(park, 1.0)))
+    elif umpire != "Neutral":
+        factors.append(f"⚖️ Umpire: Neutral Zone ({umpire})")
 
-    # Simulation Logic
+    # Park Reporting
+    pk = K_PARK_FACTORS.get(park, 1.0)
+    adj_k_rate *= pk
+    if pk != 1.0: factors.append(f"🏟️ Park Factor ({((pk-1)*100):+.1f}%)")
+    
+    adj_k_rate = max(0.08, min(0.45, adj_k_rate))
+
+    # Math Logic
     variance_scale = 0.03
     game_k_rates = np.clip(np.random.normal(loc=adj_k_rate, scale=variance_scale, size=num_sims), 0.05, 0.65)
     z_scores = (game_k_rates - adj_k_rate) / variance_scale
     dynamic_bf = np.clip(np.round(batters_faced + (z_scores * 2.5)).astype(int), 12, 32)
     
-    # Results
     k_sims = np.random.binomial(n=dynamic_bf, p=game_k_rates)
     bb_sims = np.random.binomial(n=dynamic_bf, p=bb_rate)
     h_sims = np.random.binomial(n=dynamic_bf, p=h_rate)
@@ -145,12 +146,9 @@ def calculate_ev_percent(win_prob_pct, american_odds):
     prob, payout = win_prob_pct / 100.0, (american_odds / 100.0) if american_odds > 0 else (100.0 / abs(american_odds))
     return ((prob * payout) - (1.0 - prob)) * 100.0
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. UI RENDERER
-# ─────────────────────────────────────────────────────────────────────────────
-
+# --- UI RENDERER ---
 st.title("🤖 MLB Quant AI - 100% Autopilot")
-st.markdown("Contextual automation active. Strikeout & **Pitching Outs** integrated.")
+st.markdown("Full Factor Reporting and Pitching Outs enabled.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -188,7 +186,7 @@ else:
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     
-                    # --- STRIKEOUT SECTION (EXACT LOOK) ---
+                    # --- STRIKEOUT SECTION ---
                     line_k = st.number_input("K Line:", value=5.5, step=0.5, key=f"k_{sp_name}_{game['gamePk']}")
                     o_odds_k = st.number_input("K Over Odds:", value=-110, step=5, key=f"ook_{sp_name}_{game['gamePk']}")
                     u_odds_k = st.number_input("K Under Odds:", value=-110, step=5, key=f"uok_{sp_name}_{game['gamePk']}")
@@ -203,7 +201,7 @@ else:
                     if o_ev_k > 2.0: st.success(f"🔥 +EV OVER Ks: {o_ev_k:+.1f}% Edge")
                     elif u_ev_k > 2.0: st.success(f"🔥 +EV UNDER Ks: {u_ev_k:+.1f}% Edge")
                     
-                    # --- PITCHING OUTS SECTION (NEW - LINEAR ADDITION) ---
+                    # --- OUTS SECTION ---
                     st.divider()
                     line_o = st.number_input("Outs Line:", value=17.5, step=0.5, key=f"o_{sp_name}_{game['gamePk']}")
                     o_prob_o = (np.sum(res['out_sims'] > line_o) / 10000) * 100
@@ -214,6 +212,6 @@ else:
                     
                     st.caption(f"Median Projected Outs: {np.median(res['out_sims']):.1f}")
                     
-                    # Visuals & Factors
+                    # Visuals & RESTORED Factors
                     st.bar_chart(pd.Series(res['k_sims']).value_counts(normalize=True).sort_index())
                     for f in res['factors']: st.caption(f"- {f}")
