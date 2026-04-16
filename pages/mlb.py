@@ -240,10 +240,25 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# EV CALCULATOR HELPER
+# ─────────────────────────────────────────────────────────────────────────────
+def calculate_ev_percent(win_prob_pct, american_odds):
+    if american_odds == 0: return 0.0
+    prob = win_prob_pct / 100.0
+    
+    if american_odds > 0:
+        payout_ratio = american_odds / 100.0
+    else:
+        payout_ratio = 100.0 / abs(american_odds)
+        
+    ev = (prob * payout_ratio) - (1.0 - prob)
+    return ev * 100.0
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 3. USER INTERFACE 
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🎲 MLB Quant AI: Monte Carlo Simulator")
-st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the true mathematical probability of hitting a Vegas Prop line.")
+st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the true mathematical probability of hitting a Vegas Prop line. Use the EV tracker to find profitable bets.")
 st.divider()
 
 slate = get_mlb_slate(target_date_str)
@@ -275,14 +290,33 @@ else:
                 st.markdown(f"### ✈️ {game['a_sp']}")
                 a_k_line = st.number_input("Vegas Line:", value=5.5, step=0.5, key=f"ak_{i}_{game['a']}")
                 
+                # Dynamic EV Input Fields
+                c1, c2 = st.columns(2)
+                with c1:
+                    a_over_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"ao_{i}_{game['a']}")
+                with c2:
+                    a_under_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"au_{i}_{game['a']}")
+                
                 over_hits = np.sum(a_proj['simulations'] > a_k_line)
                 over_prob = (over_hits / 10000) * 100
+                under_prob = 100.0 - over_prob
+                
+                over_ev = calculate_ev_percent(over_prob, a_over_odds)
+                under_ev = calculate_ev_percent(under_prob, a_under_odds)
                 
                 st.markdown(f"**Final Simulated Median K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
-                elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
-                else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {100-over_prob:.1f}% Under)")
+                elif under_prob > 60: st.error(f"📉 **{under_prob:.1f}% Chance to hit UNDER**")
+                else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {under_prob:.1f}% Under)")
+                
+                # Expected Value (EV) Display
+                if over_ev > 1.5: 
+                    st.success(f"🔥 **+EV PLAY IDENTIFIED: OVER ({over_ev:+.1f}% Edge)**")
+                elif under_ev > 1.5: 
+                    st.success(f"🔥 **+EV PLAY IDENTIFIED: UNDER ({under_ev:+.1f}% Edge)**")
+                else: 
+                    st.info(f"🛑 No Mathematical Edge. Over EV: {over_ev:+.1f}% | Under EV: {under_ev:+.1f}%")
                 
                 st.markdown("**Simulated Probability Distribution:**")
                 st.bar_chart(a_proj['distribution'])
@@ -295,14 +329,33 @@ else:
                 st.markdown(f"### 🏠 {game['h_sp']}")
                 h_k_line = st.number_input("Vegas Line:", value=5.5, step=0.5, key=f"hk_{i}_{game['h']}")
                 
+                # Dynamic EV Input Fields
+                c3, c4 = st.columns(2)
+                with c3:
+                    h_over_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"ho_{i}_{game['h']}")
+                with c4:
+                    h_under_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"hu_{i}_{game['h']}")
+                
                 over_hits = np.sum(h_proj['simulations'] > h_k_line)
                 over_prob = (over_hits / 10000) * 100
+                under_prob = 100.0 - over_prob
+                
+                over_ev = calculate_ev_percent(over_prob, h_over_odds)
+                under_ev = calculate_ev_percent(under_prob, h_under_odds)
                 
                 st.markdown(f"**Final Simulated Median K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
-                elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
-                else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {100-over_prob:.1f}% Under)")
+                elif under_prob > 60: st.error(f"📉 **{under_prob:.1f}% Chance to hit UNDER**")
+                else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {under_prob:.1f}% Under)")
+                
+                # Expected Value (EV) Display
+                if over_ev > 1.5: 
+                    st.success(f"🔥 **+EV PLAY IDENTIFIED: OVER ({over_ev:+.1f}% Edge)**")
+                elif under_ev > 1.5: 
+                    st.success(f"🔥 **+EV PLAY IDENTIFIED: UNDER ({under_ev:+.1f}% Edge)**")
+                else: 
+                    st.info(f"🛑 No Mathematical Edge. Over EV: {over_ev:+.1f}% | Under EV: {under_ev:+.1f}%")
                 
                 st.markdown("**Simulated Probability Distribution:**")
                 st.bar_chart(h_proj['distribution'])
