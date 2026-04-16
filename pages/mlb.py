@@ -49,22 +49,18 @@ K_PARK_FACTORS = {
     'CHC': 0.97, 'STL': 0.97, 'PIT': 0.97, 'LAA': 0.96, 'HOU': 0.96, 'WSH': 0.95, 'CIN': 0.94, 'ARI': 0.93, 'COL': 0.85 
 }
 
-# EXPANDED TEAM MAP with 2026 Athletics Fallback
 TEAM_MAP = {
     'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore Orioles': 'BAL', 'Boston Red Sox': 'BOS',
     'Chicago Cubs': 'CHC', 'Chicago White Sox': 'CHW', 'Cincinnati Reds': 'CIN', 'Cleveland Guardians': 'CLE',
     'Colorado Rockies': 'COL', 'Detroit Tigers': 'DET', 'Houston Astros': 'HOU', 'Kansas City Royals': 'KC',
     'Los Angeles Angels': 'LAA', 'Los Angeles Dodgers': 'LAD', 'Miami Marlins': 'MIA', 'Milwaukee Brewers': 'MIL',
-    'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 
-    'Oakland Athletics': 'OAK', 'Sacramento Athletics': 'OAK', 'Athletics': 'OAK',
+    'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK',
     'Philadelphia Phillies': 'PHI', 'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF',
     'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB', 'Texas Rangers': 'TEX',
     'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH'
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATED DATA PIPELINE
-# ─────────────────────────────────────────────────────────────────────────────
+# --- AUTOMATED DATA PIPELINE ---
 
 @st.cache_data(ttl=3600)
 def get_live_temp(team_abbr):
@@ -86,9 +82,8 @@ def get_automated_team_splits():
         try:
             data = requests.get(url, timeout=10).json()
             for record in data['stats'][0]['splits']:
-                # SMART LOOKUP: Try the map, otherwise use the API name as the key
                 api_name = record['team']['name']
-                abbr = TEAM_MAP.get(api_name, api_name) 
+                abbr = TEAM_MAP.get(api_name, api_name) # Fixes "None" with Fallback
                 if abbr:
                     if abbr not in splits: splits[abbr] = {}
                     pa = record['stat'].get('plateAppearances', 1)
@@ -128,35 +123,24 @@ def get_pitcher_stats_database():
 
 STATS_DB = get_pitcher_stats_database()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE
-# ─────────────────────────────────────────────────────────────────────────────
+# --- THE MONTE CARLO ENGINE ---
 
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
     factors = []
     adj_k_rate = base_k_rate
     
-    if raw_k_rate < (base_k_rate - 0.02): 
-        factors.append("📉 Form Warning: Actual performance lagging projection.")
-    
-    if raw_k_rate > (base_k_rate + 0.01):
-        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier. High crash risk.")
-    
-    if bb_rate > 0.09:
-        factors.append("⛽ Efficiency Warning: High Walk Rate increases risk of early pull.")
-        
+    if raw_k_rate < (base_k_rate - 0.02): factors.append("📉 Form Warning: Actual lagging projection.")
+    if raw_k_rate > (base_k_rate + 0.01): factors.append("⚠️ Regression Risk: Pitcher is outlier. Cooldown risk.")
+    if bb_rate > 0.09: factors.append("⛽ Efficiency Warning: High Walk Rate.")
     if swstr_rate > 0.135: 
         adj_k_rate += 0.04
         factors.append("🎯 Elite Whiff Boost (+4.0%)")
-        
     opp_ratio = 1.0 + (((opp_k_rate / 0.225) - 1.0) * 0.5)
     adj_k_rate *= opp_ratio
     factors.append(f"🏏 Opponent Split K% ({opp_k_rate*100:.1f}%) applied")
-    
     if temp < 60:
         adj_k_rate += 0.02
-        factors.append(f"🥶 Cold Weather detected ({temp:.0f}°F) (+2.0%)")
-        
+        factors.append(f"🥶 Cold Weather detected (+2.0%)")
     if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]:
         adj_k_rate += 0.015
         factors.append(f"💎 Umpire: Wide Zone ({umpire}) (+1.5%)")
@@ -165,11 +149,9 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k
         factors.append(f"🧱 Umpire: Tight Zone ({umpire}) (-1.5%)")
     elif umpire != "Neutral":
         factors.append(f"⚖️ Umpire: Neutral Zone ({umpire})")
-        
     pk = K_PARK_FACTORS.get(park, 1.0)
     adj_k_rate *= pk
     if pk != 1.0: factors.append(f"🏟️ Park Factor ({((pk-1)*100):+.1f}%)")
-    
     adj_k_rate = max(0.08, min(0.45, adj_k_rate))
     variance_scale = 0.03
     game_k_rates = np.random.normal(loc=adj_k_rate, scale=variance_scale, size=num_sims)
@@ -186,7 +168,7 @@ def calculate_ev_percent(win_prob_pct, american_odds):
     return ((prob * payout_ratio) - (1.0 - prob)) * 100.0
 
 st.title("🤖 MLB Quant AI - 100% Autopilot")
-st.markdown("Ultra-Sensitive Regression Alert (1%) & Efficiency Failsafe enabled.")
+st.markdown("Umpire hydration fix enabled for Pre-Game/Final statuses.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -198,10 +180,9 @@ if not games:
     st.info("No games found. Please refresh or check date.")
 else:
     for game in games:
-        # SMART FALLBACK: If name not in map, just use the API's name so it doesn't say "None"
+        # SMART FALLBACK for team names
         home_name_api = game['teams']['home']['team']['name']
         away_name_api = game['teams']['away']['team']['name']
-        
         home_team = TEAM_MAP.get(home_name_api, home_name_api)
         away_team = TEAM_MAP.get(away_name_api, away_name_api)
         
@@ -209,12 +190,14 @@ else:
         a_sp_name = game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
         
+        # --- ROBUST UMPIRE FETCH ---
         umpire = "Neutral"
         if 'officials' in game:
             for off in game['officials']:
                 if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
         
-        if umpire == "Neutral" and game['status']['abstractGameState'] in ['Live', 'Final']:
+        # Expanded check for Pre-Game / Warmup / Live / Final to force Boxscore hydration
+        if umpire == "Neutral":
             try:
                 bx_url = f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore"
                 bx_data = requests.get(bx_url).json()
@@ -222,7 +205,6 @@ else:
                     if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
             except: pass
 
-        # HEADER WITH PITCHER NAMES (Safely formatted)
         with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Umpire: {umpire}"):
             temp = get_live_temp(home_team)
             col1, col2 = st.columns(2)
