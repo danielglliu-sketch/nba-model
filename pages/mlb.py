@@ -113,7 +113,6 @@ def get_automated_pitcher_metrics(pitcher_name):
         
         return match['K%'], raw_k, match['BB%'], swstr, expected_bf, f"Found: {matches[0]} (Reg K%: {match['K%']*100:.1f}% | Raw: {raw_k*100:.1f}%)"
     
-    # FIX: Generous league average replaced with skeptical replacement-level defaults
     return 0.18, 0.18, 0.08, 0.09, 18, "⚠️ Data Missing (Using Replacement Defaults)"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,7 +157,7 @@ def get_mlb_slate(date_str):
     except: return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE (WITH FORM CHECK OVERRIDE)
+# 2. THE MONTE CARLO ENGINE (BALANCED)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_team, opp_k_rate, park, is_home, batters_faced, num_sims=10000):
     if sp_name == "TBD": return None
@@ -176,23 +175,16 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
     else:
         adj_k_rate = base_k_rate
         factors.append(f"📊 Baseline Rate (Post-Shrinkage): {base_k_rate*100:.1f}%")
-    
-    if bb_rate > 0.11:
-        adj_k_rate -= 0.02
-        factors.append(f"⚠️ High Walk Rate Penalty (-2.0% K-Probability)")
 
     if swstr_rate > 0.135:
         adj_k_rate += 0.04
         factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% SwStr%) (+4.0% K-Probability)")
 
-    # FIX: PROPORTIONAL MULTIPLIER (Replaces Flat Addition)
+    # FIX: PROPORTIONAL MULTIPLIER
     opp_k_ratio = opp_k_rate / 0.225 
     
     if opp_k_ratio > 1.0:
-        if bb_rate > 0.11:
-            opp_k_ratio = 1.0 + ((opp_k_ratio - 1.0) * 0.5)
-            factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Wild Command)")
-        elif is_struggling:
+        if is_struggling:
             opp_k_ratio = 1.0 + ((opp_k_ratio - 1.0) * 0.5) # Form Check Caps Matchup Boost
             factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Poor Form)")
         else:
@@ -225,7 +217,12 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
 
     adj_k_rate = max(0.08, min(0.45, adj_k_rate))
 
-    simulated_games = np.random.binomial(n=batters_faced, p=adj_k_rate, size=num_sims)
+    # --- INJECTING VARIANCE SCALER (Replaces static binomial probability) ---
+    # Introduces a +/- 3% standard deviation for "Good Stuff / Bad Stuff" days
+    game_k_rates = np.random.normal(loc=adj_k_rate, scale=0.03, size=num_sims)
+    game_k_rates = np.clip(game_k_rates, 0.05, 0.65) # Bounds realistic limits
+    
+    simulated_games = np.random.binomial(n=batters_faced, p=game_k_rates)
     mean_ks = np.mean(simulated_games)
     
     df = pd.DataFrame(simulated_games, columns=['Ks'])
@@ -278,7 +275,7 @@ else:
                 over_hits = np.sum(a_proj['simulations'] > a_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
-                st.markdown(f"**Final Simulated K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
+                st.markdown(f"**Final Simulated Median K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                 elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
@@ -298,7 +295,7 @@ else:
                 over_hits = np.sum(h_proj['simulations'] > h_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
-                st.markdown(f"**Final Simulated K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
+                st.markdown(f"**Final Simulated Median K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                 elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
