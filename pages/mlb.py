@@ -85,14 +85,11 @@ def get_pitcher_stats_database():
             else:
                 df[col] = 0.11 if col == 'SwStr%' else 0.10
         
-        # FIX: Replaced suffocating pitch-count math with Regressed Batters Faced per Start
         df['BF_per_Start'] = (df['TBF'] + (22.5 * 3)) / (df['GS'] + 3)
         df['BF_per_Start'] = df['BF_per_Start'].fillna(22.5).clip(16, 28)
         
-        # Store Raw K% before applying Shrinkage
         df['Raw_K%'] = df['K%']
         
-        # Lowered Bayesian Shrinkage constants for early-season (April) accuracy
         df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 25) / (df['TBF'] + 25)
         df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 40) / (df['TBF'] + 40)
         
@@ -157,20 +154,18 @@ def get_mlb_slate(date_str):
     except: return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE (BALANCED)
+# 2. THE MONTE CARLO ENGINE (AUDITED & FIXED)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_team, opp_k_rate, park, is_home, batters_faced, num_sims=10000):
     if sp_name == "TBD": return None
     
     factors = []
     
-    # 🚨 THE FORM CHECK: Is the pitcher actively struggling right now?
     is_struggling = raw_k_rate < (base_k_rate - 0.02)
     
     if is_struggling:
-        # Abandon Optimistic Shrinkage and reset baseline to the ugly raw rate
         adj_k_rate = raw_k_rate
-        factors.append(f"📉 Form Check: Active Struggling. Shrinkage bypassed. Baseline reset to Raw ({raw_k_rate*100:.1f}%)")
+        factors.append(f"📉 Form Check: Active Struggling. Baseline reset to Raw ({raw_k_rate*100:.1f}%)")
         factors.append(f"📉 Form Check: All situational boosts dampened by 50%")
     else:
         adj_k_rate = base_k_rate
@@ -180,15 +175,12 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
         adj_k_rate += 0.04
         factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% SwStr%) (+4.0% K-Probability)")
 
-    # FIX: SOFTENED PROPORTIONAL MULTIPLIER
     raw_opp_k_ratio = opp_k_rate / 0.225 
-    
-    # Soften the impact by cutting the deviation from 1.0 in half
     opp_k_ratio = 1.0 + ((raw_opp_k_ratio - 1.0) * 0.5)
     
     if raw_opp_k_ratio > 1.0:
         if is_struggling:
-            opp_k_ratio = 1.0 + ((raw_opp_k_ratio - 1.0) * 0.25) # Form check caps it even further
+            opp_k_ratio = 1.0 + ((raw_opp_k_ratio - 1.0) * 0.25)
             factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Poor Form)")
         else:
             factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): Softened {opp_k_ratio:.2f}x Multiplier")
@@ -200,7 +192,7 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
     park_k_factor = K_PARK_FACTORS.get(park, 1.00)
     if park_k_factor != 1.00:
         if park_k_factor > 1.00 and is_struggling:
-            park_k_factor = 1.00 + ((park_k_factor - 1.00) * 0.5) # Form Check Caps Park Boost
+            park_k_factor = 1.00 + ((park_k_factor - 1.00) * 0.5)
             factors.append(f"🏟️ Park Scaler Dampened by Form (Now {(park_k_factor-1)*100:+.1f}%)")
         else:
             val = (park_k_factor - 1) * 100
@@ -208,24 +200,36 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
         adj_k_rate = adj_k_rate * park_k_factor
 
     if park in COLD_GAMES:
-        boost = 0.02 if not is_struggling else 0.01 # Form Check Caps Weather Boost
+        boost = 0.02 if not is_struggling else 0.01
         adj_k_rate += boost
         factors.append(f"🥶 Dense/Cold Air (+{boost*100:.1f}% K-Probability)")
 
     my_team = park if is_home else opp_team
     if any(x in my_team for x in ELITE_CATCHERS):
-        boost = 0.015 if not is_struggling else 0.007 # Form Check Caps Framing Boost
+        boost = 0.015 if not is_struggling else 0.007
         adj_k_rate += boost
         factors.append(f"🧤 Elite Framing (+{boost*100:.1f}% K-Probability)")
 
     adj_k_rate = max(0.08, min(0.45, adj_k_rate))
 
-    # --- INJECTING VARIANCE SCALER (Replaces static binomial probability) ---
-    # Introduces a +/- 3% standard deviation for "Good Stuff / Bad Stuff" days
-    game_k_rates = np.random.normal(loc=adj_k_rate, scale=0.03, size=num_sims)
-    game_k_rates = np.clip(game_k_rates, 0.05, 0.65) # Bounds realistic limits
+    # --- THE FAT TAILS FIX: DYNAMIC WORKLOAD VARIANCE ---
+    # 1. Give the pitcher a random K-rate for each of the 10,000 games
+    variance_scale = 0.03
+    game_k_rates = np.random.normal(loc=adj_k_rate, scale=variance_scale, size=num_sims)
+    game_k_rates = np.clip(game_k_rates, 0.05, 0.65)
     
-    simulated_games = np.random.binomial(n=batters_faced, p=game_k_rates)
+    # 2. Calculate how "good" their stuff is today compared to average (Z-Score)
+    z_scores = (game_k_rates - adj_k_rate) / variance_scale
+    
+    # 3. Dynamic Workload: If they have good stuff (+ Z-Score), they pitch deeper into the game.
+    # We add 2.5 Batters Faced per Standard Deviation of "Good Stuff"
+    dynamic_batters_faced = np.round(batters_faced + (z_scores * 2.5)).astype(int)
+    
+    # Cap the extremes so they don't face 5 batters or 40 batters
+    dynamic_batters_faced = np.clip(dynamic_batters_faced, 12, 32)
+    
+    # Run the binomial with the dynamic array
+    simulated_games = np.random.binomial(n=dynamic_batters_faced, p=game_k_rates)
     mean_ks = np.mean(simulated_games)
     
     df = pd.DataFrame(simulated_games, columns=['Ks'])
@@ -274,8 +278,8 @@ else:
             st.caption(f"📡 Data Status | Away: {game['a_status']} | Home: {game['h_status']}")
             
             st.caption("Batters Faced is now auto-calculated based on Regressed Starts.")
-            bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 28, int(game['a_bf']), key=f"bf_a_{i}")
-            bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 28, int(game['h_bf']), key=f"bf_h_{i}")
+            bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 32, int(game['a_bf']), key=f"bf_a_{i}")
+            bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 32, int(game['h_bf']), key=f"bf_h_{i}")
             
             opp_k_a = TEAM_K_DB.get(game['h'], 0.225)
             opp_k_h = TEAM_K_DB.get(game['a'], 0.225)
@@ -290,7 +294,6 @@ else:
                 st.markdown(f"### ✈️ {game['a_sp']}")
                 a_k_line = st.number_input("Vegas Line:", value=5.5, step=0.5, key=f"ak_{i}_{game['a']}")
                 
-                # Dynamic EV Input Fields
                 c1, c2 = st.columns(2)
                 with c1:
                     a_over_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"ao_{i}_{game['a']}")
@@ -310,7 +313,6 @@ else:
                 elif under_prob > 60: st.error(f"📉 **{under_prob:.1f}% Chance to hit UNDER**")
                 else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {under_prob:.1f}% Under)")
                 
-                # Expected Value (EV) Display
                 if over_ev > 1.5: 
                     st.success(f"🔥 **+EV PLAY IDENTIFIED: OVER ({over_ev:+.1f}% Edge)**")
                 elif under_ev > 1.5: 
@@ -329,7 +331,6 @@ else:
                 st.markdown(f"### 🏠 {game['h_sp']}")
                 h_k_line = st.number_input("Vegas Line:", value=5.5, step=0.5, key=f"hk_{i}_{game['h']}")
                 
-                # Dynamic EV Input Fields
                 c3, c4 = st.columns(2)
                 with c3:
                     h_over_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"ho_{i}_{game['h']}")
@@ -349,7 +350,6 @@ else:
                 elif under_prob > 60: st.error(f"📉 **{under_prob:.1f}% Chance to hit UNDER**")
                 else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {under_prob:.1f}% Under)")
                 
-                # Expected Value (EV) Display
                 if over_ev > 1.5: 
                     st.success(f"🔥 **+EV PLAY IDENTIFIED: OVER ({over_ev:+.1f}% Edge)**")
                 elif under_ev > 1.5: 
