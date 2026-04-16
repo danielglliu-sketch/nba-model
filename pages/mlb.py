@@ -26,14 +26,8 @@ st.sidebar.subheader("🔬 Simulation Modifiers")
 st.sidebar.caption("These alter the raw K% probability before running the 10k simulations.")
 
 with st.sidebar.expander("1. Arsenal & Discipline", expanded=False):
-    high_whiff_input = st.text_area("ELITE WHIFF PITCHERS (Base K% + 4%)", "Tarik Skubal, Zack Wheeler, Corbin Burnes, Chris Sale, Cole Ragans, Paul Skenes, Tyler Glasnow, Spencer Strider, Jared Jones, Hunter Greene, Dylan Cease")
-    HIGH_WHIFF_PITCHERS = [x.strip() for x in high_whiff_input.split(',')]
-
-    high_k_lineups_input = st.text_area("HIGH-K LINEUPS (Opp K% + 3%)", "COL, CHW, LAA, SEA, OAK, CIN, TB")
-    HIGH_K_LINEUPS = [x.strip() for x in high_k_lineups_input.split(',')]
-
-    low_k_lineups_input = st.text_area("ELITE CONTACT LINEUPS (Opp K% - 4%)", "HOU, CLE, SD, KC, NYY, ATL")
-    LOW_K_LINEUPS = [x.strip() for x in low_k_lineups_input.split(',')]
+    st.info("🎯 Elite Whiff Rate is automatically driven by Live 2026 SwStr% (>13.5%).")
+    st.info("📊 Live 2026 Opponent Team K% Data automatically integrated via PyBaseball.")
 
 with st.sidebar.expander("2. Environment & Matchup", expanded=False):
     cold_weather = st.text_area("COLD/WIND IN GAMES (K% + 2%)", "MIN, CHW, DET, CLE, CHC, SF")
@@ -54,17 +48,38 @@ def norm_mlb(abbr):
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATION: BAYESIAN SHRINKAGE & DYNAMIC WORKLOAD ENGINE
+# 🤖 AUTOMATION: BAYESIAN SHRINKAGE, WORKLOAD, SWSTR%, & LIVE OPPONENT K%
 # ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=86400)
+def get_team_k_rates():
+    try:
+        df = pyb.team_batting(2026)
+        if 'K%' in df.columns:
+            if df['K%'].dtype == object:
+                df['K%'] = df['K%'].str.rstrip('%').astype('float') / 100.0
+        else:
+            df['K%'] = df['SO'] / df['PA']
+            
+        team_map = {'SFG': 'SF', 'SDP': 'SD', 'WSN': 'WSH', 'TBR': 'TB', 'KCR': 'KC'}
+        df['Team'] = df['Team'].replace(team_map)
+        
+        return df.set_index('Team')['K%'].to_dict()
+    except: return {}
+
+TEAM_K_DB = get_team_k_rates()
+
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
     try:
         df = pyb.pitching_stats(2026, qual=0)
         df['TBF'] = df['TBF'].fillna(50) 
         
-        for col in ['K%', 'BB%']:
-            if df[col].dtype == object:
-                df[col] = df[col].str.rstrip('%').astype('float') / 100.0
+        for col in ['K%', 'BB%', 'SwStr%']:
+            if col in df.columns:
+                if df[col].dtype == object:
+                    df[col] = df[col].str.rstrip('%').astype('float') / 100.0
+            else:
+                df[col] = 0.11 if col == 'SwStr%' else 0.10
         
         # Calculate pitches per game (Leash) and efficiency (P/PA)
         df['Auto_Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
@@ -74,7 +89,7 @@ def get_pitcher_stats_database():
         df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 70) / (df['TBF'] + 70)
         df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 100) / (df['TBF'] + 100)
         
-        return df.set_index('Name')[['K%', 'BB%', 'Auto_Leash', 'Auto_PPA']].to_dict('index')
+        return df.set_index('Name')[['K%', 'BB%', 'SwStr%', 'Auto_Leash', 'Auto_PPA']].to_dict('index')
     except: return {}
 
 STATS_DB = get_pitcher_stats_database()
@@ -89,9 +104,10 @@ def get_automated_pitcher_metrics(pitcher_name):
         expected_bf = int(match['Auto_Leash'] / match['Auto_PPA'])
         # Cap realistically between 14 and 28 batters
         expected_bf = max(14, min(28, expected_bf)) 
+        swstr = match.get('SwStr%', 0.11)
         
-        return match['K%'], match['BB%'], expected_bf, f"Found: {matches[0]} (Regressed K%: {match['K%']*100:.1f}%)"
-    return 0.22, 0.08, 22, "⚠️ Data Missing (Using League Avg)"
+        return match['K%'], match['BB%'], swstr, expected_bf, f"Found: {matches[0]} (Regressed K%: {match['K%']*100:.1f}%)"
+    return 0.22, 0.08, 0.11, 22, "⚠️ Data Missing (Using League Avg)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
@@ -115,8 +131,8 @@ def get_mlb_slate(date_str):
                 if 'probables' in away and len(away['probables']) > 0:
                     a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
 
-                h_k, h_bb, h_bf, h_status = get_automated_pitcher_metrics(h_sp)
-                a_k, a_bb, a_bf, a_status = get_automated_pitcher_metrics(a_sp)
+                h_k, h_bb, h_swstr, h_bf, h_status = get_automated_pitcher_metrics(h_sp)
+                a_k, a_bb, a_swstr, a_bf, a_status = get_automated_pitcher_metrics(a_sp)
 
                 games.append({
                     'h': norm_mlb(home['team']['abbreviation']), 
@@ -126,6 +142,7 @@ def get_mlb_slate(date_str):
                     'h_sp': h_sp, 'a_sp': a_sp,
                     'h_base_k_rate': h_k, 'a_base_k_rate': a_k,
                     'h_bb': h_bb, 'a_bb': a_bb,
+                    'h_swstr': h_swstr, 'a_swstr': a_swstr,
                     'h_bf': h_bf, 'a_bf': a_bf,
                     'h_status': h_status, 'a_status': a_status
                 })
@@ -135,7 +152,7 @@ def get_mlb_slate(date_str):
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. THE MONTE CARLO ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, park, is_home, batters_faced, num_sims=10000):
+def run_monte_carlo(sp_name, base_k_rate, bb_rate, swstr_rate, opp_team, opp_k_rate, park, is_home, batters_faced, num_sims=10000):
     if sp_name == "TBD": return None
     
     # --- Step 1: Adjust the True Probability (K%) ---
@@ -145,22 +162,24 @@ def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, park, is_home, batt
     # 🚨 COMMAND TAX: Cut raw rate slightly if they are issuing too many walks
     if bb_rate > 0.11:
         adj_k_rate -= 0.02
-        factors.append(f"⚠️ High Walk Rate Penalty (-2% K-Probability)")
+        factors.append(f"⚠️ High Walk Rate Penalty (-2.0% K-Probability)")
 
-    if any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS):
+    # 🚨 AUTOMATED ELITE WHIFF DETECTION
+    if swstr_rate > 0.135:
         adj_k_rate += 0.04
-        factors.append("🎯 Elite Whiff Rate (+4% K-Probability)")
+        factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% SwStr%) (+4.0% K-Probability)")
 
-    # 🚨 MATCHUP DAMPENER: Wild pitchers get less benefit from bad lineups
-    w_high_k = 0.03
-    if bb_rate > 0.11: w_high_k = 0.015 
-
-    if opp_team in HIGH_K_LINEUPS:
-        adj_k_rate += w_high_k
-        factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}% K-Probability)")
-    elif opp_team in LOW_K_LINEUPS:
-        adj_k_rate -= 0.04
-        factors.append("🛡️ Elite Contact Opponent (-4% K-Probability)")
+    # 🚨 LIVE OPPONENT K-RATE ADJUSTMENT (League Average is ~22.5%)
+    opp_k_diff = opp_k_rate - 0.225 
+    
+    # MATCHUP DAMPENER: Wild pitchers get less benefit from highly aggressive lineups
+    if opp_k_diff > 0 and bb_rate > 0.11:
+        opp_k_diff = opp_k_diff * 0.5
+        factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Wild Command)")
+    else:
+        factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}% vs Avg): {opp_k_diff*100:+.1f}%")
+        
+    adj_k_rate += opp_k_diff
 
     park_k_factor = K_PARK_FACTORS.get(park, 1.00)
     if park_k_factor != 1.00:
@@ -170,7 +189,7 @@ def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, park, is_home, batt
 
     if park in COLD_GAMES:
         adj_k_rate += 0.02
-        factors.append("🥶 Dense/Cold Air (+2% K-Probability)")
+        factors.append("🥶 Dense/Cold Air (+2.0% K-Probability)")
 
     my_team = park if is_home else opp_team
     if any(x in my_team for x in ELITE_CATCHERS):
@@ -220,8 +239,12 @@ else:
             bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 28, int(game['a_bf']), key=f"bf_a_{i}")
             bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 28, int(game['h_bf']), key=f"bf_h_{i}")
             
-            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['a_bb'], game['h'], game['h'], False, bf_a)
-            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['h_bb'], game['a'], game['h'], True, bf_h)
+            # Retrieve live team K% to pass to the engine (Default to 22.5% if missing)
+            opp_k_a = TEAM_K_DB.get(game['h'], 0.225)
+            opp_k_h = TEAM_K_DB.get(game['a'], 0.225)
+            
+            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['a_bb'], game['a_swstr'], game['h'], opp_k_a, game['h'], False, bf_a)
+            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['h_bb'], game['h_swstr'], game['a'], opp_k_h, game['h'], True, bf_h)
 
             col1, col2 = st.columns(2)
             
