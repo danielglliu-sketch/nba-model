@@ -88,7 +88,7 @@ def get_pitcher_stats_database():
         df['Auto_Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
         df['Auto_PPA'] = 3.8 + (df['BB%'] * 6.0) 
         
-        # 🚨 FORM CHECK FIX: Store Raw K% before applying Shrinkage
+        # Store Raw K% before applying Shrinkage
         df['Raw_K%'] = df['K%']
         
         # Bayesian Shrinkage to prevent wild projections from small 2026 samples
@@ -156,18 +156,24 @@ def get_mlb_slate(date_str):
     except: return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE (WITH FORM CHECK)
+# 2. THE MONTE CARLO ENGINE (WITH FORM CHECK OVERRIDE)
 # ─────────────────────────────────────────────────────────────────────────────
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_team, opp_k_rate, park, is_home, batters_faced, num_sims=10000):
     if sp_name == "TBD": return None
     
-    adj_k_rate = base_k_rate
-    factors = [f"📊 Baseline Rate (Post-Shrinkage): {base_k_rate*100:.1f}%"]
+    factors = []
     
     # 🚨 THE FORM CHECK: Is the pitcher actively struggling right now?
     is_struggling = raw_k_rate < (base_k_rate - 0.02)
+    
     if is_struggling:
-        factors.append(f"📉 Form Check: Active Struggling (Raw {raw_k_rate*100:.1f}%) -> Boosts Dampened by 50%")
+        # THE FIX: Abandon Optimistic Shrinkage and reset baseline to the ugly raw rate
+        adj_k_rate = raw_k_rate
+        factors.append(f"📉 Form Check: Active Struggling. Shrinkage bypassed. Baseline reset to Raw ({raw_k_rate*100:.1f}%)")
+        factors.append(f"📉 Form Check: All situational boosts dampened by 50%")
+    else:
+        adj_k_rate = base_k_rate
+        factors.append(f"📊 Baseline Rate (Post-Shrinkage): {base_k_rate*100:.1f}%")
     
     if bb_rate > 0.11:
         adj_k_rate -= 0.02
