@@ -180,17 +180,20 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
         adj_k_rate += 0.04
         factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% SwStr%) (+4.0% K-Probability)")
 
-    # FIX: PROPORTIONAL MULTIPLIER
-    opp_k_ratio = opp_k_rate / 0.225 
+    # FIX: SOFTENED PROPORTIONAL MULTIPLIER
+    raw_opp_k_ratio = opp_k_rate / 0.225 
     
-    if opp_k_ratio > 1.0:
+    # Soften the impact by cutting the deviation from 1.0 in half
+    opp_k_ratio = 1.0 + ((raw_opp_k_ratio - 1.0) * 0.5)
+    
+    if raw_opp_k_ratio > 1.0:
         if is_struggling:
-            opp_k_ratio = 1.0 + ((opp_k_ratio - 1.0) * 0.5) # Form Check Caps Matchup Boost
+            opp_k_ratio = 1.0 + ((raw_opp_k_ratio - 1.0) * 0.25) # Form check caps it even further
             factors.append(f"🏏 Opponent K% ({opp_k_rate*100:.1f}%) dampener applied (Poor Form)")
         else:
-            factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): {opp_k_ratio:.2f}x Multiplier")
+            factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): Softened {opp_k_ratio:.2f}x Multiplier")
     else:
-        factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): {opp_k_ratio:.2f}x Multiplier")
+        factors.append(f"🏏 Live Opponent K% ({opp_k_rate*100:.1f}%): Softened {opp_k_ratio:.2f}x Multiplier")
         
     adj_k_rate = adj_k_rate * opp_k_ratio
 
