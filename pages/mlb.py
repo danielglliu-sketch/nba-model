@@ -91,9 +91,9 @@ def get_pitcher_stats_database():
         # Store Raw K% before applying Shrinkage
         df['Raw_K%'] = df['K%']
         
-        # Bayesian Shrinkage to prevent wild projections from small 2026 samples
-        df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 70) / (df['TBF'] + 70)
-        df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 100) / (df['TBF'] + 100)
+        # FIX: Lowered Bayesian Shrinkage constants for early-season (April) accuracy
+        df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 25) / (df['TBF'] + 25)
+        df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 40) / (df['TBF'] + 40)
         
         return df.set_index('Name')[['K%', 'Raw_K%', 'BB%', 'SwStr%', 'Auto_Leash', 'Auto_PPA']].to_dict('index')
     except: return {}
