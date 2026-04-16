@@ -58,8 +58,8 @@ def get_team_k_rates():
     try:
         df = pyb.team_batting(2026)
         if 'K%' in df.columns:
-            if df['K%'].dtype == object:
-                df['K%'] = df['K%'].str.rstrip('%').astype('float') / 100.0
+            df['K%'] = df['K%'].astype(str).str.replace('%', '').astype(float)
+            df.loc[df['K%'] > 1.5, 'K%'] = df['K%'] / 100.0
         else:
             df['K%'] = df['SO'] / df['PA']
             
@@ -74,16 +74,22 @@ TEAM_K_DB = get_team_k_rates()
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
     try:
-        df = pyb.pitching_stats(2026, qual=0)
+        # Fallback logic to grab 2025 if 2026 fails
+        try:
+            df = pyb.pitching_stats(2026, qual=0)
+        except:
+            df = pyb.pitching_stats(2025, qual=0)
+            
         df['TBF'] = df['TBF'].fillna(50) 
         df['GS'] = df['GS'].fillna(0)
         
+        # 🚨 FIX: Brute-Force Parse formatting to ensure proper decimal scale
         for col in ['K%', 'BB%', 'SwStr%']:
-            if col in df.columns:
-                if df[col].dtype == object:
-                    df[col] = df[col].str.rstrip('%').astype('float') / 100.0
+            if col not in df.columns:
+                df[col] = 0.22 if col == 'K%' else (0.08 if col == 'BB%' else 0.11)
             else:
-                df[col] = 0.11 if col == 'SwStr%' else 0.10
+                df[col] = df[col].astype(str).str.replace('%', '').astype(float)
+                df.loc[df[col] > 1.5, col] = df[col] / 100.0
         
         df['BF_per_Start'] = (df['TBF'] + (22.5 * 3)) / (df['GS'] + 3)
         df['BF_per_Start'] = df['BF_per_Start'].fillna(22.5).clip(16, 28)
@@ -110,7 +116,8 @@ def get_automated_pitcher_metrics(pitcher_name):
         
         return match['K%'], raw_k, match['BB%'], swstr, expected_bf, f"Found: {matches[0]} (Reg K%: {match['K%']*100:.1f}% | Raw: {raw_k*100:.1f}%)"
     
-    return 0.18, 0.18, 0.08, 0.09, 21, "⚠️ Data Missing (Using Replacement Defaults)"
+    # 🚨 FIX: Balanced League Average Fallback
+    return 0.22, 0.22, 0.08, 0.11, 23, "⚠️ Data Missing (Using League Avg)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
@@ -222,7 +229,6 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
     z_scores = (game_k_rates - adj_k_rate) / variance_scale
     
     # 3. Dynamic Workload: If they have good stuff (+ Z-Score), they pitch deeper into the game.
-    # We add 2.5 Batters Faced per Standard Deviation of "Good Stuff"
     dynamic_batters_faced = np.round(batters_faced + (z_scores * 2.5)).astype(int)
     
     # Cap the extremes so they don't face 5 batters or 40 batters
@@ -263,6 +269,10 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🎲 MLB Quant AI: Monte Carlo Simulator")
 st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the true mathematical probability of hitting a Vegas Prop line. Use the EV tracker to find profitable bets.")
+
+# 🚨 Failsafe Check for Silent API Crashes
+if not STATS_DB:
+    st.error("🚨 CRITICAL API FAILURE: The PyBaseball database failed to load stats from FanGraphs. The model is currently running on blind league averages and will be inaccurate. Please click 'Force Data Refresh' or try again later.")
 st.divider()
 
 slate = get_mlb_slate(target_date_str)
