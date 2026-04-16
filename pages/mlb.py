@@ -128,15 +128,12 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k
     factors = []
     adj_k_rate = base_k_rate
     
-    # 1. Automated Form Warning (Underperformance)
     if raw_k_rate < (base_k_rate - 0.02): 
         factors.append("📉 Form Warning: Actual performance lagging projection.")
     
-    # 2. SENSITIVE REGRESSION ALERT (Lowered to 1% to catch the Bubic fluke)
     if raw_k_rate > (base_k_rate + 0.01):
-        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier (1%+ vs Baseline). High crash risk.")
+        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier. High crash risk.")
     
-    # 3. EFFICIENCY/WALK WARNING (The 'Early Exit' Failsafe)
     if bb_rate > 0.09:
         factors.append("⛽ Efficiency Warning: High Walk Rate increases risk of early pull.")
         
@@ -183,6 +180,7 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 st.title("🤖 MLB Quant AI - 100% Autopilot")
 st.markdown("Ultra-Sensitive Regression Alert (1%) & Efficiency Failsafe enabled.")
 
+# --- LIVE UMPIRE FAILSAFE ---
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
     slate_data = requests.get(schedule_url).json()
@@ -200,10 +198,13 @@ else:
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
         
         umpire = "Neutral"
+        # 1. Check schedule hydrate (Standard)
         if 'officials' in game:
             for off in game['officials']:
                 if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
-        if umpire == "Neutral" and game['status']['abstractGameState'] == 'Final':
+        
+        # 2. Check boxscore (If Game is In-Progress or Final)
+        if umpire == "Neutral" and game['status']['abstractGameState'] in ['Live', 'Final']:
             try:
                 bx_url = f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore"
                 bx_data = requests.get(bx_url).json()
@@ -239,3 +240,4 @@ else:
                     
                     st.bar_chart(pd.Series(res['simulations']).value_counts(normalize=True).sort_index())
                     for f in res['factors']: st.caption(f"- {f}")
+                        
