@@ -76,6 +76,7 @@ def get_pitcher_stats_database():
     try:
         df = pyb.pitching_stats(2026, qual=0)
         df['TBF'] = df['TBF'].fillna(50) 
+        df['GS'] = df['GS'].fillna(0)
         
         for col in ['K%', 'BB%', 'SwStr%']:
             if col in df.columns:
@@ -84,18 +85,18 @@ def get_pitcher_stats_database():
             else:
                 df[col] = 0.11 if col == 'SwStr%' else 0.10
         
-        # Calculate pitches per game (Leash) and efficiency (P/PA)
-        df['Auto_Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
-        df['Auto_PPA'] = 3.8 + (df['BB%'] * 6.0) 
+        # FIX: Replaced suffocating pitch-count math with Regressed Batters Faced per Start
+        df['BF_per_Start'] = (df['TBF'] + (22.5 * 3)) / (df['GS'] + 3)
+        df['BF_per_Start'] = df['BF_per_Start'].fillna(22.5).clip(16, 28)
         
         # Store Raw K% before applying Shrinkage
         df['Raw_K%'] = df['K%']
         
-        # FIX: Lowered Bayesian Shrinkage constants for early-season (April) accuracy
+        # Lowered Bayesian Shrinkage constants for early-season (April) accuracy
         df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 25) / (df['TBF'] + 25)
         df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 40) / (df['TBF'] + 40)
         
-        return df.set_index('Name')[['K%', 'Raw_K%', 'BB%', 'SwStr%', 'Auto_Leash', 'Auto_PPA']].to_dict('index')
+        return df.set_index('Name')[['K%', 'Raw_K%', 'BB%', 'SwStr%', 'BF_per_Start']].to_dict('index')
     except: return {}
 
 STATS_DB = get_pitcher_stats_database()
@@ -106,14 +107,13 @@ def get_automated_pitcher_metrics(pitcher_name):
     match = STATS_DB[matches[0]] if matches else None
     
     if match:
-        expected_bf = int(match['Auto_Leash'] / match['Auto_PPA'])
-        expected_bf = max(14, min(28, expected_bf)) 
+        expected_bf = int(round(match.get('BF_per_Start', 22.5)))
         swstr = match.get('SwStr%', 0.11)
         raw_k = match.get('Raw_K%', match['K%'])
         
         return match['K%'], raw_k, match['BB%'], swstr, expected_bf, f"Found: {matches[0]} (Reg K%: {match['K%']*100:.1f}% | Raw: {raw_k*100:.1f}%)"
     
-    return 0.18, 0.18, 0.08, 0.09, 18, "⚠️ Data Missing (Using Replacement Defaults)"
+    return 0.18, 0.18, 0.08, 0.09, 21, "⚠️ Data Missing (Using Replacement Defaults)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
@@ -273,7 +273,7 @@ else:
         with st.expander(f"⚾ {game['a_sp']} vs {game['h_sp']} ({game['h']} Stadium)"):
             st.caption(f"📡 Data Status | Away: {game['a_status']} | Home: {game['h_status']}")
             
-            st.caption("Batters Faced is now auto-calculated based on live pitch counts and walk efficiency.")
+            st.caption("Batters Faced is now auto-calculated based on Regressed Starts.")
             bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 28, int(game['a_bf']), key=f"bf_a_{i}")
             bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 28, int(game['h_bf']), key=f"bf_h_{i}")
             
