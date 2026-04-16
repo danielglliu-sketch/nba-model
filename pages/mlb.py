@@ -49,18 +49,22 @@ K_PARK_FACTORS = {
     'CHC': 0.97, 'STL': 0.97, 'PIT': 0.97, 'LAA': 0.96, 'HOU': 0.96, 'WSH': 0.95, 'CIN': 0.94, 'ARI': 0.93, 'COL': 0.85 
 }
 
+# EXPANDED TEAM MAP with 2026 Athletics Fallback
 TEAM_MAP = {
     'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore Orioles': 'BAL', 'Boston Red Sox': 'BOS',
     'Chicago Cubs': 'CHC', 'Chicago White Sox': 'CHW', 'Cincinnati Reds': 'CIN', 'Cleveland Guardians': 'CLE',
     'Colorado Rockies': 'COL', 'Detroit Tigers': 'DET', 'Houston Astros': 'HOU', 'Kansas City Royals': 'KC',
     'Los Angeles Angels': 'LAA', 'Los Angeles Dodgers': 'LAD', 'Miami Marlins': 'MIA', 'Milwaukee Brewers': 'MIL',
-    'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK',
+    'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 
+    'Oakland Athletics': 'OAK', 'Sacramento Athletics': 'OAK', 'Athletics': 'OAK',
     'Philadelphia Phillies': 'PHI', 'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF',
     'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB', 'Texas Rangers': 'TEX',
     'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH'
 }
 
-# --- AUTOMATED DATA PIPELINE ---
+# ─────────────────────────────────────────────────────────────────────────────
+# 🤖 AUTOMATED DATA PIPELINE
+# ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600)
 def get_live_temp(team_abbr):
@@ -82,7 +86,9 @@ def get_automated_team_splits():
         try:
             data = requests.get(url, timeout=10).json()
             for record in data['stats'][0]['splits']:
-                abbr = TEAM_MAP.get(record['team']['name'])
+                # SMART LOOKUP: Try the map, otherwise use the API name as the key
+                api_name = record['team']['name']
+                abbr = TEAM_MAP.get(api_name, api_name) 
                 if abbr:
                     if abbr not in splits: splits[abbr] = {}
                     pa = record['stat'].get('plateAppearances', 1)
@@ -122,7 +128,9 @@ def get_pitcher_stats_database():
 
 STATS_DB = get_pitcher_stats_database()
 
-# --- THE MONTE CARLO ENGINE ---
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. THE MONTE CARLO ENGINE
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
     factors = []
@@ -132,7 +140,7 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k
         factors.append("📉 Form Warning: Actual performance lagging projection.")
     
     if raw_k_rate > (base_k_rate + 0.01):
-        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier (1%+ vs Baseline). High crash risk.")
+        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier. High crash risk.")
     
     if bb_rate > 0.09:
         factors.append("⛽ Efficiency Warning: High Walk Rate increases risk of early pull.")
@@ -190,8 +198,13 @@ if not games:
     st.info("No games found. Please refresh or check date.")
 else:
     for game in games:
-        home_team = TEAM_MAP.get(game['teams']['home']['team']['name'])
-        away_team = TEAM_MAP.get(game['teams']['away']['team']['name'])
+        # SMART FALLBACK: If name not in map, just use the API's name so it doesn't say "None"
+        home_name_api = game['teams']['home']['team']['name']
+        away_name_api = game['teams']['away']['team']['name']
+        
+        home_team = TEAM_MAP.get(home_name_api, home_name_api)
+        away_team = TEAM_MAP.get(away_name_api, away_name_api)
+        
         h_sp_name = game['teams']['home'].get('probablePitcher', {}).get('fullName', 'TBD')
         a_sp_name = game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
@@ -209,14 +222,14 @@ else:
                     if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
             except: pass
 
-        # --- UPDATED HEADER TO SHOW PITCHER NAMES ---
+        # HEADER WITH PITCHER NAMES (Safely formatted)
         with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Umpire: {umpire}"):
             temp = get_live_temp(home_team)
             col1, col2 = st.columns(2)
-            for side, sp_name, team, opp_team in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
+            for side, sp_name, team_abbr, opp_team_abbr in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
                 with side:
                     match = STATS_DB.get(sp_name, {'K%': 0.22, 'Raw_K%': 0.22, 'BB%': 0.08, 'Hand': 'R', 'SwStr%': 0.11, 'BF_per_Start': 23})
-                    opp_k_rate = SPLITS_DB.get(opp_team, {}).get(match['Hand'], 0.225)
+                    opp_k_rate = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.225)
                     res = run_monte_carlo(sp_name, match['K%'], match['Raw_K%'], match['BB%'], match['SwStr%'], opp_k_rate, home_team, match['BF_per_Start'], temp, umpire)
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
