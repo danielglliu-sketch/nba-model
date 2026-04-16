@@ -28,7 +28,6 @@ STADIUM_COORDS = {
     'TOR': (43.641, -79.389), 'WSH': (38.873, -77.007)
 }
 
-# EXPANDED UMPIRE DATABASE (Outlier Profiles)
 UMPIRE_DATABASE = {
     "Pitcher Friendly (Wide Zone)": [
         "Bill Miller", "Bill Welke", "Laz Diaz", "Larry Vanover", "Alan Porter", 
@@ -62,7 +61,7 @@ TEAM_MAP = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATED DATA PIPELINE (MLB & WEATHER APIs)
+# 🤖 AUTOMATED DATA PIPELINE
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600)
@@ -98,64 +97,48 @@ SPLITS_DB = get_automated_team_splits()
 
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
-    """OPTIMIZED: Batch fetches stats and handedness to stop 'Running' lag."""
     url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&playerPool=ALL&season=2026&limit=1000"
     pitcher_db = {}
     try:
-        # Pre-fetch all player handedness to avoid 300+ individual API calls
         people_url = "https://statsapi.mlb.com/api/v1/sports/1/players?season=2026"
         people_data = requests.get(people_url).json()
         hand_map = {p['id']: p.get('pitchHand', {}).get('code', 'R') for p in people_data['people']}
-
         data = requests.get(url, timeout=15).json()
         for record in data['stats'][0]['splits']:
             name = record['player']['fullName']
             pid = record['player']['id']
             hand = hand_map.get(pid, 'R')
-            
             stat = record['stat']
             tbf = stat.get('battersFaced', 0)
             so = stat.get('strikeOuts', 0)
             gs = stat.get('gamesStarted', 0)
-            
             if tbf == 0: continue
             raw_k = so / tbf
             bf_per_start = max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))
             shrunk_k = (raw_k * tbf + 0.22 * 25) / (tbf + 25)
-            
-            pitcher_db[name] = {
-                'K%': shrunk_k, 'Raw_K%': raw_k, 'Hand': hand,
-                'SwStr%': raw_k * 0.5, 'BF_per_Start': bf_per_start
-            }
+            pitcher_db[name] = {'K%': shrunk_k, 'Raw_K%': raw_k, 'Hand': hand, 'SwStr%': raw_k * 0.5, 'BF_per_Start': bf_per_start}
         return pitcher_db
     except: return {}
 
 STATS_DB = get_pitcher_stats_database()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. THE MONTE CARLO ENGINE (AUDITED & BALANCED)
+# 2. THE MONTE CARLO ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
     factors = []
     adj_k_rate = base_k_rate
-    
-    if raw_k_rate < (base_k_rate - 0.02):
-        factors.append("📉 Form Warning: Actual performance lagging projection.")
-    
+    if raw_k_rate < (base_k_rate - 0.02): factors.append("📉 Form Warning: Actual performance lagging.")
     if swstr_rate > 0.135: 
         adj_k_rate += 0.04
         factors.append("🎯 Elite Whiff Boost (+4.0%)")
-
     opp_ratio = 1.0 + (((opp_k_rate / 0.225) - 1.0) * 0.5)
     adj_k_rate *= opp_ratio
     factors.append(f"🏏 Opponent Split K% ({opp_k_rate*100:.1f}%) applied")
-
     if temp < 60:
         adj_k_rate += 0.02
         factors.append(f"🥶 Cold Weather detected ({temp:.0f}°F) (+2.0%)")
-        
-    # REFINED UMPIRE LOGIC
     if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]:
         adj_k_rate += 0.015
         factors.append(f"💎 Umpire: Wide Zone ({umpire}) (+1.5%)")
@@ -164,19 +147,15 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, swstr_rate, opp_k_rate, pa
         factors.append(f"🧱 Umpire: Tight Zone ({umpire}) (-1.5%)")
     elif umpire != "Neutral":
         factors.append(f"⚖️ Umpire: Neutral Zone ({umpire})")
-
     pk = K_PARK_FACTORS.get(park, 1.0)
     adj_k_rate *= pk
     if pk != 1.0: factors.append(f"🏟️ Park Factor ({((pk-1)*100):+.1f}%)")
-
     adj_k_rate = max(0.08, min(0.45, adj_k_rate))
-    
     variance_scale = 0.03
     game_k_rates = np.random.normal(loc=adj_k_rate, scale=variance_scale, size=num_sims)
     game_k_rates = np.clip(game_k_rates, 0.05, 0.65)
     z_scores = (game_k_rates - adj_k_rate) / variance_scale
     dynamic_bf = np.clip(np.round(batters_faced + (z_scores * 2.5)).astype(int), 12, 32)
-    
     simulations = np.random.binomial(n=dynamic_bf, p=game_k_rates)
     return {'simulations': simulations, 'factors': factors, 'mean_k': adj_k_rate}
 
@@ -191,7 +170,7 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 # ─────────────────────────────────────────────────────────────────────────────
 
 st.title("🤖 MLB Quant AI - 100% Autopilot")
-st.markdown("Contextual automation (Splits, Umpires, Weather) is active. Core Monte Carlo math is locked.")
+st.markdown("Contextual automation is active. Post-game umpire failsafe is now enabled.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -209,11 +188,22 @@ else:
         a_sp_name = game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
         
+        # --- NEW POST-GAME UMPIRE FAILSAFE ---
         umpire = "Neutral"
         if 'officials' in game:
             for off in game['officials']:
                 if off['officialType'] == 'Home Plate': 
                     umpire = off['official']['fullName']
+        
+        # If still Neutral and game is finished, check the boxscore specifically
+        if umpire == "Neutral" and game['status']['abstractGameState'] == 'Final':
+            try:
+                bx_url = f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore"
+                bx_data = requests.get(bx_url).json()
+                for off in bx_data.get('officials', []):
+                    if off['officialType'] == 'Home Plate':
+                        umpire = off['official']['fullName']
+            except: pass
 
         with st.expander(f"⚾ {away_team} @ {home_team} | Umpire: {umpire}"):
             temp = get_live_temp(home_team)
@@ -223,25 +213,19 @@ else:
                     match = STATS_DB.get(sp_name, {'K%': 0.22, 'Raw_K%': 0.22, 'Hand': 'R', 'SwStr%': 0.11, 'BF_per_Start': 23})
                     opp_k_rate = SPLITS_DB.get(opp_team, {}).get(match['Hand'], 0.225)
                     res = run_monte_carlo(sp_name, match['K%'], match['Raw_K%'], match['SwStr%'], opp_k_rate, home_team, match['BF_per_Start'], temp, umpire)
-                    
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     line = st.number_input("Line:", value=5.5, step=0.5, key=f"L_{sp_name}_{game['gamePk']}")
-                    c_ev1, c_ev2 = st.columns(2)
-                    with c_ev1: o_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"OO_{sp_name}_{game['gamePk']}")
-                    with c_ev2: u_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"UO_{sp_name}_{game['gamePk']}")
-                    
+                    o_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"OO_{sp_name}_{game['gamePk']}")
+                    u_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"UO_{sp_name}_{game['gamePk']}")
                     o_prob = (np.sum(res['simulations'] > line) / 10000) * 100
                     u_prob = 100 - o_prob
                     o_ev = calculate_ev_percent(o_prob, o_odds)
                     u_ev = calculate_ev_percent(u_prob, u_odds)
-                    
                     if o_prob > 60: st.success(f"📈 {o_prob:.1f}% Chance OVER")
                     elif u_prob > 60: st.error(f"📉 {u_prob:.1f}% Chance UNDER")
-                    else: st.warning(f"⚖️ Neutral Matchup ({o_prob:.1f}% Over)")
-                    
+                    else: st.warning(f"⚖️ Neutral ({o_prob:.1f}% Over)")
                     if o_ev > 2.0: st.success(f"🔥 +EV OVER: {o_ev:+.1f}% Edge")
                     elif u_ev > 2.0: st.success(f"🔥 +EV UNDER: {u_ev:+.1f}% Edge")
                     else: st.info(f"🛑 No Edge (EV: {max(o_ev, u_ev):+.1f}%)")
-                    
                     st.bar_chart(pd.Series(res['simulations']).value_counts(normalize=True).sort_index())
                     for f in res['factors']: st.caption(f"- {f}")
