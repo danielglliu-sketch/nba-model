@@ -132,7 +132,7 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_k
         factors.append("📉 Form Warning: Actual performance lagging projection.")
     
     if raw_k_rate > (base_k_rate + 0.01):
-        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier. High crash risk.")
+        factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier (1%+ vs Baseline). High crash risk.")
     
     if bb_rate > 0.09:
         factors.append("⛽ Efficiency Warning: High Walk Rate increases risk of early pull.")
@@ -180,7 +180,6 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 st.title("🤖 MLB Quant AI - 100% Autopilot")
 st.markdown("Ultra-Sensitive Regression Alert (1%) & Efficiency Failsafe enabled.")
 
-# --- LIVE UMPIRE FAILSAFE ---
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
     slate_data = requests.get(schedule_url).json()
@@ -198,12 +197,10 @@ else:
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
         
         umpire = "Neutral"
-        # 1. Check schedule hydrate (Standard)
         if 'officials' in game:
             for off in game['officials']:
                 if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
         
-        # 2. Check boxscore (If Game is In-Progress or Final)
         if umpire == "Neutral" and game['status']['abstractGameState'] in ['Live', 'Final']:
             try:
                 bx_url = f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore"
@@ -212,7 +209,8 @@ else:
                     if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
             except: pass
 
-        with st.expander(f"⚾ {away_team} @ {home_team} | Umpire: {umpire}"):
+        # --- UPDATED HEADER TO SHOW PITCHER NAMES ---
+        with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Umpire: {umpire}"):
             temp = get_live_temp(home_team)
             col1, col2 = st.columns(2)
             for side, sp_name, team, opp_team in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
@@ -240,4 +238,3 @@ else:
                     
                     st.bar_chart(pd.Series(res['simulations']).value_counts(normalize=True).sort_index())
                     for f in res['factors']: st.caption(f"- {f}")
-                        
