@@ -19,7 +19,7 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Slate refreshed! Re-running 10,000 simulations per pitcher.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚨 PROBABILITY MULTIPLIERS (Adjusts the % chance per batter, not flat Ks)
+# 🚨 PROBABILITY MULTIPLIERS 
 # ─────────────────────────────────────────────────────────────────────────────
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔬 Simulation Modifiers")
@@ -42,7 +42,7 @@ with st.sidebar.expander("2. Environment & Matchup", expanded=False):
     elite_catchers = st.text_area("ELITE FRAMING CATCHERS (K% + 1.5%)", "Patrick Bailey, Austin Hedges, Jonah Heim, Cal Raleigh, William Contreras")
     ELITE_CATCHERS = [x.strip() for x in elite_catchers.split(',')]
 
-# Strikeout Park Factors (Used to scale probability)
+# Strikeout Park Factors
 K_PARK_FACTORS = {
     'SEA': 1.06, 'TB': 1.05, 'MIA': 1.04, 'SD': 1.04, 'MIL': 1.03, 'OAK': 1.03, 'SF': 1.02, 'LAD': 1.02, 'NYM': 1.01, 'MIN': 1.01,
     'BAL': 1.00, 'TOR': 1.00, 'TEX': 1.00, 'ATL': 1.00, 'DET': 1.00, 'CLE': 0.99, 'NYY': 0.99, 'CHW': 0.99, 'PHI': 0.98, 'BOS': 0.98,
@@ -54,7 +54,7 @@ def norm_mlb(abbr):
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATION: BAYESIAN SHRINKAGE ENGINE (Restored)
+# 🤖 AUTOMATION: BAYESIAN SHRINKAGE & DYNAMIC WORKLOAD ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
@@ -66,11 +66,15 @@ def get_pitcher_stats_database():
             if df[col].dtype == object:
                 df[col] = df[col].str.rstrip('%').astype('float') / 100.0
         
-        # Bayesian Shrinkage to prevent wild over/under projections from small 2026 samples
+        # Calculate pitches per game (Leash) and efficiency (P/PA)
+        df['Auto_Leash'] = ((df['IP'] / df['GS']) * 14 + 10).clip(55, 105)
+        df['Auto_PPA'] = 3.8 + (df['BB%'] * 6.0) # High walks = high pitches per batter
+        
+        # Bayesian Shrinkage to prevent wild projections from small 2026 samples
         df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 70) / (df['TBF'] + 70)
         df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 100) / (df['TBF'] + 100)
         
-        return df.set_index('Name')[['K%', 'BB%']].to_dict('index')
+        return df.set_index('Name')[['K%', 'BB%', 'Auto_Leash', 'Auto_PPA']].to_dict('index')
     except: return {}
 
 STATS_DB = get_pitcher_stats_database()
@@ -81,8 +85,13 @@ def get_automated_pitcher_metrics(pitcher_name):
     match = STATS_DB[matches[0]] if matches else None
     
     if match:
-        return match['K%'], match['BB%'], f"Found: {matches[0]} (Regressed K%: {match['K%']*100:.1f}%)"
-    return 0.22, 0.08, "⚠️ Data Missing (Using 22% League Avg)"
+        # Predict how many batters they will face based on their efficiency
+        expected_bf = int(match['Auto_Leash'] / match['Auto_PPA'])
+        # Cap realistically between 14 and 28 batters
+        expected_bf = max(14, min(28, expected_bf)) 
+        
+        return match['K%'], match['BB%'], expected_bf, f"Found: {matches[0]} (Regressed K%: {match['K%']*100:.1f}%)"
+    return 0.22, 0.08, 22, "⚠️ Data Missing (Using League Avg)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
@@ -106,9 +115,8 @@ def get_mlb_slate(date_str):
                 if 'probables' in away and len(away['probables']) > 0:
                     a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
 
-                # Fetch LIVE stats instead of hardcoding 0.22
-                h_k, h_bb, h_status = get_automated_pitcher_metrics(h_sp)
-                a_k, a_bb, a_status = get_automated_pitcher_metrics(a_sp)
+                h_k, h_bb, h_bf, h_status = get_automated_pitcher_metrics(h_sp)
+                a_k, a_bb, a_bf, a_status = get_automated_pitcher_metrics(a_sp)
 
                 games.append({
                     'h': norm_mlb(home['team']['abbreviation']), 
@@ -118,6 +126,7 @@ def get_mlb_slate(date_str):
                     'h_sp': h_sp, 'a_sp': a_sp,
                     'h_base_k_rate': h_k, 'a_base_k_rate': a_k,
                     'h_bb': h_bb, 'a_bb': a_bb,
+                    'h_bf': h_bf, 'a_bf': a_bf,
                     'h_status': h_status, 'a_status': a_status
                 })
         return games
@@ -126,20 +135,29 @@ def get_mlb_slate(date_str):
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. THE MONTE CARLO ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced=22, num_sims=10000):
+def run_monte_carlo(sp_name, base_k_rate, bb_rate, opp_team, park, is_home, batters_faced, num_sims=10000):
     if sp_name == "TBD": return None
     
     # --- Step 1: Adjust the True Probability (K%) ---
     adj_k_rate = base_k_rate
-    factors = [f"📊 Baseline Rate (Post-Shrinkage): {base_k_rate*100:.1f}%"]
+    factors = [f"📊 Baseline Rate: {base_k_rate*100:.1f}%"]
+    
+    # 🚨 COMMAND TAX: Cut raw rate slightly if they are issuing too many walks
+    if bb_rate > 0.11:
+        adj_k_rate -= 0.02
+        factors.append(f"⚠️ High Walk Rate Penalty (-2% K-Probability)")
 
     if any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS):
         adj_k_rate += 0.04
         factors.append("🎯 Elite Whiff Rate (+4% K-Probability)")
 
+    # 🚨 MATCHUP DAMPENER: Wild pitchers get less benefit from bad lineups
+    w_high_k = 0.03
+    if bb_rate > 0.11: w_high_k = 0.015 
+
     if opp_team in HIGH_K_LINEUPS:
-        adj_k_rate += 0.03
-        factors.append("🏏 High-Chase Opponent (+3% K-Probability)")
+        adj_k_rate += w_high_k
+        factors.append(f"🏏 High-Chase Opponent (+{w_high_k*100:.1f}% K-Probability)")
     elif opp_team in LOW_K_LINEUPS:
         adj_k_rate -= 0.04
         factors.append("🛡️ Elite Contact Opponent (-4% K-Probability)")
@@ -148,7 +166,7 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced
     if park_k_factor != 1.00:
         adj_k_rate = adj_k_rate * park_k_factor
         val = (park_k_factor - 1) * 100
-        factors.append(f"🏟️ Park Visibility Scaler ({val:+.1f}%)")
+        factors.append(f"🏟️ Park Scaler ({val:+.1f}%)")
 
     if park in COLD_GAMES:
         adj_k_rate += 0.02
@@ -157,10 +175,9 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced
     my_team = park if is_home else opp_team
     if any(x in my_team for x in ELITE_CATCHERS):
         adj_k_rate += 0.015
-        factors.append("🧤 Elite Catcher Framing (+1.5% K-Probability)")
+        factors.append("🧤 Elite Framing (+1.5% K-Probability)")
 
-    # Bound the probability between realistic MLB limits (10% to 45%)
-    adj_k_rate = max(0.10, min(0.45, adj_k_rate))
+    adj_k_rate = max(0.08, min(0.45, adj_k_rate))
 
     # --- Step 2: Execute 10,000 Simulations ---
     simulated_games = np.random.binomial(n=batters_faced, p=adj_k_rate, size=num_sims)
@@ -180,7 +197,7 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. USER INTERFACE (Visualizing the Quant Data)
+# 3. USER INTERFACE 
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🎲 MLB Quant AI: Monte Carlo Simulator")
 st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the true mathematical probability of hitting a Vegas Prop line.")
@@ -198,13 +215,13 @@ else:
         with st.expander(f"⚾ {game['a_sp']} vs {game['h_sp']} ({game['h']} Stadium)"):
             st.caption(f"📡 Data Status | Away: {game['a_status']} | Home: {game['h_status']}")
             
-            # --- Tweak Batters Faced (Leash) ---
-            st.caption("Adjust expected batters faced to dynamically update the simulation (Default is 22, approx 5.2 Innings)")
-            bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 28, 22, key=f"bf_a_{i}")
-            bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 28, 22, key=f"bf_h_{i}")
+            # --- Smart Default Batters Faced ---
+            st.caption("Batters Faced is now auto-calculated based on live pitch counts and walk efficiency.")
+            bf_a = st.slider(f"{game['a_sp']} Batters Faced", 12, 28, int(game['a_bf']), key=f"bf_a_{i}")
+            bf_h = st.slider(f"{game['h_sp']} Batters Faced", 12, 28, int(game['h_bf']), key=f"bf_h_{i}")
             
-            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['h'], game['h'], False, bf_a)
-            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['a'], game['h'], True, bf_h)
+            a_proj = run_monte_carlo(game['a_sp'], game['a_base_k_rate'], game['a_bb'], game['h'], game['h'], False, bf_a)
+            h_proj = run_monte_carlo(game['h_sp'], game['h_base_k_rate'], game['h_bb'], game['a'], game['h'], True, bf_h)
 
             col1, col2 = st.columns(2)
             
