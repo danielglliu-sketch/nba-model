@@ -3,6 +3,8 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
+import pybaseball as pyb
+import difflib
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="MLB Quant AI - Monte Carlo K-Model", page_icon="🎲", layout="wide")
@@ -52,6 +54,37 @@ def norm_mlb(abbr):
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 🤖 AUTOMATION: BAYESIAN SHRINKAGE ENGINE (Restored)
+# ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=86400)
+def get_pitcher_stats_database():
+    try:
+        df = pyb.pitching_stats(2026, qual=0)
+        df['TBF'] = df['TBF'].fillna(50) 
+        
+        for col in ['K%', 'BB%']:
+            if df[col].dtype == object:
+                df[col] = df[col].str.rstrip('%').astype('float') / 100.0
+        
+        # Bayesian Shrinkage to prevent wild over/under projections from small 2026 samples
+        df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 70) / (df['TBF'] + 70)
+        df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 100) / (df['TBF'] + 100)
+        
+        return df.set_index('Name')[['K%', 'BB%']].to_dict('index')
+    except: return {}
+
+STATS_DB = get_pitcher_stats_database()
+
+def get_automated_pitcher_metrics(pitcher_name):
+    all_names = list(STATS_DB.keys())
+    matches = difflib.get_close_matches(pitcher_name, all_names, n=1, cutoff=0.55)
+    match = STATS_DB[matches[0]] if matches else None
+    
+    if match:
+        return match['K%'], match['BB%'], f"Found: {matches[0]} (Regressed K%: {match['K%']*100:.1f}%)"
+    return 0.22, 0.08, "⚠️ Data Missing (Using 22% League Avg)"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 1. AUTOMATED DAILY FETCHERS 
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
@@ -67,12 +100,15 @@ def get_mlb_slate(date_str):
             
             if home and away:
                 h_sp, a_sp = "TBD", "TBD"
-                h_k_rate, a_k_rate = 0.22, 0.22 # MLB Average K% per batter is ~22%
                 
                 if 'probables' in home and len(home['probables']) > 0:
                     h_sp = home['probables'][0].get('athlete', {}).get('displayName', 'TBD')
                 if 'probables' in away and len(away['probables']) > 0:
                     a_sp = away['probables'][0].get('athlete', {}).get('displayName', 'TBD')
+
+                # Fetch LIVE stats instead of hardcoding 0.22
+                h_k, h_bb, h_status = get_automated_pitcher_metrics(h_sp)
+                a_k, a_bb, a_status = get_automated_pitcher_metrics(a_sp)
 
                 games.append({
                     'h': norm_mlb(home['team']['abbreviation']), 
@@ -80,7 +116,9 @@ def get_mlb_slate(date_str):
                     'h_name': home['team']['displayName'], 
                     'a_name': away['team']['displayName'],
                     'h_sp': h_sp, 'a_sp': a_sp,
-                    'h_base_k_rate': h_k_rate, 'a_base_k_rate': a_k_rate
+                    'h_base_k_rate': h_k, 'a_base_k_rate': a_k,
+                    'h_bb': h_bb, 'a_bb': a_bb,
+                    'h_status': h_status, 'a_status': a_status
                 })
         return games
     except: return []
@@ -93,7 +131,7 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced
     
     # --- Step 1: Adjust the True Probability (K%) ---
     adj_k_rate = base_k_rate
-    factors = []
+    factors = [f"📊 Baseline Rate (Post-Shrinkage): {base_k_rate*100:.1f}%"]
 
     if any(x.lower() in sp_name.lower() for x in HIGH_WHIFF_PITCHERS):
         adj_k_rate += 0.04
@@ -125,14 +163,11 @@ def run_monte_carlo(sp_name, base_k_rate, opp_team, park, is_home, batters_faced
     adj_k_rate = max(0.10, min(0.45, adj_k_rate))
 
     # --- Step 2: Execute 10,000 Simulations ---
-    # np.random.binomial simulates flipping a weighted coin 'batters_faced' times, 
-    # repeated 'num_sims' times. It returns an array of 10,000 game results.
     simulated_games = np.random.binomial(n=batters_faced, p=adj_k_rate, size=num_sims)
     
     # --- Step 3: Calculate Distribution Analytics ---
     mean_ks = np.mean(simulated_games)
     
-    # Create a frequency distribution for the chart
     df = pd.DataFrame(simulated_games, columns=['Ks'])
     dist = df['Ks'].value_counts(normalize=True).sort_index() * 100
     
@@ -161,6 +196,7 @@ else:
             continue
 
         with st.expander(f"⚾ {game['a_sp']} vs {game['h_sp']} ({game['h']} Stadium)"):
+            st.caption(f"📡 Data Status | Away: {game['a_status']} | Home: {game['h_status']}")
             
             # --- Tweak Batters Faced (Leash) ---
             st.caption("Adjust expected batters faced to dynamically update the simulation (Default is 22, approx 5.2 Innings)")
@@ -177,17 +213,15 @@ else:
                 st.markdown(f"### ✈️ {game['a_sp']}")
                 a_k_line = st.number_input("Vegas Line:", value=5.5, step=0.5, key=f"ak_{i}_{game['a']}")
                 
-                # Calculate Win Probability from the 10,000 simulations
                 over_hits = np.sum(a_proj['simulations'] > a_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
-                st.markdown(f"**True K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
+                st.markdown(f"**Final Simulated K%:** `{a_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                 elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
                 else: st.warning(f"⚖️ Line is sharp ({over_prob:.1f}% Over / {100-over_prob:.1f}% Under)")
                 
-                # Display the Probability Curve Chart
                 st.markdown("**Simulated Probability Distribution:**")
                 st.bar_chart(a_proj['distribution'])
                 
@@ -202,7 +236,7 @@ else:
                 over_hits = np.sum(h_proj['simulations'] > h_k_line)
                 over_prob = (over_hits / 10000) * 100
                 
-                st.markdown(f"**True K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
+                st.markdown(f"**Final Simulated K%:** `{h_proj['true_k_rate']*100:.1f}%` per batter")
                 
                 if over_prob > 60: st.success(f"📈 **{over_prob:.1f}% Chance to hit OVER**")
                 elif over_prob < 40: st.error(f"📉 **{100-over_prob:.1f}% Chance to hit UNDER**")
