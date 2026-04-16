@@ -3,7 +3,6 @@ import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
-import pybaseball as pyb
 import difflib
 
 # --- PAGE SETUP ---
@@ -30,7 +29,7 @@ with st.sidebar.expander("1. Arsenal & Discipline", expanded=False):
     HIGH_WHIFF_PITCHERS = [x.strip() for x in high_whiff_input.split(',')]
 
     st.info("🎯 Elite Whiff Rate is automatically driven by Live 2026 SwStr% (>13.5%).")
-    st.info("📊 Live 2026 Opponent Team K% Data automatically integrated via PyBaseball.")
+    st.info("📊 Live 2026 Opponent Team K% Data automatically integrated via Official MLB API.")
 
 with st.sidebar.expander("2. Environment & Matchup", expanded=False):
     cold_weather = st.text_area("COLD/WIND IN GAMES (K% + 2%)", "MIN, CHW, DET, CLE, CHC, SF")
@@ -50,56 +49,84 @@ def norm_mlb(abbr):
     mapping = {'CHW': 'CHW', 'CWS': 'CHW', 'KAN': 'KC', 'TAM': 'TB', 'SFO': 'SF', 'SDP': 'SD'}
     return mapping.get(abbr, abbr)
 
+# Map Official MLB Team Names to ESPN Abbreviations for seamless engine integration
+TEAM_NAME_MAP = {
+    'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore Orioles': 'BAL',
+    'Boston Red Sox': 'BOS', 'Chicago Cubs': 'CHC', 'Chicago White Sox': 'CHW',
+    'Cincinnati Reds': 'CIN', 'Cleveland Guardians': 'CLE', 'Colorado Rockies': 'COL',
+    'Detroit Tigers': 'DET', 'Houston Astros': 'HOU', 'Kansas City Royals': 'KC',
+    'Los Angeles Angels': 'LAA', 'Los Angeles Dodgers': 'LAD', 'Miami Marlins': 'MIA',
+    'Milwaukee Brewers': 'MIL', 'Minnesota Twins': 'MIN', 'New York Mets': 'NYM',
+    'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK', 'Philadelphia Phillies': 'PHI',
+    'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF',
+    'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB',
+    'Texas Rangers': 'TEX', 'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH'
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 🤖 AUTOMATION: BAYESIAN SHRINKAGE, WORKLOAD, SWSTR%, & LIVE OPPONENT K%
+# 🤖 AUTOMATION: OFFICIAL MLB STATS API INTEGRATION (Replaces FanGraphs)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=86400)
 def get_team_k_rates():
+    # Direct feed from MLB.com for Team Hitting Stats
+    url = "https://statsapi.mlb.com/api/v1/teams/stats?season=2026&group=hitting&stats=season"
+    team_k_db = {}
     try:
-        df = pyb.team_batting(2026)
-        if 'K%' in df.columns:
-            df['K%'] = df['K%'].astype(str).str.replace('%', '').astype(float)
-            df.loc[df['K%'] > 1.5, 'K%'] = df['K%'] / 100.0
-        else:
-            df['K%'] = df['SO'] / df['PA']
-            
-        team_map = {'SFG': 'SF', 'SDP': 'SD', 'WSN': 'WSH', 'TBR': 'TB', 'KCR': 'KC'}
-        df['Team'] = df['Team'].replace(team_map)
-        
-        return df.set_index('Team')['K%'].to_dict()
+        data = requests.get(url, timeout=10).json()
+        if 'stats' in data and len(data['stats']) > 0:
+            for record in data['stats'][0]['splits']:
+                name = record['team']['name']
+                abbr = TEAM_NAME_MAP.get(name, name)
+                pa = record['stat']['plateAppearances']
+                so = record['stat']['strikeOuts']
+                team_k_db[abbr] = so / pa if pa > 0 else 0.225
+        return team_k_db
     except: return {}
 
 TEAM_K_DB = get_team_k_rates()
 
 @st.cache_data(ttl=86400)
 def get_pitcher_stats_database():
+    # Direct feed from MLB.com for all Pitcher Stats
+    url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&playerPool=ALL&season=2026&limit=1000"
+    pitcher_db = {}
     try:
-        # Fallback logic to grab 2025 if 2026 fails
-        try:
-            df = pyb.pitching_stats(2026, qual=0)
-        except:
-            df = pyb.pitching_stats(2025, qual=0)
-            
-        df['TBF'] = df['TBF'].fillna(50) 
-        df['GS'] = df['GS'].fillna(0)
-        
-        # 🚨 FIX: Brute-Force Parse formatting to ensure proper decimal scale
-        for col in ['K%', 'BB%', 'SwStr%']:
-            if col not in df.columns:
-                df[col] = 0.22 if col == 'K%' else (0.08 if col == 'BB%' else 0.11)
-            else:
-                df[col] = df[col].astype(str).str.replace('%', '').astype(float)
-                df.loc[df[col] > 1.5, col] = df[col] / 100.0
-        
-        df['BF_per_Start'] = (df['TBF'] + (22.5 * 3)) / (df['GS'] + 3)
-        df['BF_per_Start'] = df['BF_per_Start'].fillna(22.5).clip(16, 28)
-        
-        df['Raw_K%'] = df['K%']
-        
-        df['K%'] = (df['K%'] * df['TBF'] + 0.22 * 25) / (df['TBF'] + 25)
-        df['BB%'] = (df['BB%'] * df['TBF'] + 0.08 * 40) / (df['TBF'] + 40)
-        
-        return df.set_index('Name')[['K%', 'Raw_K%', 'BB%', 'SwStr%', 'BF_per_Start']].to_dict('index')
+        data = requests.get(url, timeout=10).json()
+        if 'stats' in data and len(data['stats']) > 0:
+            for record in data['stats'][0]['splits']:
+                name = record['player']['fullName']
+                stat = record['stat']
+                
+                tbf = stat.get('battersFaced', 0)
+                so = stat.get('strikeOuts', 0)
+                bb = stat.get('baseOnBalls', 0)
+                gs = stat.get('gamesStarted', 0)
+                
+                # Protect against guys who haven't pitched a single inning
+                if tbf == 0: continue
+                
+                raw_k_pct = so / tbf
+                raw_bb_pct = bb / tbf
+                
+                # Proxy formula for SwStr% (Strikeout rates generally correlate 2:1 with Whiff rates)
+                swstr = raw_k_pct * 0.5 
+                
+                # Workload regression math
+                bf_per_start = (tbf + (22.5 * 3)) / (gs + 3)
+                bf_per_start = max(16, min(28, bf_per_start))
+                
+                # April Bayesian Shrinkage
+                shrunk_k = (raw_k_pct * tbf + 0.22 * 25) / (tbf + 25)
+                shrunk_bb = (raw_bb_pct * tbf + 0.08 * 40) / (tbf + 40)
+                
+                pitcher_db[name] = {
+                    'K%': shrunk_k,
+                    'Raw_K%': raw_k_pct,
+                    'BB%': shrunk_bb,
+                    'SwStr%': swstr,
+                    'BF_per_Start': bf_per_start
+                }
+        return pitcher_db
     except: return {}
 
 STATS_DB = get_pitcher_stats_database()
@@ -116,7 +143,6 @@ def get_automated_pitcher_metrics(pitcher_name):
         
         return match['K%'], raw_k, match['BB%'], swstr, expected_bf, f"Found: {matches[0]} (Reg K%: {match['K%']*100:.1f}% | Raw: {raw_k*100:.1f}%)"
     
-    # 🚨 FIX: Balanced League Average Fallback
     return 0.22, 0.22, 0.08, 0.11, 23, "⚠️ Data Missing (Using League Avg)"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +206,7 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, swstr_rate, opp_t
 
     if swstr_rate > 0.135:
         adj_k_rate += 0.04
-        factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% SwStr%) (+4.0% K-Probability)")
+        factors.append(f"🎯 Elite Whiff Rate ({swstr_rate*100:.1f}% Proxy SwStr%) (+4.0% K-Probability)")
 
     raw_opp_k_ratio = opp_k_rate / 0.225 
     opp_k_ratio = 1.0 + ((raw_opp_k_ratio - 1.0) * 0.5)
@@ -272,7 +298,7 @@ st.markdown("Runs 10,000 pitch-by-pitch simulations per game to calculate the tr
 
 # 🚨 Failsafe Check for Silent API Crashes
 if not STATS_DB:
-    st.error("🚨 CRITICAL API FAILURE: The PyBaseball database failed to load stats from FanGraphs. The model is currently running on blind league averages and will be inaccurate. Please click 'Force Data Refresh' or try again later.")
+    st.error("🚨 CRITICAL API FAILURE: The Official MLB API failed to load data. The model is currently running on blind league averages and will be inaccurate. Please click 'Force Data Refresh' or try again later.")
 st.divider()
 
 slate = get_mlb_slate(target_date_str)
