@@ -90,11 +90,13 @@ def get_pitcher_stats_database():
 STATS_DB = get_pitcher_stats_database()
 
 # --- THE MONTE CARLO ENGINE ---
-def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
+def run_monte_carlo(sp_name, game_id, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
+    # DYNAMIC SEED: Prevents "Wiggling Numbers" by locking randomness to this specific game/pitcher
+    np.random.seed(hash(sp_name + str(game_id)) % 2**32)
+    
     factors = []
     adj_k_rate = base_k_rate
     
-    # K-Reporting
     if raw_k_rate < (base_k_rate - 0.02): factors.append("📉 Form Warning: Actual K% lagging projection.")
     if raw_k_rate > (base_k_rate + 0.01): factors.append("⚠️ Regression Risk: Pitcher is 'Hot Start' outlier (K%).")
     if bb_rate > 0.09: factors.append("⛽ Efficiency Warning: High Walk Rate (Outs Risk).")
@@ -102,12 +104,10 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rat
         adj_k_rate += 0.04
         factors.append("🎯 Elite Whiff Boost (+4.0%)")
     
-    # Opponent Splines
     opp_ratio = 1.0 + (((opp_k_rate / 0.225) - 1.0) * 0.5)
     adj_k_rate *= opp_ratio
     factors.append(f"🏏 Opponent Split K% ({opp_k_rate*100:.1f}%) applied")
     
-    # Environment Reporting
     if temp < 60:
         adj_k_rate += 0.02
         factors.append(f"🥶 Cold Weather detected (+2.0%)")
@@ -121,14 +121,12 @@ def run_monte_carlo(sp_name, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rat
     elif umpire != "Neutral":
         factors.append(f"⚖️ Umpire: Neutral Zone ({umpire})")
 
-    # Park Reporting
     pk = K_PARK_FACTORS.get(park, 1.0)
     adj_k_rate *= pk
     if pk != 1.0: factors.append(f"🏟️ Park Factor ({((pk-1)*100):+.1f}%)")
     
     adj_k_rate = max(0.08, min(0.45, adj_k_rate))
 
-    # Math Logic
     variance_scale = 0.03
     game_k_rates = np.clip(np.random.normal(loc=adj_k_rate, scale=variance_scale, size=num_sims), 0.05, 0.65)
     z_scores = (game_k_rates - adj_k_rate) / variance_scale
@@ -148,7 +146,6 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 
 # --- UI RENDERER ---
 st.title("🤖 MLB Quant AI - 100% Autopilot")
-st.markdown("Full Factor Reporting and Pitching Outs enabled.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -182,14 +179,15 @@ else:
                 with side:
                     match = STATS_DB.get(sp_name, {'K%': 0.22, 'Raw_K%': 0.22, 'BB%': 0.08, 'H%': 0.25, 'Hand': 'R', 'SwStr%': 0.11, 'BF_per_Start': 23})
                     opp_k = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.225)
-                    res = run_monte_carlo(sp_name, match['K%'], match['Raw_K%'], match['BB%'], match['H%'], match['SwStr%'], opp_k, home_team, match['BF_per_Start'], temp, umpire)
+                    # Pass gamePk to the engine for the stable seed
+                    res = run_monte_carlo(sp_name, game['gamePk'], match['K%'], match['Raw_K%'], match['BB%'], match['H%'], match['SwStr%'], opp_k, home_team, match['BF_per_Start'], temp, umpire)
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     
-                    # --- STRIKEOUT SECTION ---
-                    line_k = st.number_input("K Line:", value=5.5, step=0.5, key=f"k_{sp_name}_{game['gamePk']}")
-                    o_odds_k = st.number_input("K Over Odds:", value=-110, step=5, key=f"ook_{sp_name}_{game['gamePk']}")
-                    u_odds_k = st.number_input("K Under Odds:", value=-110, step=5, key=f"uok_{sp_name}_{game['gamePk']}")
+                    # UNIQUE KEYS: Added team_abbr to ensure Home/Away pitchers never collide
+                    line_k = st.number_input("K Line:", value=5.5, step=0.5, key=f"k_{team_abbr}_{sp_name}_{game['gamePk']}")
+                    o_odds_k = st.number_input("K Over Odds:", value=-110, step=5, key=f"ook_{team_abbr}_{sp_name}_{game['gamePk']}")
+                    u_odds_k = st.number_input("K Under Odds:", value=-110, step=5, key=f"uok_{team_abbr}_{sp_name}_{game['gamePk']}")
                     
                     o_prob_k = (np.sum(res['k_sims'] > line_k) / 10000) * 100
                     o_ev_k, u_ev_k = calculate_ev_percent(o_prob_k, o_odds_k), calculate_ev_percent(100 - o_prob_k, u_odds_k)
@@ -201,9 +199,8 @@ else:
                     if o_ev_k > 2.0: st.success(f"🔥 +EV OVER Ks: {o_ev_k:+.1f}% Edge")
                     elif u_ev_k > 2.0: st.success(f"🔥 +EV UNDER Ks: {u_ev_k:+.1f}% Edge")
                     
-                    # --- OUTS SECTION ---
                     st.divider()
-                    line_o = st.number_input("Outs Line:", value=17.5, step=0.5, key=f"o_{sp_name}_{game['gamePk']}")
+                    line_o = st.number_input("Outs Line:", value=17.5, step=0.5, key=f"o_{team_abbr}_{sp_name}_{game['gamePk']}")
                     o_prob_o = (np.sum(res['out_sims'] > line_o) / 10000) * 100
                     
                     if o_prob_o > 60: st.success(f"📏 {o_prob_o:.1f}% Chance OVER Outs")
@@ -212,6 +209,5 @@ else:
                     
                     st.caption(f"Median Projected Outs: {np.median(res['out_sims']):.1f}")
                     
-                    # Visuals & RESTORED Factors
                     st.bar_chart(pd.Series(res['k_sims']).value_counts(normalize=True).sort_index())
                     for f in res['factors']: st.caption(f"- {f}")
