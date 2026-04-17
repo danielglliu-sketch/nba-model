@@ -78,13 +78,11 @@ def get_pitcher_and_manager_stats():
             abbr = TEAM_MAP.get(record.get('team', {}).get('name', 'Unknown'), 'Unknown')
             stat = record['stat']
             tbf, bb, h, gs, gp = stat.get('battersFaced', 0), stat.get('baseOnBalls', 0), stat.get('hits', 0), stat.get('gamesStarted', 0), stat.get('gamesPlayed', 0)
-            np_pitches = stat.get('numberOfPitches', 0)
             
             if tbf == 0: continue
             shrunk_out_rate = ( (tbf - (bb + h)) + (0.68 * 50) ) / (tbf + 50)
-            pitch_per_start = np_pitches / gs if gs > 0 else 85
             
-            pitcher_db[name] = {'ID': pid, 'Out%': shrunk_out_rate, 'BB%': bb/tbf, 'H%': h/tbf, 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3))), 'Pitches_per_Start': pitch_per_start}
+            pitcher_db[name] = {'ID': pid, 'Out%': shrunk_out_rate, 'BB%': bb/tbf, 'H%': h/tbf, 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))}
             
             if gs > 0 and gp > 0 and (gs / gp) > 0.8 and abbr != 'Unknown':
                 if abbr not in team_sp_agg: team_sp_agg[abbr] = {'tbf': 0, 'gs': 0}
@@ -100,20 +98,27 @@ def get_pitcher_and_manager_stats():
 
 STATS_DB, MANAGER_DB = get_pitcher_and_manager_stats()
 
+# NEW RECENT WORKLOAD LOGIC: Captures both Max Batters and Avg Recent Pitches
 @st.cache_data(ttl=3600)
-def get_recent_tbf_cap(player_id):
+def get_recent_workload(player_id):
     try:
         url = f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats?stats=gameLog&group=pitching&season=2026"
         log_data = requests.get(url, timeout=5).json()
         splits = log_data.get('stats', [{}])[0].get('splits', [])
-        if not splits: return 30
+        if not splits: return 30, 85
+        
         recent_tbfs = [s['stat'].get('battersFaced', 0) for s in splits[:3]]
-        return max(recent_tbfs) if recent_tbfs else 30
+        recent_pitches = [s['stat'].get('numberOfPitches', 0) for s in splits[:3]]
+        
+        recent_tbf_cap = max(recent_tbfs) if recent_tbfs else 30
+        recent_pitch_avg = sum(recent_pitches) / len(recent_pitches) if recent_pitches else 85
+        
+        return recent_tbf_cap, recent_pitch_avg
     except:
-        return 30
+        return 30, 85
 
 # --- THE OUTS-ONLY ENGINE ---
-def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, pitch_per_start, num_sims=10000):
+def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg, num_sims=10000):
     np.random.seed(hash(sp_name + str(game_id)) % 2**32)
     factors = []
     adj_out_rate = base_out_rate
@@ -123,9 +128,9 @@ def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_ra
     if manager_shift > 0.75: factors.append(f"👔 Manager Tendency: Long Leash (+{manager_shift:.1f} batters)")
     elif manager_shift < -0.75: factors.append(f"👔 Manager Tendency: Quick Hook ({manager_shift:.1f} batters)")
     
-    # WORKHORSE VS EFFICIENCY LOGIC
-    if pitch_per_start >= 94:
-        factors.append(f"🐴 Workhorse Override: Averages {pitch_per_start:.1f} pitches/start. High traffic tolerated (+1.5 BF).")
+    # UPDATED WORKHORSE LOGIC: Uses Recent Pitch Avg instead of Season Avg
+    if recent_pitch_avg >= 94:
+        factors.append(f"🐴 Workhorse Override: Recent avg is {recent_pitch_avg:.0f} pitches/start. High traffic tolerated (+1.5 BF).")
         adj_bf += 1.5
     elif bb_rate > 0.09: 
         factors.append("⛽ Efficiency Warning: High Walk Rate.")
@@ -198,13 +203,13 @@ else:
             col1, col2 = st.columns(2)
             for side, sp_name, team_abbr, opp_team_abbr in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
                 with side:
-                    match = STATS_DB.get(sp_name, {'ID': None, 'Out%': 0.68, 'BB%': 0.08, 'H%': 0.24, 'Hand': 'R', 'BF_per_Start': 23, 'Pitches_per_Start': 85})
+                    match = STATS_DB.get(sp_name, {'ID': None, 'Out%': 0.68, 'BB%': 0.08, 'H%': 0.24, 'Hand': 'R', 'BF_per_Start': 23})
                     opp_out_rate = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.68)
                     manager_shift = MANAGER_DB.get(team_abbr, 0.0)
                     
-                    recent_tbf_cap = get_recent_tbf_cap(match['ID']) if match['ID'] else 30
+                    recent_tbf_cap, recent_pitch_avg = get_recent_workload(match['ID']) if match['ID'] else (30, 85)
                     
-                    res = run_monte_carlo(sp_name, game['gamePk'], match['Out%'], match['BB%'], match['H%'], opp_out_rate, home_team, match['BF_per_Start'], temp, umpire, manager_shift, recent_tbf_cap, match['Pitches_per_Start'])
+                    res = run_monte_carlo(sp_name, game['gamePk'], match['Out%'], match['BB%'], match['H%'], opp_out_rate, home_team, match['BF_per_Start'], temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg)
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     
