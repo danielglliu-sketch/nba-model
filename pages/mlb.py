@@ -41,15 +41,17 @@ TEAM_MAP = { 'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore 
 
 # --- DATA FETCHERS ---
 @st.cache_data(ttl=3600)
-def get_live_temp(team_abbr):
+def get_weather_for_date(team_abbr, date_str):
     coords = STADIUM_COORDS.get(team_abbr)
     if not coords: return 70
     try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={coords[0]}&longitude={coords[1]}&current_weather=true"
+        # Fetch the max daily temperature specifically for the selected date
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={coords[0]}&longitude={coords[1]}&start_date={date_str}&end_date={date_str}&daily=temperature_2m_max&timezone=auto"
         data = requests.get(url, timeout=5).json()
-        temp_c = data['current_weather']['temperature']
+        temp_c = data['daily']['temperature_2m_max'][0]
         return (temp_c * 9/5) + 32
-    except: return 70
+    except: 
+        return 70
 
 @st.cache_data(ttl=86400)
 def get_automated_team_splits():
@@ -180,7 +182,8 @@ else:
             except: pass
 
         with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Ump: {umpire}"):
-            temp = get_live_temp(home_team)
+            # Weather fetch now actively uses the target date from your sidebar
+            temp = get_weather_for_date(home_team, target_date_str)
             col1, col2 = st.columns(2)
             for side, sp_name, team_abbr, opp_team_abbr in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
                 with side:
