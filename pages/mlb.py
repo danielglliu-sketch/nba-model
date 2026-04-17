@@ -82,7 +82,8 @@ def get_pitcher_and_manager_stats():
             if tbf == 0: continue
             shrunk_out_rate = ( (tbf - (bb + h)) + (0.68 * 50) ) / (tbf + 50)
             
-            pitcher_db[name] = {'ID': pid, 'Out%': shrunk_out_rate, 'BB%': bb/tbf, 'H%': h/tbf, 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))}
+            # Key change: Store strictly by ID as the primary key fallback
+            pitcher_db[pid] = {'Name': name, 'Out%': shrunk_out_rate, 'BB%': bb/tbf, 'H%': h/tbf, 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))}
             
             if gs > 0 and gp > 0 and (gs / gp) > 0.8 and abbr != 'Unknown':
                 if abbr not in team_sp_agg: team_sp_agg[abbr] = {'tbf': 0, 'gs': 0}
@@ -98,51 +99,61 @@ def get_pitcher_and_manager_stats():
 
 STATS_DB, MANAGER_DB = get_pitcher_and_manager_stats()
 
-# NEW RECENT WORKLOAD LOGIC: Captures both Max Batters and Avg Recent Pitches
+# ID-DRIVEN LOGIC: Bulletproof fetch for recent workload
 @st.cache_data(ttl=3600)
-def get_recent_workload(player_id):
+def get_live_pitcher_profile(player_id, fallback_db_match):
+    profile = {'recent_tbf_cap': 30, 'recent_pitch_avg': 85, 'actual_bb_rate': fallback_db_match['BB%'], 'actual_out_rate': fallback_db_match['Out%']}
+    if not player_id: return profile
     try:
         url = f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats?stats=gameLog&group=pitching&season=2026"
         log_data = requests.get(url, timeout=5).json()
         splits = log_data.get('stats', [{}])[0].get('splits', [])
-        if not splits: return 30, 85
+        if not splits: return profile
         
         recent_tbfs = [s['stat'].get('battersFaced', 0) for s in splits[:3]]
         recent_pitches = [s['stat'].get('numberOfPitches', 0) for s in splits[:3]]
         
-        recent_tbf_cap = max(recent_tbfs) if recent_tbfs else 30
-        recent_pitch_avg = sum(recent_pitches) / len(recent_pitches) if recent_pitches else 85
+        profile['recent_tbf_cap'] = max(recent_tbfs) if recent_tbfs else 30
+        profile['recent_pitch_avg'] = sum(recent_pitches) / len(recent_pitches) if recent_pitches else 85
         
-        return recent_tbf_cap, recent_pitch_avg
-    except:
-        return 30, 85
+        # If the pitcher was a "Ghost", calculate real rates from game log
+        if fallback_db_match['BF_per_Start'] == 23:
+            tbf = sum(s['stat'].get('battersFaced', 0) for s in splits)
+            bb = sum(s['stat'].get('baseOnBalls', 0) for s in splits)
+            h = sum(s['stat'].get('hits', 0) for s in splits)
+            if tbf > 0:
+                profile['actual_bb_rate'] = bb / tbf
+                profile['actual_out_rate'] = (tbf - (bb + h)) / tbf
+    except: pass
+    return profile
 
 # --- THE OUTS-ONLY ENGINE ---
-def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg, num_sims=10000):
+def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg, num_sims=10000):
     np.random.seed(hash(sp_name + str(game_id)) % 2**32)
     factors = []
     adj_out_rate = base_out_rate
     
     adj_bf = batters_faced + manager_shift
     
+    # ALWAYS SHOW BASELINE so box is never empty
+    factors.append(f"📊 Baseline: {recent_pitch_avg:.0f} Recent Pitches | {adj_out_rate*100:.1f}% Est. Out Rate")
+    
     if manager_shift > 0.75: factors.append(f"👔 Manager Tendency: Long Leash (+{manager_shift:.1f} batters)")
     elif manager_shift < -0.75: factors.append(f"👔 Manager Tendency: Quick Hook ({manager_shift:.1f} batters)")
     
-    # UPDATED WORKHORSE LOGIC: Uses Recent Pitch Avg instead of Season Avg
     if recent_pitch_avg >= 94:
-        factors.append(f"🐴 Workhorse Override: Recent avg is {recent_pitch_avg:.0f} pitches/start. High traffic tolerated (+1.5 BF).")
+        factors.append(f"🐴 Workhorse Override: High traffic tolerated (+1.5 BF).")
         adj_bf += 1.5
     elif bb_rate > 0.09: 
         factors.append("⛽ Efficiency Warning: High Walk Rate.")
     
     hard_cap = recent_tbf_cap + 1 
     if adj_bf > hard_cap:
-        factors.append(f"🚨 Medical/Workload Cap: Recent data limits workload to {hard_cap} batters.")
+        factors.append(f"🚨 Medical/Workload Cap: Limited to {hard_cap} batters.")
         adj_bf = hard_cap
     
     opp_ratio = 1.0 + (((opp_out_rate / 0.68) - 1.0) * 0.5)
     adj_out_rate *= opp_ratio
-    factors.append(f"🏏 Opponent Split Efficiency ({opp_out_rate*100:.1f}%) applied")
     
     if temp > 80: adj_out_rate -= 0.015; factors.append(f"🔥 Heat Warning ({temp:.0f}°F) (-1.5%)")
     elif temp < 60: adj_out_rate += 0.01; factors.append(f"🥶 Cold Weather (+1.0%)")
@@ -171,7 +182,7 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 
 # --- UI RENDERER ---
 st.title("🤖 MLB Quant AI - 100% Outs Engine")
-st.markdown("Autopilot active. Dynamic Manager Logic & Medical Workload Caps enabled.")
+st.markdown("Autopilot active. ID-Driven Logic & Baseline Tracking enabled.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -184,7 +195,13 @@ else:
     for game in games:
         home_name_api, away_name_api = game['teams']['home']['team']['name'], game['teams']['away']['team']['name']
         home_team, away_team = TEAM_MAP.get(home_name_api, home_name_api), TEAM_MAP.get(away_name_api, away_name_api)
-        h_sp_name, a_sp_name = game['teams']['home'].get('probablePitcher', {}).get('fullName', 'TBD'), game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
+        
+        # EXTRACT EXACT IDs TO PREVENT GHOST PROFILES
+        h_sp_dict = game['teams']['home'].get('probablePitcher', {})
+        a_sp_dict = game['teams']['away'].get('probablePitcher', {})
+        h_sp_name, h_sp_id = h_sp_dict.get('fullName', 'TBD'), h_sp_dict.get('id')
+        a_sp_name, a_sp_id = a_sp_dict.get('fullName', 'TBD'), a_sp_dict.get('id')
+        
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
         
         umpire = "Neutral"
@@ -201,15 +218,23 @@ else:
         with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Ump: {umpire}"):
             temp = get_weather_for_date(home_team, target_date_str)
             col1, col2 = st.columns(2)
-            for side, sp_name, team_abbr, opp_team_abbr in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
+            for side, sp_name, sp_id, team_abbr, opp_team_abbr in [(col1, a_sp_name, a_sp_id, away_team, home_team), (col2, h_sp_name, h_sp_id, home_team, away_team)]:
                 with side:
-                    match = STATS_DB.get(sp_name, {'ID': None, 'Out%': 0.68, 'BB%': 0.08, 'H%': 0.24, 'Hand': 'R', 'BF_per_Start': 23})
+                    # Match by EXACT ID first, fallback to generic defaults only if ID is missing
+                    match = STATS_DB.get(sp_id, {'Out%': 0.68, 'BB%': 0.08, 'H%': 0.24, 'Hand': 'R', 'BF_per_Start': 23})
                     opp_out_rate = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.68)
                     manager_shift = MANAGER_DB.get(team_abbr, 0.0)
                     
-                    recent_tbf_cap, recent_pitch_avg = get_recent_workload(match['ID']) if match['ID'] else (30, 85)
+                    # Fetch live profile utilizing the direct ID
+                    live_profile = get_live_pitcher_profile(sp_id, match)
                     
-                    res = run_monte_carlo(sp_name, game['gamePk'], match['Out%'], match['BB%'], match['H%'], opp_out_rate, home_team, match['BF_per_Start'], temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg)
+                    res = run_monte_carlo(
+                        sp_name, game['gamePk'], 
+                        live_profile['actual_out_rate'], 
+                        live_profile['actual_bb_rate'], 
+                        opp_out_rate, home_team, match['BF_per_Start'], temp, umpire, manager_shift, 
+                        live_profile['recent_tbf_cap'], live_profile['recent_pitch_avg']
+                    )
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     
