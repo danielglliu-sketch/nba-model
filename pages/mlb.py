@@ -28,13 +28,11 @@ STADIUM_COORDS = {
     'TOR': (43.641, -79.389), 'WSH': (38.873, -77.007)
 }
 
-# Umpire Logic adjusted for EFFICIENCY (Outs)
 UMPIRE_DATABASE = {
     "Pitcher Friendly (Wide Zone)": ["Bill Miller", "Bill Welke", "Laz Diaz", "Larry Vanover", "Alan Porter", "Jordan Baker", "Mark Wegner", "Chris Guccione", "Ron Kulpa", "Jeremie Rehak", "Vic Carapazza", "Lance Barksdale", "Doug Eddings", "Paul Emmel", "Cory Blaser", "Adrian Johnson", "John Tumpane", "Nic Lentz", "Ben May", "Ryan Blakney"],
     "Hitter Friendly (Tight Zone)": ["Pat Hoberg", "Quinn Wolcott", "Andy Fletcher", "Dan Bellino", "Lance Barrett", "CB Bucknor", "Ted Barrett", "Angel Hernandez", "Hunter Wendelstedt", "Mark Carlson", "Jeff Nelson", "Rob Drake", "Brian O'Nora", "Todd Tichenor", "Chad Fairchild", "Marvin Hudson", "Mike Muchlinski", "Adam Hamari", "Manny Gonzalez", "D.J. Reyburn"]
 }
 
-# Park Factors for OUTS (General Run/Hit Environment)
 OUTS_PARK_FACTORS = { 'SEA': 1.03, 'TB': 1.02, 'MIA': 1.02, 'SD': 1.02, 'OAK': 1.01, 'SF': 1.01, 'LAD': 1.01, 'NYM': 1.00, 'MIN': 1.00, 'BAL': 1.00, 'TOR': 1.00, 'TEX': 1.00, 'ATL': 1.00, 'DET': 1.00, 'CLE': 1.00, 'NYY': 0.99, 'CHW': 0.99, 'PHI': 0.98, 'BOS': 0.98, 'CHC': 0.98, 'STL': 0.98, 'PIT': 0.98, 'LAA': 0.97, 'HOU': 0.97, 'WSH': 0.97, 'CIN': 0.95, 'ARI': 0.94, 'COL': 0.88 }
 
 TEAM_MAP = { 'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore Orioles': 'BAL', 'Boston Red Sox': 'BOS', 'Chicago Cubs': 'CHC', 'Chicago White Sox': 'CHW', 'Cincinnati Reds': 'CIN', 'Cleveland Guardians': 'CLE', 'Colorado Rockies': 'COL', 'Detroit Tigers': 'DET', 'Houston Astros': 'HOU', 'Kansas City Royals': 'KC', 'Los Angeles Angels': 'LAA', 'Los Angeles Dodgers': 'LAD', 'Miami Marlins': 'MIA', 'Milwaukee Brewers': 'MIL', 'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK', 'Sacramento Athletics': 'OAK', 'Athletics': 'OAK', 'Philadelphia Phillies': 'PHI', 'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF', 'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB', 'Texas Rangers': 'TEX', 'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH' }
@@ -45,13 +43,11 @@ def get_weather_for_date(team_abbr, date_str):
     coords = STADIUM_COORDS.get(team_abbr)
     if not coords: return 70
     try:
-        # Fetch the max daily temperature specifically for the selected date
         url = f"https://api.open-meteo.com/v1/forecast?latitude={coords[0]}&longitude={coords[1]}&start_date={date_str}&end_date={date_str}&daily=temperature_2m_max&timezone=auto"
         data = requests.get(url, timeout=5).json()
         temp_c = data['daily']['temperature_2m_max'][0]
         return (temp_c * 9/5) + 32
-    except: 
-        return 70
+    except: return 70
 
 @st.cache_data(ttl=86400)
 def get_automated_team_splits():
@@ -66,7 +62,6 @@ def get_automated_team_splits():
                 abbr = TEAM_MAP.get(api_name, api_name)
                 if abbr not in splits: splits[abbr] = {}
                 pa, hits, bb = record['stat'].get('plateAppearances', 1), record['stat'].get('hits', 0), record['stat'].get('baseOnBalls', 0)
-                # Outs Probability Split: 1 - (Hits + BB) / PA
                 splits[abbr][h_code] = 1 - ((hits + bb) / pa)
         except: pass
     return splits
@@ -74,42 +69,74 @@ def get_automated_team_splits():
 SPLITS_DB = get_automated_team_splits()
 
 @st.cache_data(ttl=86400)
-def get_pitcher_stats_database():
+def get_pitcher_and_manager_stats():
     url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&playerPool=ALL&season=2026&limit=1000"
     pitcher_db = {}
+    team_sp_agg = {}
     try:
         people_data = requests.get("https://statsapi.mlb.com/api/v1/sports/1/players?season=2026").json()
         hand_map = {p['id']: p.get('pitchHand', {}).get('code', 'R') for p in people_data['people']}
         data = requests.get(url, timeout=15).json()
+        
+        league_tbf = 0
+        league_gs = 0
+        
         for record in data['stats'][0]['splits']:
             name, pid = record['player']['fullName'], record['player']['id']
+            team_name = record.get('team', {}).get('name', 'Unknown')
+            abbr = TEAM_MAP.get(team_name, 'Unknown')
+            
             stat = record['stat']
-            tbf, bb, h, gs = stat.get('battersFaced', 0), stat.get('baseOnBalls', 0), stat.get('hits', 0), stat.get('gamesStarted', 0)
+            tbf, bb, h, gs, gp = stat.get('battersFaced', 0), stat.get('baseOnBalls', 0), stat.get('hits', 0), stat.get('gamesStarted', 0), stat.get('gamesPlayed', 0)
+            
             if tbf == 0: continue
             raw_bb, raw_h = bb/tbf, h/tbf
-            shrunk_out_rate = ( (tbf - (bb + h)) + (0.68 * 50) ) / (tbf + 50) # Shrinkage toward league avg out rate
+            shrunk_out_rate = ( (tbf - (bb + h)) + (0.68 * 50) ) / (tbf + 50)
             pitcher_db[name] = {'Out%': shrunk_out_rate, 'BB%': raw_bb, 'H%': raw_h, 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))}
-        return pitcher_db
-    except: return {}
+            
+            # Dynamic Manager Tendency Aggregation (Filtering for pure starters >80% to find real leash length)
+            if gs > 0 and gp > 0 and (gs / gp) > 0.8 and abbr != 'Unknown':
+                if abbr not in team_sp_agg: team_sp_agg[abbr] = {'tbf': 0, 'gs': 0}
+                team_sp_agg[abbr]['tbf'] += tbf
+                team_sp_agg[abbr]['gs'] += gs
+                league_tbf += tbf
+                league_gs += gs
+                
+        manager_db = {}
+        league_avg_bf = league_tbf / league_gs if league_gs > 0 else 22.5
+        for team, stats in team_sp_agg.items():
+            team_avg_bf = stats['tbf'] / stats['gs'] if stats['gs'] > 0 else league_avg_bf
+            shift = team_avg_bf - league_avg_bf
+            manager_db[team] = max(-3.0, min(3.0, shift)) # Cap shift at +/- 3 expected batters
+            
+        return pitcher_db, manager_db
+    except: return {}, {}
 
-STATS_DB = get_pitcher_stats_database()
+STATS_DB, MANAGER_DB = get_pitcher_and_manager_stats()
 
 # --- THE OUTS-ONLY ENGINE ---
-def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_rate, park, batters_faced, temp, umpire, num_sims=10000):
+def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, num_sims=10000):
     np.random.seed(hash(sp_name + str(game_id)) % 2**32)
     factors = []
     adj_out_rate = base_out_rate
     
-    # Efficiency Alerts
+    # Apply Dynamic Manager Tendency Shift to Workload Base
+    adj_bf = batters_faced + manager_shift
+    
+    if manager_shift > 0.75:
+        factors.append(f"👔 Manager Tendency: Long Leash (+{manager_shift:.1f} expected batters)")
+    elif manager_shift < -0.75:
+        factors.append(f"👔 Manager Tendency: Quick Hook ({manager_shift:.1f} expected batters)")
+    else:
+        factors.append(f"👔 Manager Tendency: Neutral Leash")
+    
     if bb_rate > 0.09:
         factors.append("⛽ Efficiency Warning: High Walk Rate. Increased risk of early hook.")
     
-    # Opponent Efficiency Split
     opp_ratio = 1.0 + (((opp_out_rate / 0.68) - 1.0) * 0.5)
     adj_out_rate *= opp_ratio
     factors.append(f"🏏 Opponent Split Efficiency ({opp_out_rate*100:.1f}%) applied")
     
-    # Weather impact on Hits/Outs
     if temp > 80:
         adj_out_rate -= 0.015
         factors.append(f"🔥 Heat Warning ({temp:.0f}°F): More hits, fewer outs (-1.5%)")
@@ -117,7 +144,6 @@ def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_ra
         adj_out_rate += 0.01
         factors.append(f"🥶 Cold Weather: Ball carries less (+1.0%)")
         
-    # Umpire impact on Pitch Counts/Outs
     if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]:
         adj_out_rate += 0.012
         factors.append(f"💎 Wide Zone Umpire ({umpire}): Shorter at-bats, more outs (+1.2%)")
@@ -127,22 +153,19 @@ def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, h_rate, opp_out_ra
     elif umpire != "Neutral":
         factors.append(f"⚖️ Umpire: Neutral Zone ({umpire})")
 
-    # Park Reporting
     pk = OUTS_PARK_FACTORS.get(park, 1.0)
     adj_out_rate *= pk
     if pk != 1.0: factors.append(f"🏟️ Park Factor for Outs ({((pk-1)*100):+.1f}%)")
     
     adj_out_rate = max(0.40, min(0.85, adj_out_rate))
 
-    # Simulation Logic for OUTS
     variance_scale = 0.04
     game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=variance_scale, size=num_sims), 0.35, 0.90)
     z_scores = (game_out_rates - adj_out_rate) / variance_scale
     
-    # Workload is dynamic based on performance
-    dynamic_bf = np.clip(np.round(batters_faced + (z_scores * 3.0)).astype(int), 12, 32)
+    # Calculate final simulated batters faced utilizing the Manager Shift baseline
+    dynamic_bf = np.clip(np.round(adj_bf + (z_scores * 3.0)).astype(int), 12, 32)
     
-    # Primary Simulation
     out_sims = np.random.binomial(n=dynamic_bf, p=game_out_rates)
     
     return {'out_sims': out_sims, 'factors': factors}
@@ -154,7 +177,7 @@ def calculate_ev_percent(win_prob_pct, american_odds):
 
 # --- UI RENDERER ---
 st.title("🤖 MLB Quant AI - 100% Outs Engine")
-st.markdown("Autopilot active. Strikeouts scrapped. Predictive logic focused on pitching efficiency.")
+st.markdown("Autopilot active. Dynamic Manager Logic enabled.")
 
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
 try:
@@ -182,14 +205,15 @@ else:
             except: pass
 
         with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Ump: {umpire}"):
-            # Weather fetch now actively uses the target date from your sidebar
             temp = get_weather_for_date(home_team, target_date_str)
             col1, col2 = st.columns(2)
             for side, sp_name, team_abbr, opp_team_abbr in [(col1, a_sp_name, away_team, home_team), (col2, h_sp_name, home_team, away_team)]:
                 with side:
                     match = STATS_DB.get(sp_name, {'Out%': 0.68, 'BB%': 0.08, 'H%': 0.24, 'Hand': 'R', 'BF_per_Start': 23})
                     opp_out_rate = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.68)
-                    res = run_monte_carlo(sp_name, game['gamePk'], match['Out%'], match['BB%'], match['H%'], opp_out_rate, home_team, match['BF_per_Start'], temp, umpire)
+                    manager_shift = MANAGER_DB.get(team_abbr, 0.0)
+                    
+                    res = run_monte_carlo(sp_name, game['gamePk'], match['Out%'], match['BB%'], match['H%'], opp_out_rate, home_team, match['BF_per_Start'], temp, umpire, manager_shift)
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     
