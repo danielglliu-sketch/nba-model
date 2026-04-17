@@ -91,9 +91,7 @@ STATS_DB = get_pitcher_stats_database()
 
 # --- THE MONTE CARLO ENGINE ---
 def run_monte_carlo(sp_name, game_id, base_k_rate, raw_k_rate, bb_rate, h_rate, swstr_rate, opp_k_rate, park, batters_faced, temp, umpire, num_sims=10000):
-    # DYNAMIC SEED: Prevents "Wiggling Numbers" by locking randomness to this specific game/pitcher
     np.random.seed(hash(sp_name + str(game_id)) % 2**32)
-    
     factors = []
     adj_k_rate = base_k_rate
     
@@ -126,7 +124,6 @@ def run_monte_carlo(sp_name, game_id, base_k_rate, raw_k_rate, bb_rate, h_rate, 
     if pk != 1.0: factors.append(f"🏟️ Park Factor ({((pk-1)*100):+.1f}%)")
     
     adj_k_rate = max(0.08, min(0.45, adj_k_rate))
-
     variance_scale = 0.03
     game_k_rates = np.clip(np.random.normal(loc=adj_k_rate, scale=variance_scale, size=num_sims), 0.05, 0.65)
     z_scores = (game_k_rates - adj_k_rate) / variance_scale
@@ -161,11 +158,14 @@ else:
         h_sp_name, a_sp_name = game['teams']['home'].get('probablePitcher', {}).get('fullName', 'TBD'), game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
         if h_sp_name == "TBD" or a_sp_name == "TBD": continue
         
+        # --- AGGRESSIVE UMPIRE FETCH ---
         umpire = "Neutral"
         if 'officials' in game:
             for off in game['officials']:
                 if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
-        if umpire == "Neutral" and game['status']['abstractGameState'] in ['Live', 'Final']:
+        
+        # If Neutral, immediately try the boxscore regardless of status (handles Pre-Game oscillation)
+        if umpire == "Neutral":
             try:
                 bx_data = requests.get(f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore").json()
                 for off in bx_data.get('officials', []):
@@ -179,12 +179,10 @@ else:
                 with side:
                     match = STATS_DB.get(sp_name, {'K%': 0.22, 'Raw_K%': 0.22, 'BB%': 0.08, 'H%': 0.25, 'Hand': 'R', 'SwStr%': 0.11, 'BF_per_Start': 23})
                     opp_k = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.225)
-                    # Pass gamePk to the engine for the stable seed
                     res = run_monte_carlo(sp_name, game['gamePk'], match['K%'], match['Raw_K%'], match['BB%'], match['H%'], match['SwStr%'], opp_k, home_team, match['BF_per_Start'], temp, umpire)
                     
                     st.markdown(f"### {sp_name} ({match['Hand']}HP)")
                     
-                    # UNIQUE KEYS: Added team_abbr to ensure Home/Away pitchers never collide
                     line_k = st.number_input("K Line:", value=5.5, step=0.5, key=f"k_{team_abbr}_{sp_name}_{game['gamePk']}")
                     o_odds_k = st.number_input("K Over Odds:", value=-110, step=5, key=f"ook_{team_abbr}_{sp_name}_{game['gamePk']}")
                     u_odds_k = st.number_input("K Under Odds:", value=-110, step=5, key=f"uok_{team_abbr}_{sp_name}_{game['gamePk']}")
