@@ -614,6 +614,8 @@ if not games:
     st.info("No games found for this date. Try refreshing or adjusting the date.")
     st.stop()
 
+NUM_SIMS = 10_000  # defined once here, used throughout
+
 # ── Game loop ─────────────────────────────────────────────────────────────────
 for game in games:
     home_name = game['teams']['home']['team']['name']
@@ -696,6 +698,7 @@ for game in games:
                     pitches_per_batter = lp['pitches_per_batter'],
                     days_rest          = lp['days_rest'],
                     starts_count       = lp['starts_count'],
+                    num_sims           = NUM_SIMS,
                 )
 
                 out_sims = res['out_sims']
@@ -728,7 +731,7 @@ for game in games:
                     u_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"uo_{key_base}")
 
                 # ── Probabilities ─────────────────────────────────────────────
-                o_prob = float(np.sum(out_sims > line_o)) / num_sims * 100
+                o_prob = float(np.sum(out_sims > line_o)) / NUM_SIMS * 100
                 u_prob = 100.0 - o_prob
                 o_ev   = calculate_ev_percent(o_prob, o_odds)
                 u_ev   = calculate_ev_percent(u_prob, u_odds)
@@ -777,5 +780,3 @@ for game in games:
                 with st.expander("🔬 Model Factor Breakdown"):
                     for f in res['factors']:
                         st.caption(f"- {f}")
-
-                num_sims = 10_000  # reset for next iteration
