@@ -367,7 +367,11 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
         # causes systematic BF underestimation.
         if len(recent) >= 2:
             peak_pitches = max(s['stat'].get('numberOfPitches', 0) for s in recent[:3])
-            profile['pitch_budget'] = max(peak_pitches, 90.0)
+            # If a guy's peak is under 65 after multiple starts, he's an Opener. Don't floor him at 90.
+            if peak_pitches < 65:
+                profile['pitch_budget'] = float(peak_pitches)
+            else:
+                profile['pitch_budget'] = max(peak_pitches, 90.0)
         else:
             profile['pitch_budget'] = 95.0
 
@@ -800,8 +804,8 @@ for game in games:
                 p90  = float(np.percentile(out_sims, 90))
                 st.info(
                     f"📊 Median: **{median_outs:.1f}** outs  "
-                    f"| 25th–75th: **{p25:.0f}–{p75:.0f}**  "
-                    f"| 10th–90th: **{p10:.0f}–{p90:.0f}**  "
+                    f"| 25th–75th: **{p25:.0f}–{p75:.0f}** "
+                    f"| 10th–90th: **{p10:.0f}–{p90:.0f}** "
                     f"| Est. BF: **{res['adj_bf']:.1f}**"
                 )
 
