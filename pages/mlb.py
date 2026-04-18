@@ -373,8 +373,8 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
         # ── Days rest ──────────────────────────────────────────────────────────
         try:
             target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
-            if starts:
-                last_date = datetime.strptime(starts[0].get('date', ''), '%Y-%m-%d')
+            if splits:
+                last_date = datetime.strptime(splits[0].get('date', ''), '%Y-%m-%d')
                 profile['days_rest'] = max(0, (target_dt - last_date).days)
         except:
             pass
