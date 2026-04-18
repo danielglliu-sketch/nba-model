@@ -89,17 +89,20 @@ LEAGUE_AVG_BF   = 22.5
 # ==============================================================================
 def get_shrinkage_prior(date_str: str) -> int:
     """
-    Return a heavier Bayesian prior early in the season when sample sizes are tiny.
-    April → 150, May → 100, June+ → 50
+    Bayesian prior weight toward league average.
+    Out rate converges faster than ERA-based metrics, so we use a lighter
+    prior than most models. 150 was too aggressive — it crushed above-average
+    pitchers (e.g. high-K guys like Chandler/Bibee) toward league mean.
+    April → 75, May → 55, June+ → 35
     """
     try:
         d = datetime.strptime(date_str, '%Y-%m-%d')
         days_in = (d - datetime(d.year, 3, 28)).days
-        if days_in < 30:  return 150
-        elif days_in < 60: return 100
-        else:              return 50
+        if days_in < 30:  return 75
+        elif days_in < 60: return 55
+        else:              return 35
     except:
-        return 100
+        return 60
 
 
 # ==============================================================================
@@ -238,16 +241,17 @@ def get_pitcher_and_manager_stats():
             shrunk_k   = (so               + LEAGUE_K_RATE  * prior) / (tbf + prior)
             shrunk_bb  = (bb               + LEAGUE_BB_RATE * prior) / (tbf + prior)
 
-            # ----- Career blend (only when career sample > 500 TBF) -----
-            if pid in career_lookup and career_lookup[pid]['tbf'] > 500:
+            # ----- Career blend (activate at 250 TBF — was 500, excluded young pitchers) -----
+            if pid in career_lookup and career_lookup[pid]['tbf'] > 250:
                 c = career_lookup[pid]
                 # Weight current season by how much data we have (max 70%)
                 w = min(tbf / 300.0, 0.70)
                 shrunk_out = shrunk_out * w + c['out_rate'] * (1.0 - w)
                 shrunk_k   = shrunk_k   * w + c['k_rate']   * (1.0 - w)
 
-            # BF per start (shrunk with 3 phantom league-average starts)
-            bf_per_start = max(16.0, min(28.0, (tbf + LEAGUE_AVG_BF * 3) / (gs + 3))) if gs > 0 else LEAGUE_AVG_BF
+            # BF per start — use lighter shrinkage once we have 4+ real starts
+            phantom = 2 if gs >= 4 else 3
+            bf_per_start = max(16.0, min(28.0, (tbf + LEAGUE_AVG_BF * phantom) / (gs + phantom))) if gs > 0 else LEAGUE_AVG_BF
 
             is_ghost = tbf < 10  # Fix: use actual threshold, not magic number
 
@@ -389,6 +393,25 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
                 profile['actual_out_rate'] = (tbf - bb - h) / tbf
                 profile['actual_k_rate']   = so / tbf
                 profile['actual_bb_rate']  = bb / tbf
+
+        # ── Recent form blend (last 3 starts) ─────────────────────────────────
+        # Gives the model signal when a pitcher is consistently going deep.
+        # Blended at 25% recent / 75% season so one bad start doesn't overreact.
+        if len(starts) >= 3:
+            recent3     = starts[:3]
+            r_tbf = sum(s['stat'].get('battersFaced', 0) for s in recent3)
+            r_bb  = sum(s['stat'].get('baseOnBalls',  0) for s in recent3)
+            r_h   = sum(s['stat'].get('hits',         0) for s in recent3)
+            r_so  = sum(s['stat'].get('strikeOuts',   0) for s in recent3)
+            if r_tbf > 0:
+                recent_out_rate = (r_tbf - r_bb - r_h) / r_tbf
+                recent_k_rate   = r_so / r_tbf
+                profile['actual_out_rate'] = (
+                    profile['actual_out_rate'] * 0.75 + recent_out_rate * 0.25
+                )
+                profile['actual_k_rate'] = (
+                    profile['actual_k_rate'] * 0.75 + recent_k_rate * 0.25
+                )
 
     except Exception:
         pass
