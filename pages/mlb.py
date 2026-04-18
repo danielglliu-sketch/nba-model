@@ -5,9 +5,9 @@ import pandas as pd
 from datetime import datetime
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="MLB Quant AI - Hybrid Engine (Aggressive)", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="MLB Quant AI - Outs Engine", page_icon="⚾", layout="wide")
 
-st.sidebar.title("🤖 Hybrid Autopilot")
+st.sidebar.title("🤖 Outs Autopilot")
 selected_date = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
@@ -32,7 +32,6 @@ UMPIRE_DATABASE = {
     "Hitter Friendly (Tight Zone)": ["Pat Hoberg", "Quinn Wolcott", "Andy Fletcher", "Dan Bellino", "Lance Barrett", "CB Bucknor", "Ted Barrett", "Angel Hernandez", "Hunter Wendelstedt", "Mark Carlson", "Jeff Nelson", "Rob Drake", "Brian O'Nora", "Todd Tichenor", "Chad Fairchild", "Marvin Hudson", "Mike Muchlinski", "Adam Hamari", "Manny Gonzalez", "D.J. Reyburn"]
 }
 
-K_PARK_FACTORS = { 'SEA': 1.06, 'TB': 1.05, 'MIA': 1.04, 'SD': 1.04, 'MIL': 1.03, 'OAK': 1.03, 'SF': 1.02, 'LAD': 1.02, 'NYM': 1.01, 'MIN': 1.01, 'BAL': 1.00, 'TOR': 1.00, 'TEX': 1.00, 'ATL': 1.00, 'DET': 1.00, 'CLE': 0.99, 'NYY': 0.99, 'CHW': 0.99, 'PHI': 0.98, 'BOS': 0.98, 'CHC': 0.97, 'STL': 0.97, 'PIT': 0.97, 'LAA': 0.96, 'HOU': 0.96, 'WSH': 0.95, 'CIN': 0.94, 'ARI': 0.93, 'COL': 0.85 }
 OUTS_PARK_FACTORS = { 'SEA': 1.03, 'TB': 1.02, 'MIA': 1.02, 'SD': 1.02, 'OAK': 1.01, 'SF': 1.01, 'LAD': 1.01, 'NYM': 1.00, 'MIN': 1.00, 'BAL': 1.00, 'TOR': 1.00, 'TEX': 1.00, 'ATL': 1.00, 'DET': 1.00, 'CLE': 1.00, 'NYY': 0.99, 'CHW': 0.99, 'PHI': 0.98, 'BOS': 0.98, 'CHC': 0.98, 'STL': 0.98, 'PIT': 0.98, 'LAA': 0.97, 'HOU': 0.97, 'WSH': 0.97, 'CIN': 0.95, 'ARI': 0.94, 'COL': 0.88 }
 
 TEAM_MAP = { 'Arizona Diamondbacks': 'ARI', 'Atlanta Braves': 'ATL', 'Baltimore Orioles': 'BAL', 'Boston Red Sox': 'BOS', 'Chicago Cubs': 'CHC', 'Chicago White Sox': 'CHW', 'Cincinnati Reds': 'CIN', 'Cleveland Guardians': 'CLE', 'Colorado Rockies': 'COL', 'Detroit Tigers': 'DET', 'Houston Astros': 'HOU', 'Kansas City Royals': 'KC', 'Los Angeles Angels': 'LAA', 'Los Angeles Dodgers': 'LAD', 'Miami Marlins': 'MIA', 'Milwaukee Brewers': 'MIL', 'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK', 'Sacramento Athletics': 'OAK', 'Athletics': 'OAK', 'Philadelphia Phillies': 'PHI', 'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF', 'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB', 'Texas Rangers': 'TEX', 'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH' }
@@ -58,10 +57,8 @@ def get_automated_team_splits():
             for record in data['stats'][0]['splits']:
                 abbr = TEAM_MAP.get(record['team']['name'], record['team']['name'])
                 if abbr not in splits: splits[abbr] = {}
-                pa = record['stat'].get('plateAppearances', 1)
-                so = record['stat'].get('strikeOuts', 0)
-                hits, bb = record['stat'].get('hits', 0), record['stat'].get('baseOnBalls', 0)
-                splits[abbr][h_code] = { 'K%': so / pa, 'Out%': 1 - ((hits + bb) / pa) }
+                pa, hits, bb = record['stat'].get('plateAppearances', 1), record['stat'].get('hits', 0), record['stat'].get('baseOnBalls', 0)
+                splits[abbr][h_code] = 1 - ((hits + bb) / pa)
         except: pass
     return splits
 
@@ -80,24 +77,18 @@ def get_pitcher_and_manager_stats():
             name, pid = record['player']['fullName'], record['player']['id']
             abbr = TEAM_MAP.get(record.get('team', {}).get('name', 'Unknown'), 'Unknown')
             stat = record['stat']
-            tbf, so, bb, h = stat.get('battersFaced', 0), stat.get('strikeOuts', 0), stat.get('baseOnBalls', 0), stat.get('hits', 0)
-            gs, gp = stat.get('gamesStarted', 0), stat.get('gamesPlayed', 0)
+            tbf, bb, h, gs, gp = stat.get('battersFaced', 0), stat.get('baseOnBalls', 0), stat.get('hits', 0), stat.get('gamesStarted', 0), stat.get('gamesPlayed', 0)
             
             if tbf == 0: continue
-            raw_k = so/tbf
-            shrunk_k = (raw_k * tbf + 0.22 * 25) / (tbf + 25)
-            swstr_proxy = raw_k * 0.5
             shrunk_out_rate = ( (tbf - (bb + h)) + (0.68 * 50) ) / (tbf + 50)
             
-            pitcher_db[pid] = {
-                'Name': name, 'K%': shrunk_k, 'Raw_K%': raw_k, 'BB%': bb/tbf, 'H%': h/tbf, 'SwStr%': swstr_proxy, 
-                'Out%': shrunk_out_rate, 'Hand': hand_map.get(pid, 'R'), 'GS': gs,
-                'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))
-            }
+            # Key change: Store strictly by ID as the primary key fallback
+            pitcher_db[pid] = {'Name': name, 'Out%': shrunk_out_rate, 'BB%': bb/tbf, 'H%': h/tbf, 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16, min(28, (tbf + (22.5 * 3)) / (gs + 3)))}
             
             if gs > 0 and gp > 0 and (gs / gp) > 0.8 and abbr != 'Unknown':
                 if abbr not in team_sp_agg: team_sp_agg[abbr] = {'tbf': 0, 'gs': 0}
-                team_sp_agg[abbr]['tbf'] += tbf; team_sp_agg[abbr]['gs'] += gs
+                team_sp_agg[abbr]['tbf'] += tbf
+                team_sp_agg[abbr]['gs'] += gs
                 league_tbf += tbf; league_gs += gs
                 
         manager_db, league_avg_bf = {}, league_tbf / league_gs if league_gs > 0 else 22.5
@@ -108,13 +99,10 @@ def get_pitcher_and_manager_stats():
 
 STATS_DB, MANAGER_DB = get_pitcher_and_manager_stats()
 
+# ID-DRIVEN LOGIC: Bulletproof fetch for recent workload
 @st.cache_data(ttl=3600)
 def get_live_pitcher_profile(player_id, fallback_db_match):
-    profile = {
-        'recent_tbf_cap': 30, 'recent_pitch_avg': 85, 'gs_count': fallback_db_match.get('GS', 0),
-        'actual_k_rate': fallback_db_match['K%'], 'actual_bb_rate': fallback_db_match['BB%'], 
-        'actual_out_rate': fallback_db_match['Out%'], 'swstr': fallback_db_match['SwStr%']
-    }
+    profile = {'recent_tbf_cap': 30, 'recent_pitch_avg': 85, 'actual_bb_rate': fallback_db_match['BB%'], 'actual_out_rate': fallback_db_match['Out%']}
     if not player_id: return profile
     try:
         url = f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats?stats=gameLog&group=pitching&season=2026"
@@ -127,83 +115,65 @@ def get_live_pitcher_profile(player_id, fallback_db_match):
         
         profile['recent_tbf_cap'] = max(recent_tbfs) if recent_tbfs else 30
         profile['recent_pitch_avg'] = sum(recent_pitches) / len(recent_pitches) if recent_pitches else 85
-        profile['gs_count'] = len(splits)
         
+        # If the pitcher was a "Ghost", calculate real rates from game log
         if fallback_db_match['BF_per_Start'] == 23:
             tbf = sum(s['stat'].get('battersFaced', 0) for s in splits)
-            so = sum(s['stat'].get('strikeOuts', 0) for s in splits)
             bb = sum(s['stat'].get('baseOnBalls', 0) for s in splits)
             h = sum(s['stat'].get('hits', 0) for s in splits)
             if tbf > 0:
-                profile['actual_k_rate'] = so / tbf; profile['swstr'] = (so / tbf) * 0.5
-                profile['actual_bb_rate'] = bb / tbf; profile['actual_out_rate'] = (tbf - (bb + h)) / tbf
+                profile['actual_bb_rate'] = bb / tbf
+                profile['actual_out_rate'] = (tbf - (bb + h)) / tbf
     except: pass
     return profile
 
-# --- THE AGGRESSIVE ENGINES ---
-def run_monte_carlo_k(sp_name, game_id, base_k_rate, swstr_rate, bb_rate, opp_k_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg, gs_count, num_sims=10000):
-    np.random.seed(hash(sp_name + str(game_id) + "k") % 2**32)
-    factors, adj_k_rate = [], base_k_rate
+# --- THE OUTS-ONLY ENGINE ---
+def run_monte_carlo(sp_name, game_id, base_out_rate, bb_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg, num_sims=10000):
+    np.random.seed(hash(sp_name + str(game_id)) % 2**32)
+    factors = []
+    adj_out_rate = base_out_rate
+    
     adj_bf = batters_faced + manager_shift
     
-    # AGGRESSIVE: LEAGUE SURGE BONUS
-    if gs_count >= 3:
-        adj_bf += 1.0; factors.append("📈 League-Wide Volume Surge (+1.0 batter)")
-
-    if recent_pitch_avg >= 94: adj_bf += 1.5; factors.append("🐴 Workhorse Override (+1.5 BF)")
+    # ALWAYS SHOW BASELINE so box is never empty
+    factors.append(f"📊 Baseline: {recent_pitch_avg:.0f} Recent Pitches | {adj_out_rate*100:.1f}% Est. Out Rate")
     
-    # AGGRESSIVE: WIDENED HARD CAP (+3)
-    hard_cap = recent_tbf_cap + 3 
-    if adj_bf > hard_cap:
-        factors.append(f"🚨 Medical/Workload Cap: Limited to {hard_cap} batters.")
-        adj_bf = hard_cap
-        
-    if swstr_rate > 0.135: adj_k_rate += 0.04; factors.append("🎯 Elite Whiff Boost (+4.0%)")
-    opp_ratio = 1.0 + (((opp_k_rate / 0.225) - 1.0) * 0.5)
-    adj_k_rate *= opp_ratio
+    if manager_shift > 0.75: factors.append(f"👔 Manager Tendency: Long Leash (+{manager_shift:.1f} batters)")
+    elif manager_shift < -0.75: factors.append(f"👔 Manager Tendency: Quick Hook ({manager_shift:.1f} batters)")
     
-    if temp < 60: adj_k_rate += 0.02
-    if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: adj_k_rate += 0.015
-    pk = K_PARK_FACTORS.get(park, 1.0)
-    adj_k_rate *= pk
+    if recent_pitch_avg >= 94:
+        factors.append(f"🐴 Workhorse Override: High traffic tolerated (+1.5 BF).")
+        adj_bf += 1.5
+    elif bb_rate > 0.09: 
+        factors.append("⛽ Efficiency Warning: High Walk Rate.")
     
-    adj_k_rate = max(0.08, min(0.45, adj_k_rate))
-    game_k_rates = np.clip(np.random.normal(loc=adj_k_rate, scale=0.03, size=num_sims), 0.05, 0.65)
-    z_scores = (game_k_rates - adj_k_rate) / 0.03
-    dynamic_bf = np.clip(np.round(adj_bf + (z_scores * 2.5)).astype(int), 9, hard_cap + 2)
-    k_sims = np.random.binomial(n=dynamic_bf, p=game_k_rates)
-    return {'sims': k_sims, 'factors': factors}
-
-def run_monte_carlo_outs(sp_name, game_id, base_out_rate, bb_rate, opp_out_rate, park, batters_faced, temp, umpire, manager_shift, recent_tbf_cap, recent_pitch_avg, gs_count, num_sims=10000):
-    np.random.seed(hash(sp_name + str(game_id) + "o") % 2**32)
-    factors, adj_out_rate = [], base_out_rate
-    adj_bf = batters_faced + manager_shift
-    
-    # AGGRESSIVE: LEAGUE SURGE BONUS
-    if gs_count >= 3:
-        adj_bf += 1.0; factors.append("📈 League-Wide Volume Surge (+1.0 batter)")
-
-    if recent_pitch_avg >= 94: adj_bf += 1.5; factors.append("🐴 Workhorse Override (+1.5 BF)")
-    
-    # AGGRESSIVE: WIDENED HARD CAP (+3)
-    hard_cap = recent_tbf_cap + 3 
+    hard_cap = recent_tbf_cap + 1 
     if adj_bf > hard_cap:
         factors.append(f"🚨 Medical/Workload Cap: Limited to {hard_cap} batters.")
         adj_bf = hard_cap
     
     opp_ratio = 1.0 + (((opp_out_rate / 0.68) - 1.0) * 0.5)
     adj_out_rate *= opp_ratio
-    if temp > 80: adj_out_rate -= 0.015
-    if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: adj_out_rate += 0.012
+    
+    if temp > 80: adj_out_rate -= 0.015; factors.append(f"🔥 Heat Warning ({temp:.0f}°F) (-1.5%)")
+    elif temp < 60: adj_out_rate += 0.01; factors.append(f"🥶 Cold Weather (+1.0%)")
+        
+    if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: adj_out_rate += 0.012; factors.append(f"💎 Wide Zone Umpire ({umpire}) (+1.2%)")
+    elif umpire in UMPIRE_DATABASE["Hitter Friendly (Tight Zone)"]: adj_out_rate -= 0.015; factors.append(f"🧱 Tight Zone Umpire ({umpire}) (-1.5%)")
+
     pk = OUTS_PARK_FACTORS.get(park, 1.0)
     adj_out_rate *= pk
+    if pk != 1.0: factors.append(f"🏟️ Park Factor for Outs ({((pk-1)*100):+.1f}%)")
     
     adj_out_rate = max(0.40, min(0.85, adj_out_rate))
-    game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=0.04, size=num_sims), 0.35, 0.90)
-    z_scores = (game_out_rates - adj_out_rate) / 0.04
+    variance_scale = 0.04
+    game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=variance_scale, size=num_sims), 0.35, 0.90)
+    z_scores = (game_out_rates - adj_out_rate) / variance_scale
+    
     dynamic_bf = np.clip(np.round(adj_bf + (z_scores * 3.0)).astype(int), 9, hard_cap + 2)
     out_sims = np.random.binomial(n=dynamic_bf, p=game_out_rates)
-    return {'sims': out_sims, 'factors': factors}
+    
+    return {'out_sims': out_sims, 'factors': factors}
 
 def calculate_ev_percent(win_prob_pct, american_odds):
     if american_odds == 0: return 0.0
@@ -211,61 +181,78 @@ def calculate_ev_percent(win_prob_pct, american_odds):
     return ((prob * payout) - (1.0 - prob)) * 100.0
 
 # --- UI RENDERER ---
-st.title("🤖 MLB Quant AI - Hybrid Engine (Aggressive)")
+st.title("🤖 MLB Quant AI - 100% Outs Engine")
+st.markdown("Autopilot active. ID-Driven Logic & Baseline Tracking enabled.")
+
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
-try: 
+try:
     games = requests.get(schedule_url).json().get('dates', [{}])[0].get('games', [])
-except: 
-    games = []
+except: games = []
 
-for game in games:
-    home_name, away_name = game['teams']['home']['team']['name'], game['teams']['away']['team']['name']
-    h_team, a_team = TEAM_MAP.get(home_name, home_name), TEAM_MAP.get(away_name, away_name)
-    h_sp_dict, a_sp_dict = game['teams']['home'].get('probablePitcher', {}), game['teams']['away'].get('probablePitcher', {})
-    h_sp_name, h_sp_id, a_sp_name, a_sp_id = h_sp_dict.get('fullName', 'TBD'), h_sp_dict.get('id'), a_sp_dict.get('fullName', 'TBD'), a_sp_dict.get('id')
-    
-    if h_sp_name == "TBD" or a_sp_name == "TBD": continue
-    
-    umpire = "Neutral"
-    if 'officials' in game:
-        for off in game['officials']:
-            if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
-
-    with st.expander(f"⚾ {a_team} ({a_sp_name}) @ {h_team} ({h_sp_name}) | Ump: {umpire}"):
-        temp = get_weather_for_date(h_team, target_date_str)
-        tab_names = ["🔥 Strikeouts", "⚾ Pitching Outs"]
-        tabs = st.tabs(tab_names)
+if not games:
+    st.info("No games found. Please refresh or check date.")
+else:
+    for game in games:
+        home_name_api, away_name_api = game['teams']['home']['team']['name'], game['teams']['away']['team']['name']
+        home_team, away_team = TEAM_MAP.get(home_name_api, home_name_api), TEAM_MAP.get(away_name_api, away_name_api)
         
-        for tab, label, run_mc in zip(tabs, tab_names, [run_monte_carlo_k, run_monte_carlo_outs]):
-            with tab:
-                col1, col2 = st.columns(2)
-                for side, sp_n, sp_i, t_a, o_a in [(col1, a_sp_name, a_sp_id, a_team, h_team), (col2, h_sp_name, h_sp_id, h_team, a_team)]:
-                    with side:
-                        match = STATS_DB.get(sp_i, {'K%': 0.22, 'BB%': 0.08, 'SwStr%': 0.11, 'Out%': 0.68, 'Hand': 'R', 'BF_per_Start': 23, 'GS': 0})
-                        opp_splits = SPLITS_DB.get(o_a, {}).get(match['Hand'], {'K%': 0.225, 'Out%': 0.68})
-                        prof = get_live_pitcher_profile(sp_i, match)
-                        
-                        is_k_tab = "Strikeouts" in label
-                        
-                        # Use prof stats with aggressive logic
-                        r = run_mc(sp_n, game['gamePk'], 
-                                   prof['actual_k_rate'] if is_k_tab else prof['actual_out_rate'], 
-                                   prof['swstr'], prof['actual_bb_rate'], 
-                                   opp_splits['K%'] if is_k_tab else opp_splits['Out%'], 
-                                   h_team, match['BF_per_Start'], temp, umpire, MANAGER_DB.get(t_a, 0.0), 
-                                   prof['recent_tbf_cap'], prof['recent_pitch_avg'], prof['gs_count'])
-                        
-                        st.markdown(f"### {sp_n}")
-                        default_line = 5.5 if is_k_tab else 17.5
-                        line = st.number_input(f"Line:", value=default_line, step=0.5, key=f"{label}_{sp_n}_{game['gamePk']}_line")
-                        o_o = st.number_input("Over Odds:", value=-110, step=5, key=f"oo_{label}_{sp_n}_{game['gamePk']}")
-                        u_o = st.number_input("Under Odds:", value=-110, step=5, key=f"uo_{label}_{sp_n}_{game['gamePk']}")
-                        
-                        o_p = (np.sum(r['sims'] > line) / 10000) * 100
-                        
-                        if o_p > 60: st.success(f"📈 {o_p:.1f}% OVER")
-                        elif o_p < 40: st.error(f"📉 {100-o_p:.1f}% UNDER")
-                        else: st.warning(f"⚖️ Neutral ({o_p:.1f}%)")
-                        
-                        for f in r['factors']: st.caption(f"- {f}")
-                        st.bar_chart(pd.Series(r['sims']).value_counts(normalize=True).sort_index())
+        # EXTRACT EXACT IDs TO PREVENT GHOST PROFILES
+        h_sp_dict = game['teams']['home'].get('probablePitcher', {})
+        a_sp_dict = game['teams']['away'].get('probablePitcher', {})
+        h_sp_name, h_sp_id = h_sp_dict.get('fullName', 'TBD'), h_sp_dict.get('id')
+        a_sp_name, a_sp_id = a_sp_dict.get('fullName', 'TBD'), a_sp_dict.get('id')
+        
+        if h_sp_name == "TBD" or a_sp_name == "TBD": continue
+        
+        umpire = "Neutral"
+        if 'officials' in game:
+            for off in game['officials']:
+                if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
+        if umpire == "Neutral":
+            try:
+                bx_data = requests.get(f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore").json()
+                for off in bx_data.get('officials', []):
+                    if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
+            except: pass
+
+        with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | Ump: {umpire}"):
+            temp = get_weather_for_date(home_team, target_date_str)
+            col1, col2 = st.columns(2)
+            for side, sp_name, sp_id, team_abbr, opp_team_abbr in [(col1, a_sp_name, a_sp_id, away_team, home_team), (col2, h_sp_name, h_sp_id, home_team, away_team)]:
+                with side:
+                    # Match by EXACT ID first, fallback to generic defaults only if ID is missing
+                    match = STATS_DB.get(sp_id, {'Out%': 0.68, 'BB%': 0.08, 'H%': 0.24, 'Hand': 'R', 'BF_per_Start': 23})
+                    opp_out_rate = SPLITS_DB.get(opp_team_abbr, {}).get(match['Hand'], 0.68)
+                    manager_shift = MANAGER_DB.get(team_abbr, 0.0)
+                    
+                    # Fetch live profile utilizing the direct ID
+                    live_profile = get_live_pitcher_profile(sp_id, match)
+                    
+                    res = run_monte_carlo(
+                        sp_name, game['gamePk'], 
+                        live_profile['actual_out_rate'], 
+                        live_profile['actual_bb_rate'], 
+                        opp_out_rate, home_team, match['BF_per_Start'], temp, umpire, manager_shift, 
+                        live_profile['recent_tbf_cap'], live_profile['recent_pitch_avg']
+                    )
+                    
+                    st.markdown(f"### {sp_name} ({match['Hand']}HP)")
+                    
+                    line_o = st.number_input("Outs Line:", value=17.5, step=0.5, key=f"o_{team_abbr}_{sp_name}_{game['gamePk']}")
+                    o_odds = st.number_input("Over Odds:", value=-110, step=5, key=f"oo_{team_abbr}_{sp_name}_{game['gamePk']}")
+                    u_odds = st.number_input("Under Odds:", value=-110, step=5, key=f"uo_{team_abbr}_{sp_name}_{game['gamePk']}")
+                    
+                    o_prob = (np.sum(res['out_sims'] > line_o) / 10000) * 100
+                    o_ev, u_ev = calculate_ev_percent(o_prob, o_odds), calculate_ev_percent(100 - o_prob, u_odds)
+                    
+                    if o_prob > 60: st.success(f"📈 {o_prob:.1f}% Chance OVER Outs")
+                    elif o_prob < 40: st.error(f"📉 {100-o_prob:.1f}% Chance UNDER Outs")
+                    else: st.warning(f"⚖️ Neutral Outs Matchup ({o_prob:.1f}% Over)")
+                    
+                    if o_ev > 2.0: st.success(f"🔥 +EV OVER: {o_ev:+.1f}% Edge")
+                    elif u_ev > 2.0: st.success(f"🔥 +EV UNDER: {u_ev:+.1f}% Edge")
+                    
+                    st.caption(f"Median Projected Outs: {np.median(res['out_sims']):.1f}")
+                    
+                    st.bar_chart(pd.Series(res['out_sims']).value_counts(normalize=True).sort_index())
+                    for f in res['factors']: st.caption(f"- {f}")
