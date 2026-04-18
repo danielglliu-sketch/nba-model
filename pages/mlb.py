@@ -146,13 +146,13 @@ def run_monte_carlo_k(sp_name, game_id, base_k_rate, swstr_rate, bb_rate, opp_k_
     factors, adj_k_rate = [], base_k_rate
     adj_bf = batters_faced + manager_shift
     
-    # +++ LEAGUE SURGE BONUS +++
+    # AGGRESSIVE: LEAGUE SURGE BONUS
     if gs_count >= 3:
         adj_bf += 1.0; factors.append("📈 League-Wide Volume Surge (+1.0 batter)")
 
     if recent_pitch_avg >= 94: adj_bf += 1.5; factors.append("🐴 Workhorse Override (+1.5 BF)")
     
-    # +++ WIDENED HARD CAP +++
+    # AGGRESSIVE: WIDENED HARD CAP (+3)
     hard_cap = recent_tbf_cap + 3 
     if adj_bf > hard_cap:
         factors.append(f"🚨 Medical/Workload Cap: Limited to {hard_cap} batters.")
@@ -179,13 +179,13 @@ def run_monte_carlo_outs(sp_name, game_id, base_out_rate, bb_rate, opp_out_rate,
     factors, adj_out_rate = [], base_out_rate
     adj_bf = batters_faced + manager_shift
     
-    # +++ LEAGUE SURGE BONUS +++
+    # AGGRESSIVE: LEAGUE SURGE BONUS
     if gs_count >= 3:
         adj_bf += 1.0; factors.append("📈 League-Wide Volume Surge (+1.0 batter)")
 
     if recent_pitch_avg >= 94: adj_bf += 1.5; factors.append("🐴 Workhorse Override (+1.5 BF)")
     
-    # +++ WIDENED HARD CAP +++
+    # AGGRESSIVE: WIDENED HARD CAP (+3)
     hard_cap = recent_tbf_cap + 3 
     if adj_bf > hard_cap:
         factors.append(f"🚨 Medical/Workload Cap: Limited to {hard_cap} batters.")
@@ -210,17 +210,20 @@ def calculate_ev_percent(win_prob_pct, american_odds):
     prob, payout = win_prob_pct / 100.0, (american_odds / 100.0) if american_odds > 0 else (100.0 / abs(american_odds))
     return ((prob * payout) - (1.0 - prob)) * 100.0
 
-# --- UI RENDERER (UNCHANGED) ---
+# --- UI RENDERER ---
 st.title("🤖 MLB Quant AI - Hybrid Engine (Aggressive)")
 schedule_url = f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire"
-try: games = requests.get(schedule_url).json().get('dates', [{}])[0].get('games', [])
-except: games = []
+try: 
+    games = requests.get(schedule_url).json().get('dates', [{}])[0].get('games', [])
+except: 
+    games = []
 
 for game in games:
     home_name, away_name = game['teams']['home']['team']['name'], game['teams']['away']['team']['name']
     h_team, a_team = TEAM_MAP.get(home_name, home_name), TEAM_MAP.get(away_name, away_name)
     h_sp_dict, a_sp_dict = game['teams']['home'].get('probablePitcher', {}), game['teams']['away'].get('probablePitcher', {})
     h_sp_name, h_sp_id, a_sp_name, a_sp_id = h_sp_dict.get('fullName', 'TBD'), h_sp_dict.get('id'), a_sp_dict.get('fullName', 'TBD'), a_sp_dict.get('id')
+    
     if h_sp_name == "TBD" or a_sp_name == "TBD": continue
     
     umpire = "Neutral"
@@ -229,8 +232,11 @@ for game in games:
             if off['officialType'] == 'Home Plate': umpire = off['official']['fullName']
 
     with st.expander(f"⚾ {a_team} ({a_sp_name}) @ {h_team} ({h_sp_name}) | Ump: {umpire}"):
-        temp, tabs = get_weather_for_date(h_team, target_date_str), st.tabs(["🔥 Strikeouts", "⚾ Pitching Outs"])
-        for tab, run_mc in zip(tabs, [run_monte_carlo_k, run_monte_carlo_outs]):
+        temp = get_weather_for_date(h_team, target_date_str)
+        tab_names = ["🔥 Strikeouts", "⚾ Pitching Outs"]
+        tabs = st.tabs(tab_names)
+        
+        for tab, label, run_mc in zip(tabs, tab_names, [run_monte_carlo_k, run_monte_carlo_outs]):
             with tab:
                 col1, col2 = st.columns(2)
                 for side, sp_n, sp_i, t_a, o_a in [(col1, a_sp_name, a_sp_id, a_team, h_team), (col2, h_sp_name, h_sp_id, h_team, a_team)]:
@@ -239,15 +245,22 @@ for game in games:
                         opp_splits = SPLITS_DB.get(o_a, {}).get(match['Hand'], {'K%': 0.225, 'Out%': 0.68})
                         prof = get_live_pitcher_profile(sp_i, match)
                         
-                        # Pass all stats to the aggressive MC engine
-                        r = run_mc(sp_n, game['gamePk'], prof['actual_k_rate'] if tab.title == "Strikeouts" else prof['actual_out_rate'], 
-                                   prof['swstr'], prof['actual_bb_rate'], opp_splits['K%'] if tab.title == "Strikeouts" else opp_splits['Out%'], 
+                        is_k_tab = "Strikeouts" in label
+                        
+                        # Use prof stats with aggressive logic
+                        r = run_mc(sp_n, game['gamePk'], 
+                                   prof['actual_k_rate'] if is_k_tab else prof['actual_out_rate'], 
+                                   prof['swstr'], prof['actual_bb_rate'], 
+                                   opp_splits['K%'] if is_k_tab else opp_splits['Out%'], 
                                    h_team, match['BF_per_Start'], temp, umpire, MANAGER_DB.get(t_a, 0.0), 
                                    prof['recent_tbf_cap'], prof['recent_pitch_avg'], prof['gs_count'])
                         
                         st.markdown(f"### {sp_n}")
-                        line = st.number_input(f"Line:", value=5.5 if "Strikeouts" in tab.label else 17.5, step=0.5, key=f"{tab.label}_{sp_n}_{game['gamePk']}")
-                        o_o, u_o = st.number_input("Over Odds:", -110, step=5, key=f"oo_{tab.label}_{sp_n}"), st.number_input("Under Odds:", -110, step=5, key=f"uo_{tab.label}_{sp_n}")
+                        default_line = 5.5 if is_k_tab else 17.5
+                        line = st.number_input(f"Line:", value=default_line, step=0.5, key=f"{label}_{sp_n}_{game['gamePk']}_line")
+                        o_o = st.number_input("Over Odds:", value=-110, step=5, key=f"oo_{label}_{sp_n}_{game['gamePk']}")
+                        u_o = st.number_input("Under Odds:", value=-110, step=5, key=f"uo_{label}_{sp_n}_{game['gamePk']}")
+                        
                         o_p = (np.sum(r['sims'] > line) / 10000) * 100
                         
                         if o_p > 60: st.success(f"📈 {o_p:.1f}% OVER")
