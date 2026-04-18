@@ -486,9 +486,10 @@ def run_monte_carlo(
     # Blended BF projection — pitch model weight drops when sample is small,
     # because early-season pitch counts underrepresent true workload capacity.
     if starts_count < 5:
-        pc_w, sa_w, ms_w = 0.20, 0.55, 0.25   # trust season avg / career more
+        # Heavily trust the Pitch Count model now that starters are fully stretched out
+        pc_w, sa_w, ms_w = 0.55, 0.20, 0.25   
     else:
-        pc_w, sa_w, ms_w = 0.35, 0.40, 0.25   # trust pitch model more
+        pc_w, sa_w, ms_w = 0.45, 0.35, 0.20   
 
     adj_bf = (
         pitch_count_bf                  * pc_w +
