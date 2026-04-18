@@ -358,21 +358,25 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
                 profile['pitches_per_batter'] = max(3.2, total_pitches / total_tbf)
 
         # ── Manager pitch budget ───────────────────────────────────────────────
-        # Infer from the manager's historical willingness (recent peak * 0.95)
+        # Use peak as-is with a hard floor of 90 — early season peaks are
+        # artificially low (managers building up), so discounting them further
+        # causes systematic BF underestimation.
         if len(recent) >= 2:
             peak_pitches = max(s['stat'].get('numberOfPitches', 0) for s in recent[:3])
-            profile['pitch_budget'] = peak_pitches * 0.95
+            profile['pitch_budget'] = max(peak_pitches, 90.0)
         else:
             profile['pitch_budget'] = 95.0
 
         # ── Blended BF cap ────────────────────────────────────────────────────
+        # Season avg gets 65% weight — early season recent_max can come from
+        # a deliberately short outing and shouldn't dominate the cap.
         if starts:
             recent_max  = max(s['stat'].get('battersFaced', 0) for s in starts[:3])
             pitch_est   = profile['pitch_budget'] / max(profile['pitches_per_batter'], 3.5)
             profile['recent_tbf_cap'] = (
-                season_avg_bf  * 0.50 +
-                recent_max     * 0.30 +
-                pitch_est      * 0.20
+                season_avg_bf  * 0.65 +
+                recent_max     * 0.20 +
+                pitch_est      * 0.15
             )
 
         # ── Ghost profile correction ───────────────────────────────────────────
@@ -434,13 +438,19 @@ def run_monte_carlo(
 
     # ── Pitch-count BF estimate ────────────────────────────────────────────────
     pitch_count_bf = pitch_budget / max(pitches_per_batter, 3.5)
-    hard_cap_bf    = pitch_count_bf + 1.0   # physical ceiling
+    hard_cap_bf    = pitch_count_bf + 3.0   # physical ceiling — +1 was too tight
 
-    # Blended BF projection: 40% pitch model + 40% season avg + 20% manager-shifted avg
+    # Blended BF projection — pitch model weight drops when sample is small,
+    # because early-season pitch counts underrepresent true workload capacity.
+    if starts_count < 5:
+        pc_w, sa_w, ms_w = 0.20, 0.55, 0.25   # trust season avg / career more
+    else:
+        pc_w, sa_w, ms_w = 0.35, 0.40, 0.25   # trust pitch model more
+
     adj_bf = (
-        pitch_count_bf          * 0.40 +
-        season_avg_bf           * 0.40 +
-        (season_avg_bf + manager_shift) * 0.20
+        pitch_count_bf                  * pc_w +
+        season_avg_bf                   * sa_w +
+        (season_avg_bf + manager_shift) * ms_w
     )
 
     factors.append(
@@ -469,7 +479,7 @@ def run_monte_carlo(
     elif 5 <= days_rest <= 6:
         adj_out_rate += 0.005
         factors.append(f"💪 Well Rested ({days_rest}d): +0.5% out rate")
-    elif days_rest > 9:
+    elif days_rest > 13:
         adj_out_rate -= 0.015
         adj_bf       -= 1.0
         factors.append(f"🦀 Extended Rest ({days_rest}d): Rustiness risk, -1.5% out rate, -1 BF")
@@ -547,6 +557,11 @@ def run_monte_carlo(
         factors.append(f"⚠️ Small Sample ({starts_count} starts): Wider uncertainty intervals")
 
     # ── Final clamp ───────────────────────────────────────────────────────────
+    # Floor of 18 BF for any starter with 3+ starts — stacked penalties
+    # (short rest + high BB + cold weather etc.) were producing unrealistically
+    # low BF projections and causing systematic under bias.
+    if starts_count >= 3:
+        adj_bf = max(adj_bf, 18.0)
     adj_out_rate = float(np.clip(adj_out_rate, 0.40, 0.85))
     adj_bf       = float(np.clip(adj_bf, 9.0, hard_cap_bf + 2.0))
 
