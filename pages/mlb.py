@@ -1,8 +1,35 @@
+import os
 import streamlit as st
 import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
+
+# ==============================================================================
+# CSV TRACKING LEDGER
+# ==============================================================================
+def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev, median_outs, bf_proj):
+    file_name = "quant_tracking_ledger.csv"
+    file_exists = os.path.isfile(file_name)
+    
+    data = {
+        "Game_Date": date,
+        "Timestamp_Logged": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Pitcher": pitcher,
+        "Team": team,
+        "Opponent": opponent,
+        "Line": line,
+        "Pick": pick, 
+        "Odds": odds,
+        "Probability_Pct": round(prob, 2),
+        "EV_Pct": round(ev, 2),
+        "Median_Outs": round(median_outs, 2),
+        "Projected_BF": round(bf_proj, 2)
+    }
+    
+    df = pd.DataFrame([data])
+    # Append to the CSV. If it's the first time, it writes the headers automatically.
+    df.to_csv(file_name, mode='a', header=not file_exists, index=False)
 
 # ==============================================================================
 # PAGE SETUP
@@ -808,6 +835,18 @@ for game in games:
                     f"| 10th–90th: **{p10:.0f}–{p90:.0f}** "
                     f"| Est. BF: **{res['adj_bf']:.1f}**"
                 )
+
+                # ── Automated CSV Logging ─────────────────────────────────────
+                st.write("") # Spacer
+                log1, log2 = st.columns(2)
+                with log1:
+                    if st.button(f"💾 Log OVER {line_o}", key=f"log_o_{key_base}"):
+                        log_play_to_csv(target_date_str, sp_name, team_abbr, opp_abbr, line_o, "OVER", o_odds, o_prob, o_ev, median_outs, res['adj_bf'])
+                        st.toast(f"Logged OVER {line_o} for {sp_name}!")
+                with log2:
+                    if st.button(f"💾 Log UNDER {line_o}", key=f"log_u_{key_base}"):
+                        log_play_to_csv(target_date_str, sp_name, team_abbr, opp_abbr, line_o, "UNDER", u_odds, u_prob, u_ev, median_outs, res['adj_bf'])
+                        st.toast(f"Logged UNDER {line_o} for {sp_name}!")
 
                 # ── Distribution chart ────────────────────────────────────────
                 dist_series = (
