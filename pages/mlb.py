@@ -329,13 +329,6 @@ _DEFAULT_MATCH = {
 def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) -> dict:
     """
     Build a rich live profile from the game log.
-
-    Improvements vs v1:
-      - Pitch count model: estimates BF from pitch budget / pitches-per-batter
-      - Days rest calculation from last start date
-      - Blended BF cap: 50% season avg + 30% recent max + 20% pitch-count estimate
-      - Ghost correction uses IsGhost flag (not magic BF number)
-      - Manager pitch budget inferred from recent max pitch count * 0.95
     """
     season_avg_bf = fallback.get('BF_per_Start', LEAGUE_AVG_BF)
 
@@ -366,6 +359,9 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
         if not splits:
             return profile
 
+        # CRITICAL FIX: Reverse the array so the most recent game is at index 0!
+        splits = splits[::-1]
+
         # Only consider starts
         starts = [s for s in splits if s['stat'].get('gamesStarted', 0) == 1]
         profile['starts_count'] = len(starts)
@@ -373,7 +369,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
         # ── Days rest ──────────────────────────────────────────────────────────
         try:
             target_dt = datetime.strptime(target_date_str, '%Y-%m-%d')
-            if splits:
+            if splits:  # Look at ANY appearance, not just starts
                 last_date = datetime.strptime(splits[0].get('date', ''), '%Y-%m-%d')
                 profile['days_rest'] = max(0, (target_dt - last_date).days)
         except:
@@ -389,9 +385,6 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
                 profile['pitches_per_batter'] = max(3.2, total_pitches / total_tbf)
 
         # ── Manager pitch budget ───────────────────────────────────────────────
-        # Use peak as-is with a hard floor of 90 — early season peaks are
-        # artificially low (managers building up), so discounting them further
-        # causes systematic BF underestimation.
         if len(recent) >= 2:
             peak_pitches = max(s['stat'].get('numberOfPitches', 0) for s in recent[:3])
             # If a guy's peak is under 65 after multiple starts, he's an Opener. Don't floor him at 90.
@@ -403,8 +396,6 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
             profile['pitch_budget'] = 95.0
 
         # ── Blended BF cap ────────────────────────────────────────────────────
-        # Season avg gets 65% weight — early season recent_max can come from
-        # a deliberately short outing and shouldn't dominate the cap.
         if starts:
             recent_max  = max(s['stat'].get('battersFaced', 0) for s in starts[:3])
             pitch_est   = profile['pitch_budget'] / max(profile['pitches_per_batter'], 3.5)
@@ -426,8 +417,6 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
                 profile['actual_bb_rate']  = bb / tbf
 
         # ── Recent form blend (last 3 starts) ─────────────────────────────────
-        # Gives the model signal when a pitcher is consistently going deep.
-        # Blended at 25% recent / 75% season so one bad start doesn't overreact.
         if len(starts) >= 3:
             recent3     = starts[:3]
             r_tbf = sum(s['stat'].get('battersFaced', 0) for s in recent3)
