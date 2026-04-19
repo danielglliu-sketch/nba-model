@@ -391,7 +391,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
             if peak_pitches < 65:
                 profile['pitch_budget'] = float(peak_pitches)
             else:
-                profile['pitch_budget'] = max(peak_pitches, 90.0)
+                profile['pitch_budget'] = max(peak_pitches, 95.0)
         else:
             profile['pitch_budget'] = 95.0
 
@@ -480,8 +480,9 @@ def run_monte_carlo(
     adj_out_rate  = base_out_rate
 
     # ── Pitch-count BF estimate ────────────────────────────────────────────────
-    pitch_count_bf = pitch_budget / max(pitches_per_batter, 3.5)
-    hard_cap_bf    = pitch_count_bf + 3.0   # physical ceiling — +1 was too tight
+    # Assume better efficiency (-0.25 P/BF) for the ceiling calculation
+    pitch_count_bf = pitch_budget / max(pitches_per_batter - 0.25, 3.3)
+    hard_cap_bf    = pitch_count_bf + 4.5   # Wider physical ceiling
 
     # Blended BF projection — pitch model weight drops when sample is small,
     # because early-season pitch counts underrepresent true workload capacity.
