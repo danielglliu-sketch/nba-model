@@ -1,4 +1,5 @@
 import os
+import math
 import streamlit as st
 import requests
 import numpy as np
@@ -51,17 +52,18 @@ st.sidebar.caption("v2: Pitch Count Model | K% Integration | Rest/Fatigue | Care
 # STATIC DATABASES
 # ==============================================================================
 
+# Format: 'TEAM': (Latitude, Longitude, Azimuth_Degrees)
 STADIUM_COORDS = {
-    'ARI': (33.445, -112.067), 'ATL': (33.891, -84.468), 'BAL': (39.284, -76.622),
-    'BOS': (42.346, -71.097), 'CHC': (41.948, -87.655), 'CHW': (41.830, -87.634),
-    'CIN': (39.097, -84.507), 'CLE': (41.496, -81.685), 'COL': (39.756, -104.994),
-    'DET': (42.339, -83.048), 'HOU': (29.757, -95.355), 'KC':  (39.051, -94.481),
-    'LAA': (33.800, -117.883), 'LAD': (34.073, -118.240), 'MIA': (25.778, -80.220),
-    'MIL': (43.028, -87.971), 'MIN': (44.981, -93.278), 'NYM': (40.757, -73.845),
-    'NYY': (40.830, -73.926), 'OAK': (37.751, -122.201), 'PHI': (39.906, -75.166),
-    'PIT': (40.447, -80.006), 'SD':  (32.707, -117.157), 'SF':  (37.778, -122.389),
-    'SEA': (47.591, -122.332), 'STL': (38.622, -90.193), 'TB':  (27.768, -82.653),
-    'TEX': (32.751, -97.082), 'TOR': (43.641, -79.389), 'WSH': (38.873, -77.007),
+    'ARI': (33.445, -112.067, 0),   'ATL': (33.891, -84.468, 110),  'BAL': (39.284, -76.622, 38),
+    'BOS': (42.346, -71.097, 56),   'CHC': (41.948, -87.655, 45),   'CHW': (41.830, -87.634, 135),
+    'CIN': (39.097, -84.507, 135),  'CLE': (41.496, -81.685, 0),    'COL': (39.756, -104.994, 0),
+    'DET': (42.339, -83.048, 135),  'HOU': (29.757, -95.355, 337),  'KC':  (39.051, -94.481, 45),
+    'LAA': (33.800, -117.883, 45),  'LAD': (34.073, -118.240, 28),  'MIA': (25.778, -80.220, 90),
+    'MIL': (43.028, -87.971, 135),  'MIN': (44.981, -93.278, 45),   'NYM': (40.757, -73.845, 60),
+    'NYY': (40.830, -73.926, 68),   'OAK': (37.751, -122.201, 35),  'PHI': (39.906, -75.166, 9),
+    'PIT': (40.447, -80.006, 125),  'SD':  (32.707, -117.157, 0),   'SF':  (37.778, -122.389, 90),
+    'SEA': (47.591, -122.332, 45),  'STL': (38.622, -90.193, 70),   'TB':  (27.768, -82.653, 60),
+    'TEX': (32.751, -97.082, 70),   'TOR': (43.641, -79.389, 0),    'WSH': (38.873, -77.007, 25),
 }
 
 # Updated 2025/26 - removed retired umpires (e.g. Angel Hernandez retired after 2023)
@@ -138,24 +140,25 @@ def get_shrinkage_prior(date_str: str) -> int:
 
 @st.cache_data(ttl=3600)
 def get_weather_for_date(team_abbr: str, date_str: str):
-    """Returns (temp_f, wind_mph) for the stadium on the given date."""
+    """Returns (temp_f, wind_mph, wind_dir, azimuth) for the stadium on the given date."""
     coords = STADIUM_COORDS.get(team_abbr)
     if not coords:
-        return 70.0, 0.0
+        return 70.0, 0.0, 0.0, 0.0
     try:
         url = (
             f"https://api.open-meteo.com/v1/forecast"
             f"?latitude={coords[0]}&longitude={coords[1]}"
             f"&start_date={date_str}&end_date={date_str}"
-            f"&daily=temperature_2m_max,wind_speed_10m_max"
+            f"&daily=temperature_2m_max,wind_speed_10m_max,wind_direction_10m_dominant"
             f"&timezone=auto"
         )
         data = requests.get(url, timeout=5).json()
         temp_f = (data['daily']['temperature_2m_max'][0] * 9 / 5) + 32
-        wind   = data['daily'].get('wind_speed_10m_max', [0])[0]
-        return float(temp_f), float(wind)
+        wind_spd   = data['daily'].get('wind_speed_10m_max', [0])[0]
+        wind_dir   = data['daily'].get('wind_direction_10m_dominant', [0])[0]
+        return float(temp_f), float(wind_spd), float(wind_dir), float(coords[2])
     except:
-        return 70.0, 0.0
+        return 70.0, 0.0, 0.0, 0.0
 
 
 @st.cache_data(ttl=86400)
@@ -452,7 +455,9 @@ def run_monte_carlo(
     park:               str,
     season_avg_bf:      float,
     temp:               float,
-    wind:               float,
+    wind_speed:         float,
+    wind_direction:     float,
+    stadium_azimuth:    float,
     umpire:             str,
     manager_shift:      float,
     recent_tbf_cap:     float,
@@ -472,7 +477,7 @@ def run_monte_carlo(
       4. K% incorporated into out-rate adjustment
       5. Days rest / fatigue applied
       6. Workhorse logic fixed (high recent pitches = trust signal, not fatigue alone)
-      7. Wind added
+      7. Directional Wind Vector added
       8. Opponent K% used (high-K lineups make pitcher outs more reliable)
       9. Small-sample variance widened automatically
     """
@@ -579,9 +584,24 @@ def run_monte_carlo(
         adj_out_rate += 0.008
         factors.append(f"🌬️ Cool ({temp:.0f}°F): +0.8% out rate")
 
-    if wind > 15:
-        adj_out_rate -= 0.008
-        factors.append(f"💨 High Wind ({wind:.0f} mph): Conditions tricky, -0.8% out rate")
+    # ── Directional Wind Vector ───────────────────────────────────────────────
+    if wind_speed > 10:
+        # Calculate the wind factor (-1.0 to 1.0)
+        wind_factor = math.cos(math.radians(stadium_azimuth - wind_direction))
+        
+        # Calculate how much of the wind is blowing straight in or out
+        effective_wind = wind_speed * wind_factor 
+        
+        if effective_wind >= 8.0:
+            adj_out_rate += 0.015
+            factors.append(f"🧱 Wind Blowing IN ({effective_wind:.0f} mph effective): Flyballs suppressed, +1.5% out rate")
+        elif effective_wind <= -8.0:
+            adj_out_rate -= 0.020
+            adj_bf       -= 0.5
+            factors.append(f"🚀 Wind Blowing OUT ({abs(effective_wind):.0f} mph effective): High HR risk, -2.0% out rate, -0.5 BF")
+        elif abs(effective_wind) < 5.0 and wind_speed > 15:
+            adj_out_rate -= 0.008
+            factors.append(f"🌪️ Crosswind ({wind_speed:.0f} mph): Unpredictable fielding conditions, -0.8% out rate")
 
     # ── Umpire ────────────────────────────────────────────────────────────────
     if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]:
@@ -711,11 +731,11 @@ for game in games:
         except:
             pass
 
-    temp, wind = get_weather_for_date(home_team, target_date_str)
+    temp, wind_speed, wind_dir, azimuth = get_weather_for_date(home_team, target_date_str)
     ump_tag    = f" | 🧑‍⚖️ {umpire}" if umpire != "Neutral" else ""
     label      = (
         f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name})"
-        f" | {temp:.0f}°F 💨{wind:.0f}mph{ump_tag}"
+        f" | {temp:.0f}°F 💨{wind_speed:.0f}mph{ump_tag}"
     )
 
     with st.expander(label):
@@ -750,7 +770,9 @@ for game in games:
                     park               = home_team,
                     season_avg_bf      = lp['season_avg_bf'],
                     temp               = temp,
-                    wind               = wind,
+                    wind_speed         = wind_speed,
+                    wind_direction     = wind_dir,
+                    stadium_azimuth    = azimuth,
                     umpire             = umpire,
                     manager_shift      = manager_shift,
                     recent_tbf_cap     = lp['recent_tbf_cap'],
