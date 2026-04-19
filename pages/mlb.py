@@ -77,7 +77,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 Master: Pure Bayesian Math | API Odds Integration | Decoupled Variance | Wind Vectors")
+st.sidebar.caption("v2 Master: Correlated Variance | Pure Bayesian | API Odds")
 
 # ==============================================================================
 # STATIC DATABASES
@@ -133,7 +133,7 @@ TEAM_MAP = {
     'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH',
 }
 
-# League-average constants (CALIBRATED FOR APRIL)
+# League-average constants (CALIBRATED FOR APRIL DEAD BALL)
 LEAGUE_OUT_RATE = 0.695
 LEAGUE_K_RATE   = 0.225
 LEAGUE_BB_RATE  = 0.080
@@ -322,7 +322,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
                 profile['actual_k_rate']   = so / tbf
                 profile['actual_bb_rate']  = bb / tbf
 
-        # Recent form blend
+        # Recent form blend (No BABIP manipulation)
         if len(starts) >= 3:
             recent3 = starts[:3]
             r_tbf = sum(s['stat'].get('battersFaced', 0) for s in recent3)
@@ -339,7 +339,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
     return profile
 
 # ==============================================================================
-# MONTE CARLO ENGINE  (v2 Master)
+# MONTE CARLO ENGINE  (v2 Master - Correlated Variance)
 # ==============================================================================
 def run_monte_carlo(
     sp_name: str, base_out_rate: float, k_rate: float, bb_rate: float, opp_data: dict,
@@ -363,7 +363,7 @@ def run_monte_carlo(
     hard_cap_bf = pitch_count_bf + 6.0   
 
     factors.append(f"📊 Baseline: {adj_out_rate*100:.1f}% Out Rate | {k_rate*100:.1f}% K% | Budget: {pitch_budget:.0f}")
-    factors.append(f"🎯 Projected BF: {adj_bf:.1f} (Based entirely on {pitches_per_batter:.2f} P/BF + Inning Grace)")
+    factors.append(f"🎯 Projected BF: {adj_bf:.1f} (Based on {pitches_per_batter:.2f} P/BF + Inning Grace)")
 
     k_bonus = (k_rate - LEAGUE_K_RATE) * 0.30
     adj_out_rate += k_bonus
@@ -380,7 +380,8 @@ def run_monte_carlo(
     if manager_shift > 0.75: factors.append(f"👔 Manager: Long Leash (+{manager_shift:.1f} BF)")
     elif manager_shift < -0.75: factors.append(f"👔 Manager: Quick Hook ({manager_shift:.1f} BF)")
 
-    if bb_rate > 0.10: adj_bf -= 1.5; factors.append(f"⛽ High BB% ({bb_rate*100:.1f}%): -1.5 BF")
+    # Reduced penalty for walks so we don't suffocate strikeout artists
+    if bb_rate > 0.10: adj_bf -= 0.8; factors.append(f"⛽ High BB% ({bb_rate*100:.1f}%): -0.8 BF")
     elif bb_rate < 0.06: adj_bf += 0.5; factors.append(f"🎯 Elite Command ({bb_rate*100:.1f}% BB): +0.5 BF")
 
     if adj_bf > hard_cap_bf: adj_bf = hard_cap_bf
@@ -416,12 +417,22 @@ def run_monte_carlo(
     adj_out_rate = float(np.clip(adj_out_rate, 0.40, 0.85))
     adj_bf       = float(np.clip(adj_bf, 9.0, hard_cap_bf + 2.0))
 
+    # ── THE FIX: CORRELATED SIMULATION ─────────────────────────────────────────
     or_std = 0.045 if starts_count < 5 else 0.038
     game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=or_std, size=num_sims), 0.30, 0.92)
 
-    bf_std = 2.8 if starts_count < 5 else 2.2
-    raw_bf = np.random.normal(loc=adj_bf, scale=bf_std, size=num_sims)
-    dynamic_bf = np.clip(np.round(raw_bf).astype(int), 9, int(np.ceil(hard_cap_bf)) + 2)
+    # Calculate performance Z-Score: How well did they pitch in this specific sim?
+    performance_z = (game_out_rates - adj_out_rate) / or_std
+    
+    # Positive correlation: Pitching a gem extends leash by up to ~3 batters. Shelled = pulled early.
+    bf_modifier = np.where(performance_z > 0, performance_z * 1.5, performance_z * 2.0)
+    
+    sim_specific_bf = adj_bf + bf_modifier
+    
+    # Tighter independent variance because performance now explains the leash
+    bf_std = 1.8 if starts_count < 5 else 1.4 
+    raw_bf = np.random.normal(loc=sim_specific_bf, scale=bf_std, size=num_sims)
+    dynamic_bf = np.clip(np.round(raw_bf).astype(int), 9, int(np.ceil(hard_cap_bf)))
 
     out_sims = np.random.binomial(n=dynamic_bf, p=game_out_rates)
 
