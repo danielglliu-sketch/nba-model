@@ -76,7 +76,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 Master: Desynced Relativity | Correlated Variance | Light Bayesian")
+st.sidebar.caption("v2 Master: No Ceilings | Desynced Relativity | Correlated Variance | Light Bayesian")
 
 # ==============================================================================
 # STATIC DATABASES
@@ -335,7 +335,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
     return profile
 
 # ==============================================================================
-# MONTE CARLO ENGINE  (v2 Master - Fixed Relativity)
+# MONTE CARLO ENGINE  (v2 Master - No Ceilings)
 # ==============================================================================
 def run_monte_carlo(
     sp_name: str, base_out_rate: float, k_rate: float, bb_rate: float, opp_data: dict,
@@ -350,9 +350,7 @@ def run_monte_carlo(
     ACE_LIST = ["Zac Gallen", "Logan Gilbert", "Zack Wheeler", "Corbin Burnes", "Gerrit Cole", "Tarik Skubal", "Chris Sale"]
     if sp_name in ACE_LIST: pitch_budget = max(pitch_budget, 100.0)
 
-    # ── THE VOLUME FIX: "Prop Survivor Bias" ──
     pitch_count_bf = pitch_budget / max(pitches_per_batter, 3.4)
-    # 1.5 Inning Grace + 1.0 Prop Bias (If Vegas lines them, they are expected to pitch deep)
     adj_bf = pitch_count_bf + 2.5 + (manager_shift * 0.50)
     
     if sp_name in ACE_LIST: adj_bf += 1.5
@@ -382,11 +380,9 @@ def run_monte_carlo(
 
     if adj_bf > hard_cap_bf: adj_bf = hard_cap_bf
 
-    # ── THE RELATIVITY DESYNC FIX ──
     opp_out_rate = opp_data.get('out_rate', TRUE_API_AVERAGE)
     opp_k_rate   = opp_data.get('k_rate',  LEAGUE_K_RATE)
     
-    # Compare the opponent to the TRUE API Average (0.68), NOT our boosted April constant (0.695)
     adj_out_rate *= 1.0 + ((opp_out_rate / TRUE_API_AVERAGE) - 1.0) * 0.50
     
     if opp_k_rate > 0.26: adj_out_rate += 0.010; factors.append(f"🎰 High-K Lineup: +1.0% out rate")
@@ -416,18 +412,28 @@ def run_monte_carlo(
     adj_out_rate = float(np.clip(adj_out_rate, 0.40, 0.85))
     adj_bf       = float(np.clip(adj_bf, 9.0, hard_cap_bf + 2.0))
 
-    # ── CORRELATED SIMULATION ──
+    # ── CORRELATED SIMULATION (NO CEILINGS) ──
     or_std = 0.045 if starts_count < 5 else 0.038
-    game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=or_std, size=num_sims), 0.30, 0.92)
+    
+    # 1. Simulate the out rates (how well they pitched in 10,000 parallel universes)
+    game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=or_std, size=num_sims), 0.30, 0.95)
 
+    # 2. Performance Z-Score: Did they pitch a gem or get shelled?
     performance_z = (game_out_rates - adj_out_rate) / or_std
-    bf_modifier = np.where(performance_z > 0, performance_z * 1.5, performance_z * 2.0)
+    
+    # 3. MASSIVE Leash Extension: If they pitch well, managers let them keep going. 
+    # Give them up to +3 to +5 extra batters for elite performances.
+    bf_modifier = np.where(performance_z > 0, performance_z * 2.8, performance_z * 2.0)
     sim_specific_bf = adj_bf + bf_modifier
     
-    bf_std = 1.8 if starts_count < 5 else 1.4 
+    # 4. Generate the batters faced, completely ignoring the 'hard_cap_bf'
+    bf_std = 2.0 if starts_count < 5 else 1.5 
     raw_bf = np.random.normal(loc=sim_specific_bf, scale=bf_std, size=num_sims)
-    dynamic_bf = np.clip(np.round(raw_bf).astype(int), 9, int(np.ceil(hard_cap_bf)))
+    
+    # 5. REMOVED THE HARD CAP: Let them pitch complete games (max 36 batters) if they earn it
+    dynamic_bf = np.clip(np.round(raw_bf).astype(int), 9, 36)
 
+    # 6. Run the final outs calculation
     out_sims = np.random.binomial(n=dynamic_bf, p=game_out_rates)
 
     return {'out_sims': out_sims, 'factors': factors, 'adj_out_rate': adj_out_rate, 'adj_bf': adj_bf, 'hard_cap_bf': hard_cap_bf}
