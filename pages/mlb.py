@@ -77,7 +77,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 Master: Correlated Variance | Pure Bayesian | API Odds")
+st.sidebar.caption("v2 Master: Correlated Variance | Light Bayesian | API Odds")
 
 # ==============================================================================
 # STATIC DATABASES
@@ -143,14 +143,20 @@ LEAGUE_AVG_BF   = 22.5
 # HELPER & DATA FETCHERS
 # ==============================================================================
 def get_shrinkage_prior(date_str: str) -> int:
+    """
+    Bayesian prior weight toward league average.
+    We must use a very light prior so we don't mathematically 
+    crush above-average pitchers below the 17.5 out threshold.
+    """
     try:
         d = datetime.strptime(date_str, '%Y-%m-%d')
         days_in = (d - datetime(d.year, 3, 28)).days
-        if days_in < 30:  return 75
-        elif days_in < 60: return 55
-        else:              return 35
+        # drastically reduced from 75/55/35 to let real stats dictate the model
+        if days_in < 30:   return 20
+        elif days_in < 60: return 10
+        else:              return 5
     except:
-        return 60
+        return 15
 
 @st.cache_data(ttl=3600)
 def get_weather_for_date(team_abbr: str, date_str: str):
