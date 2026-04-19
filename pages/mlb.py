@@ -324,7 +324,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
 
         if len(starts) >= 3:
             recent3 = starts[:3]
-            r_tbf = sum(s['stat'].get('battersFaced', 0) for v in recent3)
+            r_tbf = sum(s['stat'].get('battersFaced', 0) for s in recent3)
             r_bb  = sum(s['stat'].get('baseOnBalls',  0) for s in recent3)
             r_h   = sum(s['stat'].get('hits',         0) for s in recent3)
             r_so  = sum(s['stat'].get('strikeOuts',   0) for s in recent3)
@@ -403,13 +403,15 @@ def run_monte_carlo(
         elif effective_wind <= -8.0: adj_out_rate -= 0.020; adj_bf -= 0.5; factors.append(f"🚀 Wind OUT: -2.0% OR, -0.5 BF")
         elif abs(effective_wind) < 5.0 and wind_speed > 15: adj_out_rate -= 0.008
 
-    # ── UMPIRE TRACKING LOGIC ──
+    # ── UMPIRE TRACKING LOGIC (RESTORED) ──
     if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: 
         adj_out_rate += 0.012
         factors.append(f"🧑‍⚖️ Umpire: {umpire} (Wide Zone +1.2%)")
     elif umpire in UMPIRE_DATABASE["Hitter Friendly (Tight Zone)"]: 
         adj_out_rate -= 0.015
         factors.append(f"🧑‍⚖️ Umpire: {umpire} (Tight Zone -1.5%)")
+    else:
+        factors.append(f"🧑‍⚖️ Umpire: {umpire} (Neutral Zone 0.0%)")
 
     pk = OUTS_PARK_FACTORS.get(park, 1.0)
     adj_out_rate *= pk
@@ -498,12 +500,25 @@ for game in games:
                 out_sims = res['out_sims']
                 
                 st.markdown(f"### {sp_name}")
+                # DISPLAY UMPIRE ZONE TENDENCY
+                ump_status = "Neutral Zone"
+                if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: ump_status = "Wide Zone (+)"
+                elif umpire in UMPIRE_DATABASE["Hitter Friendly (Tight Zone)"]: ump_status = "Tight Zone (-)"
+                st.caption(f"🧑‍⚖️ Umpire: **{umpire}** ({ump_status})")
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Out%", f"{lp['actual_out_rate']*100:.1f}%")
+                m2.metric("K%", f"{lp['actual_k_rate']*100:.1f}%")
+                m3.metric("BB%", f"{lp['actual_bb_rate']*100:.1f}%")
+                m4.metric("Rest", f"{lp['days_rest']}d")
+
+                st.divider()
+
                 line_val = st.number_input("UD Line:", value=17.5, step=0.5, key=f"l_{sp_id}_{game['gamePk']}")
                 
                 h_prob = float(np.sum(out_sims > line_val)) / NUM_SIMS * 100
                 l_prob = 100.0 - h_prob
                 
-                # Locked to Underdog -122 Break-even
                 h_ev = calculate_ev_percent(h_prob, UD_IMPLIED_ODDS)
                 l_ev = calculate_ev_percent(l_prob, UD_IMPLIED_ODDS)
 
