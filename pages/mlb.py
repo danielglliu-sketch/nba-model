@@ -7,12 +7,38 @@ import pandas as pd
 from datetime import datetime
 
 # ==============================================================================
+# VEGAS ODDS AUTOMATION (Retained Framework)
+# ==============================================================================
+@st.cache_data(ttl=3600)
+def fetch_automated_vegas_odds(api_key):
+    if not api_key or api_key == "YOUR_API_KEY":
+        return {}
+    try:
+        url = f"https://api.the-odds-api.com/v1/sports/baseball_mlb/events"
+        params = {'apiKey': api_key, 'regions': 'us', 'markets': 'pitcher_outs', 'oddsFormat': 'american'}
+        response = requests.get(url, params=params).json()
+        odds_db = {}
+        for event in response:
+            for market in event.get('bookmakers', []):
+                if market['key'] == 'draftkings': 
+                    for outcome in market['markets'][0]['outcomes']:
+                        name = outcome['description']
+                        if name not in odds_db:
+                            odds_db[name] = {'Over': {'line': 17.5, 'price': -110}, 'Under': {'line': 17.5, 'price': -110}}
+                        if outcome['name'] == 'Over':
+                            odds_db[name]['Over'] = {'line': outcome['point'], 'price': outcome['price']}
+                        elif outcome['name'] == 'Under':
+                            odds_db[name]['Under'] = {'line': outcome['point'], 'price': outcome['price']}
+        return odds_db
+    except:
+        return {}
+
+# ==============================================================================
 # CSV TRACKING LEDGER
 # ==============================================================================
 def log_play_to_csv(date, pitcher, team, opponent, line, pick, prob, ev, median_outs, bf_proj):
     file_name = "quant_tracking_ledger.csv"
     file_exists = os.path.isfile(file_name)
-    
     data = {
         "Game_Date": date,
         "Timestamp_Logged": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -27,7 +53,6 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, prob, ev, median_
         "Projected_BF": round(bf_proj, 2),
         "Platform": "Underdog"
     }
-    
     df = pd.DataFrame([data])
     df.to_csv(file_name, mode='a', header=not file_exists, index=False)
 
@@ -35,9 +60,8 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, prob, ev, median_
 # PAGE SETUP
 # ==============================================================================
 st.set_page_config(page_title="MLB Quant AI - Underdog Edition", page_icon="⚾", layout="wide")
-
 st.sidebar.title("🤖 Outs Autopilot v2")
-st.sidebar.subheader("Underdog Fantasy Mode")
+api_key = st.sidebar.text_input("🔑 The Odds API Key (Optional)", type="password")
 selected_date = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
@@ -46,7 +70,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 Master: UD Optimized (-122) | Correlated Variance | Light Bayesian")
+st.sidebar.caption("v2 Master: UD Optimized (-122) | No Ceilings | Correlated Variance")
 
 # ==============================================================================
 # STATIC DATABASES
@@ -90,7 +114,7 @@ TRUE_API_AVERAGE = 0.680
 LEAGUE_K_RATE   = 0.225
 LEAGUE_BB_RATE  = 0.080
 LEAGUE_AVG_BF   = 22.5
-UD_IMPLIED_ODDS = -122  # The break-even point for Underdog Power Plays
+UD_IMPLIED_ODDS = -122
 
 # ==============================================================================
 # HELPER & DATA FETCHERS
@@ -195,20 +219,20 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
     return profile
 
 # ==============================================================================
-# MONTE CARLO ENGINE (UD Optimized)
+# MONTE CARLO ENGINE (UD Optimized - No Ceilings)
 # ==============================================================================
 def run_monte_carlo(sp_name, base_out_rate, k_rate, bb_rate, opp_data, park, temp, wind_speed, wind_direction, stadium_azimuth, umpire, manager_shift, pitch_budget, pitches_per_batter, starts_count, num_sims=10000):
     factors = []
     adj_out_rate = base_out_rate
     
-    # 1. Volume Projection (Survivor Bias included)
+    # Volume Projection (Survivor Bias)
     pitch_count_bf = pitch_budget / max(pitches_per_batter, 3.4)
     adj_bf = pitch_count_bf + 2.5 + (manager_shift * 0.50)
     
     factors.append(f"📊 Baseline OR: {adj_out_rate*100:.1f}% | K%: {k_rate*100:.1f}%")
-    factors.append(f"🎯 Est. BF: {adj_bf:.1f} (UD Volume Bias Included)")
+    factors.append(f"🎯 Est. BF: {adj_bf:.1f} (UD Volume Bias)")
 
-    # 2. Adjustments
+    # Adjustments
     adj_out_rate += (k_rate - LEAGUE_K_RATE) * 0.30
     if bb_rate > 0.10: adj_bf -= 0.8
     
@@ -226,7 +250,7 @@ def run_monte_carlo(sp_name, base_out_rate, k_rate, bb_rate, opp_data, park, tem
     pk = OUTS_PARK_FACTORS.get(park, 1.0)
     adj_out_rate *= pk
 
-    # 3. Correlated Sim (NO CEILINGS)
+    # CORRELATED SIMULATION (NO CEILINGS)
     or_std = 0.045 if starts_count < 5 else 0.038
     game_out_rates = np.clip(np.random.normal(adj_out_rate, or_std, num_sims), 0.30, 0.95)
     
@@ -241,13 +265,15 @@ def run_monte_carlo(sp_name, base_out_rate, k_rate, bb_rate, opp_data, park, tem
 
 def calculate_ev_percent(win_prob_pct, american_odds):
     prob = win_prob_pct / 100.0
-    payout = (100.0 / abs(american_odds)) # Simplified for UD -122 context
+    payout = (100.0 / abs(american_odds))
     return ((prob * payout) - (1.0 - prob)) * 100.0
 
 # ==============================================================================
 # UI Loop
 # ==============================================================================
 st.title("⚾ Underdog Quant AI — Outs Engine v2")
+vegas_lines = fetch_automated_vegas_odds(api_key)
+
 try:
     games = requests.get(f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher,decisions,umpire", timeout=8).json().get('dates', [{}])[0].get('games', [])
 except: games = []
