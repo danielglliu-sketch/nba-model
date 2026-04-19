@@ -59,7 +59,7 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev, m
 # ==============================================================================
 # PAGE SETUP
 # ==============================================================================
-st.set_page_config(page_title="MLB Quant AI - Underdog Master v2", page_icon="⚾", layout="wide")
+st.set_page_config(page_title="MLB Quant AI - Underdog Master", page_icon="⚾", layout="wide")
 
 st.sidebar.title("🤖 Outs Autopilot v2")
 api_key = st.sidebar.text_input("🔑 The Odds API Key (Optional)", type="password")
@@ -71,7 +71,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 MASTER: UD Optimized | Umpire Visibility | Volume Sanity Filter")
+st.sidebar.caption("v2 Master: UD Optimized | Umpire Visibility | Volume Sanity Filter")
 
 # ==============================================================================
 # STATIC DATABASES
@@ -110,31 +110,24 @@ TEAM_MAP = {
 LEAGUE_OUT_RATE = 0.695; TRUE_API_AVERAGE = 0.680; LEAGUE_K_RATE = 0.225; LEAGUE_BB_RATE = 0.080; LEAGUE_AVG_BF = 22.5; UD_IMPLIED_ODDS = -122
 
 # ==============================================================================
-# HELPER & DATA FETCHERS (Restored Comprehensive Versions)
+# HELPER & DATA FETCHERS
 # ==============================================================================
-@st.cache_data(ttl=86400)
-def get_automated_team_splits() -> dict:
-    splits = {}
-    for hand_code, api_code in [('L', 'vL'), ('R', 'vR')]:
-        try:
-            url = f"https://statsapi.mlb.com/api/v1/teams/stats?season=2026&group=hitting&stats=statSplits&sitCode={api_code}"
-            data = requests.get(url, timeout=10).json()
-            for rec in data['stats'][0]['splits']:
-                abbr = TEAM_MAP.get(rec['team']['name'], rec['team']['name'])
-                if abbr not in splits: splits[abbr] = {}
-                s, pa = rec['stat'], max(rec['stat'].get('plateAppearances', 1), 1)
-                splits[abbr][hand_code] = {'out_rate': 1.0 - (s.get('hits', 0) + s.get('baseOnBalls', 0)) / pa, 'k_rate': s.get('strikeOuts', 0) / pa}
-        except: pass
-    return splits
-
-SPLITS_DB = get_automated_team_splits()
+def get_shrinkage_prior(date_str: str) -> int:
+    try:
+        d = datetime.strptime(date_str, '%Y-%m-%d')
+        days_in = (d - datetime(d.year, 3, 28)).days
+        return 20 if days_in < 30 else (10 if days_in < 60 else 5)
+    except: return 15
 
 @st.cache_data(ttl=86400)
 def get_pitcher_and_manager_stats():
     pitcher_db, team_sp_agg = {}, {}
+    prior = get_shrinkage_prior(datetime.now().strftime('%Y-%m-%d'))
     try:
         people_resp = requests.get("https://statsapi.mlb.com/api/v1/sports/1/players?season=2026", timeout=10).json()
         hand_map = {p['id']: p.get('pitchHand', {}).get('code', 'R') for p in people_resp.get('people', [])}
+        
+        # Bayesian Career Integration
         career_lookup = {}
         try:
             career_resp = requests.get("https://statsapi.mlb.com/api/v1/stats?stats=career&group=pitching&playerPool=ALL&season=2026&limit=2000", timeout=15).json()
@@ -142,6 +135,7 @@ def get_pitcher_and_manager_stats():
                 pid, s, ctbf = rec['player']['id'], rec['stat'], rec['stat'].get('battersFaced', 0)
                 if ctbf > 0: career_lookup[pid] = {'out_rate': (ctbf - s.get('baseOnBalls', 0) - s.get('hits', 0)) / ctbf, 'k_rate': s.get('strikeOuts', 0) / ctbf}
         except: pass
+
         season_resp = requests.get("https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&playerPool=ALL&season=2026&limit=2000", timeout=15).json()
         l_tbf = l_gs = 0
         for rec in season_resp['stats'][0]['splits']:
@@ -149,11 +143,11 @@ def get_pitcher_and_manager_stats():
             abbr = TEAM_MAP.get(rec.get('team', {}).get('name', 'Unknown'), 'Unknown')
             tbf, bb, h, so, gs = s.get('battersFaced', 0), s.get('baseOnBalls', 0), s.get('hits', 0), s.get('strikeOuts', 0), s.get('gamesStarted', 0)
             if tbf == 0: continue
-            shrunk_out = ((tbf - bb - h) + LEAGUE_OUT_RATE * 15) / (tbf + 15)
+            shrunk_out = ((tbf - bb - h) + LEAGUE_OUT_RATE * prior) / (tbf + prior)
             if pid in career_lookup:
                 w = min(tbf / 300.0, 0.70)
                 shrunk_out = shrunk_out * w + career_lookup[pid]['out_rate'] * (1.0 - w)
-            pitcher_db[pid] = {'Name': name, 'Out%': shrunk_out, 'K%': (so + LEAGUE_K_RATE * 15) / (tbf + 15), 'BB%': (bb + LEAGUE_BB_RATE * 15) / (tbf + 15), 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16.0, min(28.0, (tbf + LEAGUE_AVG_BF * 2) / (gs + 2))) if gs > 0 else LEAGUE_AVG_BF, 'GS': gs, 'IsGhost': tbf < 10}
+            pitcher_db[pid] = {'Name': name, 'Out%': shrunk_out, 'K%': (so + LEAGUE_K_RATE * prior) / (tbf + prior), 'BB%': (bb + LEAGUE_BB_RATE * prior) / (tbf + prior), 'Hand': hand_map.get(pid, 'R'), 'BF_per_Start': max(16.0, min(28.0, (tbf + LEAGUE_AVG_BF * 2) / (gs + 2))) if gs > 0 else LEAGUE_AVG_BF, 'GS': gs, 'IsGhost': tbf < 10}
             if gs > 0 and abbr != 'Unknown':
                 if abbr not in team_sp_agg: team_sp_agg[abbr] = {'tbf': 0, 'gs': 0}
                 team_sp_agg[abbr]['tbf'] += tbf; team_sp_agg[abbr]['gs'] += gs
@@ -166,8 +160,8 @@ def get_pitcher_and_manager_stats():
 STATS_DB, MANAGER_DB = get_pitcher_and_manager_stats()
 
 @st.cache_data(ttl=3600)
-def get_live_pitcher_profile(player_id, fallback):
-    profile = {'actual_out_rate': fallback['Out%'], 'actual_k_rate': fallback['K%'], 'actual_bb_rate': fallback['BB%'], 'pitch_budget': 95.0, 'pitches_per_batter': 4.1, 'starts_count': fallback['GS'], 'is_ghost': fallback['IsGhost']}
+def get_live_pitcher_profile(player_id, fallback, target_date_str):
+    profile = {'actual_out_rate': fallback['Out%'], 'actual_k_rate': fallback['K%'], 'actual_bb_rate': fallback['BB%'], 'pitch_budget': 95.0, 'pitches_per_batter': 4.1, 'days_rest': 5, 'starts_count': fallback['GS'], 'is_ghost': fallback['IsGhost']}
     if not player_id: return profile
     try:
         url = f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats?stats=gameLog&group=pitching&season=2026"
@@ -177,22 +171,21 @@ def get_live_pitcher_profile(player_id, fallback):
             profile['starts_count'] = len(starts)
             t_pitches = sum(s['stat'].get('numberOfPitches', 0) for s in starts[:5])
             t_tbf = sum(s['stat'].get('battersFaced', 0) for s in starts[:5])
-            if t_tbf > 0: profile['pitches_per_batter'] = max(3.5, t_pitches / t_tbf) # Increased min floor for Ray logic
+            if t_tbf > 0: profile['pitches_per_batter'] = max(3.5, t_pitches / t_tbf)
             peak_pitches = max(s['stat'].get('numberOfPitches', 0) for s in starts[:3])
             profile['pitch_budget'] = float(peak_pitches) if peak_pitches < 65 else max(peak_pitches, 95.0)
     except: pass
     return profile
 
 # ==============================================================================
-# ENGINE (Volume Sanity Filter)
+# ENGINE (Volume Sanity Filter Restored)
 # ==============================================================================
 def run_monte_carlo(sp_name, base_out_rate, k_rate, bb_rate, opp_data, park, temp, wind_speed, wind_dir, azimuth, umpire, manager_shift, pitch_budget, pitches_per_batter, starts_count, num_sims=10000):
     factors = []
     
-    # VOLUME SANITY FILTER: Prevent 28.1 BF hallucinations
-    # Ray logic: 95 pitches / 4.4 P/BF = 21.5 BF.
+    # VOLUME SANITY FILTER: Ray Fix
     raw_bf = (pitch_budget / max(pitches_per_batter, 3.5)) + 2.0 + (manager_shift * 0.5)
-    adj_bf = min(raw_bf, 26.5) # Hard cap for non-aces
+    adj_bf = min(raw_bf, 26.5) # Hard cap at 26.5 BF to prevent 9-inning hallucinations
     if sp_name in ["Logan Gilbert", "Zack Wheeler", "Corbin Burnes", "Gerrit Cole"]: adj_bf = raw_bf
     
     adj_out_rate = base_out_rate + (k_rate - LEAGUE_K_RATE) * 0.30
@@ -203,8 +196,8 @@ def run_monte_carlo(sp_name, base_out_rate, k_rate, bb_rate, opp_data, park, tem
     if wind_speed * wind_factor >= 8.0: adj_out_rate += 0.015
     elif wind_speed * wind_factor <= -8.0: adj_out_rate -= 0.020; adj_bf -= 0.5
 
-    if umpire in WIDE_ZONE: adj_out_rate += 0.012; factors.append(f"🧑‍⚖️ Ump: Wide Zone")
-    elif umpire in TIGHT_ZONE: adj_out_rate -= 0.015; factors.append(f"🧑‍⚖️ Ump: Tight Zone")
+    if umpire in WIDE_ZONE: adj_out_rate += 0.012; factors.append(f"🧑‍⚖️ Ump: Wide Zone (+1.2%)")
+    elif umpire in TIGHT_ZONE: adj_out_rate -= 0.015; factors.append(f"🧑‍⚖️ Ump: Tight Zone (-1.5%)")
     
     adj_out_rate *= OUTS_PARK_FACTORS.get(park, 1.0)
     
@@ -212,25 +205,14 @@ def run_monte_carlo(sp_name, base_out_rate, k_rate, bb_rate, opp_data, park, tem
     game_out_rates = np.clip(np.random.normal(adj_out_rate, or_std, num_sims), 0.30, 0.95)
     performance_z = (game_out_rates - adj_out_rate) / or_std
     bf_modifier = np.where(performance_z > 0, performance_z * 2.5, performance_z * 1.8)
-    dynamic_bf = np.clip(np.round(np.random.normal(adj_bf + bf_modifier, 1.8, num_sims)).astype(int), 9, 32)
+    dynamic_bf = np.clip(np.round(np.random.normal(adj_bf + bf_modifier, 1.8, num_sims)).astype(int), 9, 30)
     out_sims = np.random.binomial(dynamic_bf, game_out_rates)
     
     factors.append(f"🎯 Target BF: {adj_bf:.1f} | 📊 Adj OR: {adj_out_rate*100:.1f}%")
     return {'out_sims': out_sims, 'factors': factors, 'adj_out_rate': adj_out_rate, 'adj_bf': adj_bf}
 
-@st.cache_data(ttl=3600)
-def get_weather_for_date(team_abbr, date_str):
-    coords = STADIUM_COORDS.get(team_abbr)
-    if not coords: return 70.0, 0.0, 0.0, 0.0
-    try:
-        url = (f"https://api.open-meteo.com/v1/forecast?latitude={coords[0]}&longitude={coords[1]}&start_date={date_str}&end_date={date_str}&daily=temperature_2m_max,wind_speed_10m_max,wind_direction_10m_dominant&timezone=auto")
-        data = requests.get(url, timeout=5).json()
-        temp_f = (data['daily']['temperature_2m_max'][0] * 9 / 5) + 32
-        return float(temp_f), float(data['daily'].get('wind_speed_10m_max', [0])[0]), float(data['daily'].get('wind_direction_10m_dominant', [0])[0]), float(coords[2])
-    except: return 70.0, 0.0, 0.0, 0.0
-
 # ==============================================================================
-# UI Loop
+# UI Loop (Full Metrics Restored)
 # ==============================================================================
 st.title("⚾ Underdog Quant AI — Outs Engine v2 Master")
 vegas_lines = fetch_automated_vegas_odds(api_key)
@@ -261,13 +243,14 @@ for game in games:
             with side:
                 match = STATS_DB.get(sp_id, {'Out%': LEAGUE_OUT_RATE, 'K%': LEAGUE_K_RATE, 'BB%': LEAGUE_BB_RATE, 'Hand': 'R', 'GS': 0, 'IsGhost': True})
                 opp_data = SPLITS_DB.get(opp_abbr, {}).get(match['Hand'], {'out_rate': TRUE_API_AVERAGE})
-                lp = get_live_pitcher_profile(sp_id, match)
+                lp = get_live_pitcher_profile(sp_id, match, target_date_str)
                 
                 ump_choice = st.selectbox(f"Umpire Override ({sp_name}):", ["API Assigned ("+api_ump+")", "Neutral"] + WIDE_ZONE + TIGHT_ZONE, key=f"ump_{sp_id}")
                 final_ump = api_ump if "API" in ump_choice else ump_choice
                 res = run_monte_carlo(sp_name, lp['actual_out_rate'], lp['actual_k_rate'], lp['actual_bb_rate'], opp_data, home_team, temp, wind_spd, wind_dir, azimuth, final_ump, MANAGER_DB.get(team_abbr, 0.0), lp['pitch_budget'], lp['pitches_per_batter'], lp['starts_count'])
                 
                 st.markdown(f"### {sp_name}")
+                # FULL METRICS RESTORED
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Out%", f"{lp['actual_out_rate']*100:.1f}%")
                 m2.metric("K%", f"{lp['actual_k_rate']*100:.1f}%")
@@ -283,7 +266,7 @@ for game in games:
                 h_prob = float(np.sum(res['out_sims'] > line_val)) / 10000 * 100
                 l_prob = 100.0 - h_prob
                 
-                # EV Logic Locked to -122
+                # EV Logic Locked to -122 Break-even
                 target_prob = h_prob if h_prob > l_prob else l_prob
                 ev = ((target_prob / 100.0) * (100.0 / 122.0)) - (1.0 - (target_prob / 100.0))
                 
@@ -298,7 +281,7 @@ for game in games:
                     for f in res['factors']: st.caption(f"- {f}")
 
 # ==============================================================================
-# LEDGER VIEWER
+# LEDGER VIEWER (Cloud-Friendly)
 # ==============================================================================
 st.divider()
 st.header("📊 Betting Ledger")
