@@ -266,8 +266,18 @@ def get_pitcher_and_manager_stats():
             if tbf == 0:
                 continue
 
-            # ----- Bayesian shrinkage toward league average -----
-            shrunk_out = ((tbf - bb - h) + LEAGUE_OUT_RATE * prior) / (tbf + prior)
+            # ----- Sabermetric Expected Out Rate (xOut%) -----
+            # Calculate balls in play (approximated)
+            bip = tbf - bb - so
+            
+            # Regress hits to a league average BABIP (.290) to remove "bad luck" variance
+            expected_hits = bip * 0.290
+            
+            # Calculate Expected Outs rather than Actual Outs
+            expected_outs_recorded = tbf - bb - expected_hits
+            
+            # Apply Bayesian shrinkage to the EXPECTED metric
+            shrunk_out = (expected_outs_recorded + LEAGUE_OUT_RATE * prior) / (tbf + prior)
             shrunk_k   = (so               + LEAGUE_K_RATE  * prior) / (tbf + prior)
             shrunk_bb  = (bb               + LEAGUE_BB_RATE * prior) / (tbf + prior)
 
@@ -485,12 +495,11 @@ def run_monte_carlo(
     adj_out_rate  = base_out_rate
 
     # ── Pitch-count BF estimate ────────────────────────────────────────────────
-    # Assume better efficiency (-0.25 P/BF) for the ceiling calculation
+    # Assume better efficiency (-0.25 P/BF) for the calculation
     pitch_count_bf = pitch_budget / max(pitches_per_batter - 0.25, 3.3)
     hard_cap_bf    = pitch_count_bf + 4.5   # Wider physical ceiling
 
-    # Blended BF projection — pitch model weight drops when sample is small,
-    # because early-season pitch counts underrepresent true workload capacity.
+    # Blended BF projection
     if starts_count < 5:
         # Heavily trust the Pitch Count model now that starters are fully stretched out
         pc_w, sa_w, ms_w = 0.55, 0.20, 0.25   
@@ -513,7 +522,6 @@ def run_monte_carlo(
     )
 
     # ── K-rate adjustment ─────────────────────────────────────────────────────
-    # Strikeouts are guaranteed outs; above-average K% improves out-rate reliability
     k_bonus = (k_rate - LEAGUE_K_RATE) * 0.30
     adj_out_rate += k_bonus
     if abs(k_bonus) > 0.004:
@@ -586,10 +594,8 @@ def run_monte_carlo(
 
     # ── Directional Wind Vector ───────────────────────────────────────────────
     if wind_speed > 10:
-        # Calculate the wind factor (-1.0 to 1.0)
         wind_factor = math.cos(math.radians(stadium_azimuth - wind_direction))
         
-        # Calculate how much of the wind is blowing straight in or out
         effective_wind = wind_speed * wind_factor 
         
         if effective_wind >= 8.0:
@@ -622,30 +628,22 @@ def run_monte_carlo(
         factors.append(f"⚠️ Small Sample ({starts_count} starts): Wider uncertainty intervals")
 
     # ── Final clamp ───────────────────────────────────────────────────────────
-    # Floor of 18 BF for any starter with 3+ starts — stacked penalties
-    # (short rest + high BB + cold weather etc.) were producing unrealistically
-    # low BF projections and causing systematic under bias.
     if starts_count >= 3:
         adj_bf = max(adj_bf, 18.0)
     adj_out_rate = float(np.clip(adj_out_rate, 0.40, 0.85))
     adj_bf       = float(np.clip(adj_bf, 9.0, hard_cap_bf + 2.0))
 
     # ── SIMULATION ────────────────────────────────────────────────────────────
-    # No fixed seed — allow true distributional uncertainty
-
-    # Out-rate distribution (wider early-season)
     or_std = 0.045 if starts_count < 5 else 0.038
     game_out_rates = np.clip(
         np.random.normal(loc=adj_out_rate, scale=or_std, size=num_sims),
         0.30, 0.92
     )
 
-    # BF distribution — INDEPENDENT of out-rate (key fix from v1)
     bf_std = 2.8 if starts_count < 5 else 2.2
     raw_bf = np.random.normal(loc=adj_bf, scale=bf_std, size=num_sims)
     dynamic_bf = np.clip(np.round(raw_bf).astype(int), 9, int(np.ceil(hard_cap_bf)) + 2)
 
-    # Binomial draw of outs
     out_sims = np.random.binomial(n=dynamic_bf, p=game_out_rates)
 
     return {
