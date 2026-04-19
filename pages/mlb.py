@@ -39,7 +39,7 @@ def fetch_automated_vegas_odds(api_key):
 # ==============================================================================
 # CSV TRACKING LEDGER
 # ==============================================================================
-def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev, median_outs, bf_proj):
+def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev, median_outs, bf_proj, umpire_name):
     file_name = "quant_tracking_ledger.csv"
     file_exists = os.path.isfile(file_name)
     
@@ -56,6 +56,7 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev, m
         "EV_Pct": round(ev, 2),
         "Median_Outs": round(median_outs, 2),
         "Projected_BF": round(bf_proj, 2),
+        "Umpire": umpire_name,
         "Platform": "Underdog"
     }
     
@@ -77,7 +78,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 Master: UD Optimized (-122) | No Ceilings | Desynced Relativity")
+st.sidebar.caption("v2 Master: UD Mode | Umpire Tracking | No Ceilings")
 
 # ==============================================================================
 # STATIC DATABASES
@@ -139,7 +140,7 @@ TRUE_API_AVERAGE = 0.680
 LEAGUE_K_RATE   = 0.225
 LEAGUE_BB_RATE  = 0.080
 LEAGUE_AVG_BF   = 22.5
-UD_IMPLIED_ODDS = -122  # Locked break-even for Underdog
+UD_IMPLIED_ODDS = -122
 
 # ==============================================================================
 # HELPER & DATA FETCHERS
@@ -323,7 +324,7 @@ def get_live_pitcher_profile(player_id, fallback: dict, target_date_str: str) ->
 
         if len(starts) >= 3:
             recent3 = starts[:3]
-            r_tbf = sum(s['stat'].get('battersFaced', 0) for s in recent3)
+            r_tbf = sum(s['stat'].get('battersFaced', 0) for v in recent3)
             r_bb  = sum(s['stat'].get('baseOnBalls',  0) for s in recent3)
             r_h   = sum(s['stat'].get('hits',         0) for s in recent3)
             r_so  = sum(s['stat'].get('strikeOuts',   0) for s in recent3)
@@ -402,8 +403,13 @@ def run_monte_carlo(
         elif effective_wind <= -8.0: adj_out_rate -= 0.020; adj_bf -= 0.5; factors.append(f"🚀 Wind OUT: -2.0% OR, -0.5 BF")
         elif abs(effective_wind) < 5.0 and wind_speed > 15: adj_out_rate -= 0.008
 
-    if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: adj_out_rate += 0.012
-    elif umpire in UMPIRE_DATABASE["Hitter Friendly (Tight Zone)"]: adj_out_rate -= 0.015
+    # ── UMPIRE TRACKING LOGIC ──
+    if umpire in UMPIRE_DATABASE["Pitcher Friendly (Wide Zone)"]: 
+        adj_out_rate += 0.012
+        factors.append(f"🧑‍⚖️ Umpire: {umpire} (Wide Zone +1.2%)")
+    elif umpire in UMPIRE_DATABASE["Hitter Friendly (Tight Zone)"]: 
+        adj_out_rate -= 0.015
+        factors.append(f"🧑‍⚖️ Umpire: {umpire} (Tight Zone -1.5%)")
 
     pk = OUTS_PARK_FACTORS.get(park, 1.0)
     adj_out_rate *= pk
@@ -416,26 +422,13 @@ def run_monte_carlo(
 
     # ── CORRELATED SIMULATION (NO CEILINGS) ──
     or_std = 0.045 if starts_count < 5 else 0.038
-    
-    # 1. Simulate the out rates (how well they pitched in 10,000 parallel universes)
     game_out_rates = np.clip(np.random.normal(loc=adj_out_rate, scale=or_std, size=num_sims), 0.30, 0.95)
-
-    # 2. Performance Z-Score: Did they pitch a gem or get shelled?
     performance_z = (game_out_rates - adj_out_rate) / or_std
-    
-    # 3. MASSIVE Leash Extension: If they pitch well, managers let them keep going. 
-    # Give them up to +3 to +5 extra batters for elite performances.
     bf_modifier = np.where(performance_z > 0, performance_z * 2.8, performance_z * 2.0)
     sim_specific_bf = adj_bf + bf_modifier
-    
-    # 4. Generate the batters faced, completely ignoring the 'hard_cap_bf'
     bf_std = 2.0 if starts_count < 5 else 1.5 
     raw_bf = np.random.normal(loc=sim_specific_bf, scale=bf_std, size=num_sims)
-    
-    # 5. REMOVED THE HARD CAP: Let them pitch complete games (max 36 batters) if they earn it
     dynamic_bf = np.clip(np.round(raw_bf).astype(int), 9, 36)
-
-    # 6. Run the final outs calculation
     out_sims = np.random.binomial(n=dynamic_bf, p=game_out_rates)
 
     return {'out_sims': out_sims, 'factors': factors, 'adj_out_rate': adj_out_rate, 'adj_bf': adj_bf, 'hard_cap_bf': hard_cap_bf}
@@ -471,6 +464,7 @@ for game in games:
 
     if h_sp_name == 'TBD' or a_sp_name == 'TBD': continue
 
+    # ── FETCHING THE UMPIRE ──
     umpire = "Neutral"
     if 'officials' in game:
         for off in game['officials']:
@@ -491,7 +485,7 @@ for game in games:
         for side, sp_name, sp_id, team_abbr, opp_abbr in [(col1, a_sp_name, a_sp_id, away_team, home_team), (col2, h_sp_name, h_sp_id, home_team, away_team)]:
             with side:
                 match = STATS_DB.get(sp_id, dict(_DEFAULT_MATCH))
-                opp_data = SPLITS_DB.get(opp_abbr, {}).get(match['Hand'], {'out_rate': LEAGUE_OUT_RATE, 'k_rate': LEAGUE_K_RATE})
+                opp_data = SPLITS_DB.get(opp_abbr, {}).get(match['Hand'], {'out_rate': TRUE_API_AVERAGE})
                 manager_shift = MANAGER_DB.get(team_abbr, 0.0)
                 lp = get_live_pitcher_profile(sp_id, match, target_date_str)
 
@@ -503,41 +497,27 @@ for game in games:
                 )
                 out_sims = res['out_sims']
                 
-                ghost_tag = " ⚠️ Limited Data" if lp['is_ghost'] else ""
-                st.markdown(f"### {sp_name} ({match['Hand']}HP){ghost_tag}")
-
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Out%", f"{lp['actual_out_rate']*100:.1f}%")
-                m2.metric("K%", f"{lp['actual_k_rate']*100:.1f}%")
-                m3.metric("BB%", f"{lp['actual_bb_rate']*100:.1f}%")
-                m4.metric("Rest", f"{lp['days_rest']}d")
-
-                m5, m6, m7 = st.columns(3)
-                m5.metric("Starts", lp['starts_count'])
-                m6.metric("P/BF", f"{lp['pitches_per_batter']:.2f}")
-                m7.metric("Pitch Bdgt", f"{lp['pitch_budget']:.0f}")
-
-                st.divider()
-
+                st.markdown(f"### {sp_name}")
                 line_val = st.number_input("UD Line:", value=17.5, step=0.5, key=f"l_{sp_id}_{game['gamePk']}")
                 
                 h_prob = float(np.sum(out_sims > line_val)) / NUM_SIMS * 100
                 l_prob = 100.0 - h_prob
                 
+                # Locked to Underdog -122 Break-even
                 h_ev = calculate_ev_percent(h_prob, UD_IMPLIED_ODDS)
                 l_ev = calculate_ev_percent(l_prob, UD_IMPLIED_ODDS)
 
                 if h_prob > 55.1: st.success(f"🔥 HIGHER: {h_prob:.1f}% | EV: {h_ev:+.1f}%")
                 elif l_prob > 55.1: st.error(f"❄️ LOWER: {l_prob:.1f}% | EV: {l_ev:+.1f}%")
-                else: st.warning(f"⚠️ NO PLAY: {max(h_prob, l_prob):.1f}% (Below 55.1%)")
+                else: st.warning(f"⚠️ NO PLAY: {max(h_prob, l_prob):.1f}% (< 55.1%)")
 
                 median_outs = float(np.median(out_sims))
                 st.info(f"📊 Median: **{median_outs:.1f}** | Est. BF: **{res['adj_bf']:.1f}**")
 
                 if st.button(f"💾 Log Result", key=f"log_{sp_id}"):
                     pick = "HIGHER" if h_prob > l_prob else "LOWER"
-                    log_play_to_csv(target_date_str, sp_name, team_abbr, opp_abbr, line_val, pick, UD_IMPLIED_ODDS, max(h_prob, l_prob), max(h_ev, l_ev), median_outs, res['adj_bf'])
-                    st.toast("Play Logged!")
+                    log_play_to_csv(target_date_str, sp_name, team_abbr, opp_abbr, line_val, pick, UD_IMPLIED_ODDS, max(h_prob, l_prob), max(h_ev, l_ev), median_outs, res['adj_bf'], umpire)
+                    st.toast(f"Logged {pick} {line_val} for {sp_name}! (Ump: {umpire})")
 
                 dist_series = pd.Series(out_sims).value_counts(normalize=True).sort_index().rename("Probability")
                 st.bar_chart(dist_series)
