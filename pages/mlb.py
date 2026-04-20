@@ -32,15 +32,15 @@ def log_play_to_csv(date, player, team, opponent, line, pick, prob, ev, median_t
 # PAGE SETUP
 # ==============================================================================
 st.set_page_config(page_title="MLB Hitter Quant - Total Bases", page_icon="🏏", layout="wide")
-st.sidebar.title("🤖 Hitter Autopilot v1.4")
+st.sidebar.title("🤖 Hitter Autopilot v1.5")
 selected_date = st.sidebar.date_input("📅 Select Slate", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
 if st.sidebar.button("🔄 Force Refresh Data"):
     st.cache_data.clear()
-    st.sidebar.success("Data Refreshed!")
+    st.sidebar.success("Data Refreshed! Cache cleared.")
 
-st.sidebar.caption("v1.4: 'Rule of 18' Partial Lineup Fix")
+st.sidebar.caption("v1.5: API Limit Fix - Pulling Full League Roster")
 
 # ==============================================================================
 # STATIC DATABASES & MAPPING
@@ -76,7 +76,8 @@ TEAM_MAP = {
 def get_hitter_stats():
     hitter_db = {}
     try:
-        url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&playerPool=ALL&season=2026"
+        # THE FIX: Added &limit=2000 to pull the entire league instead of the default Top 50
+        url = "https://statsapi.mlb.com/api/v1/stats?stats=season&group=hitting&playerPool=ALL&season=2026&limit=2000"
         data = requests.get(url, timeout=10).json()
         for rec in data['stats'][0]['splits']:
             name, pid, s = rec['player']['fullName'], rec['player']['id'], rec['stat']
@@ -98,7 +99,9 @@ def get_hitter_stats():
                 'P_OUT': (pa - h - s.get('baseOnBalls', 0)) / pa
             }
         return hitter_db
-    except: return {}
+    except Exception as e: 
+        st.error(f"Failed to fetch hitting stats: {e}")
+        return {}
 
 HITTER_DB = get_hitter_stats()
 
@@ -168,7 +171,6 @@ for game in games:
     try:
         bx = requests.get(f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore", timeout=5).json()
         active_pids = bx['teams']['away'].get('batters', []) + bx['teams']['home'].get('batters', [])
-        # Only lock to active_pids if the list has at least 18 players (Full lineups posted)
         if len(active_pids) >= 18: 
             lineups_out = True
     except: pass
@@ -181,7 +183,7 @@ for game in games:
         for pid, pdata in HITTER_DB.items():
             if pdata['Team'] in [home_abbr, away_abbr]:
                 if lineups_out and pid not in active_pids:
-                    continue # Only hide bench players if true lineups are confirmed
+                    continue
                 game_hitters.append(pdata)
                 
         game_hitters = sorted(game_hitters, key=lambda x: x['PA_G'], reverse=True)
