@@ -32,13 +32,15 @@ def log_play_to_csv(date, player, team, opponent, line, pick, prob, ev, median_t
 # PAGE SETUP
 # ==============================================================================
 st.set_page_config(page_title="MLB Hitter Quant - Total Bases", page_icon="🏏", layout="wide")
-st.sidebar.title("🤖 Hitter Autopilot v1.1")
+st.sidebar.title("🤖 Hitter Autopilot v1.2")
 selected_date = st.sidebar.date_input("📅 Select Slate", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
 if st.sidebar.button("🔄 Force Refresh Data"):
     st.cache_data.clear()
     st.sidebar.success("Data Refreshed!")
+
+st.sidebar.caption("v1.2: Strict Filters Removed - Showing All Active Hitters")
 
 # ==============================================================================
 # STATIC DATABASES & MAPPING
@@ -80,8 +82,8 @@ def get_hitter_stats():
             name, pid, s = rec['player']['fullName'], rec['player']['id'], rec['stat']
             pa = s.get('plateAppearances', 0)
             
-            # REDUCED THRESHOLD: Lowered from 20 to 5 to show more hitters
-            if pa < 5: continue
+            # FILTER COMPLETELY REMOVED. Only skipping 0 PA to prevent math crashes.
+            if pa == 0: continue
             
             h, d, t, hr = s.get('hits', 0), s.get('doubles', 0), s.get('triples', 0), s.get('homeRuns', 0)
             s_single = max(0, h - (d + t + hr))
@@ -92,7 +94,7 @@ def get_hitter_stats():
             hitter_db[pid] = {
                 'Name': name,
                 'Team': abbr,
-                'PA_G': pa / s.get('gamesPlayed', 1),
+                'PA_G': pa / max(s.get('gamesPlayed', 1), 1),
                 'P_1B': s_single / pa, 'P_2B': d / pa, 'P_3B': t / pa, 'P_HR': hr / pa,
                 'P_OUT': (pa - h - s.get('baseOnBalls', 0)) / pa
             }
@@ -122,17 +124,16 @@ def run_tb_sim(h_data, temp, wind_speed, wind_dir, azimuth, num_sims=10000):
     effective_wind = wind_speed * wind_factor
     
     penalty = 1.0
-    if temp < 55: penalty *= 0.90 # High density air penalty
-    if effective_wind > 10.0: penalty *= 0.88 # Wind in penalty
-    elif effective_wind < -10.0: penalty *= 1.12 # Wind out boost
+    if temp < 55: penalty *= 0.90 
+    if effective_wind > 10.0: penalty *= 0.88 
+    elif effective_wind < -10.0: penalty *= 1.12 
     
-    # Adjust Power Probabilities
     adj_hr = p_hr * penalty
     adj_2b = p_2 * (1 + (penalty - 1) * 0.4)
     adj_out = 1 - (p_1 + adj_2b + p_3 + adj_hr)
     
     pa_dist = np.random.normal(h_data['PA_G'], 0.6, num_sims).round().astype(int)
-    pa_dist = np.clip(pa_dist, 3, 6) # Professional plate appearance range
+    pa_dist = np.clip(pa_dist, 3, 6) 
     
     results = []
     probs = [adj_out, p_1, adj_2b, p_3, adj_hr]
@@ -163,7 +164,6 @@ for game in games:
     temp, w_spd, w_dir, azm = get_weather_data(home_abbr, target_date_str)
     
     with st.expander(f"🏟️ {away_abbr} @ {home_abbr} | {temp:.0f}°F | Wind: {w_spd:.1f}mph"):
-        # SEARCH FILTERED LIST
         game_hitters = [p for p in HITTER_DB.values() if p['Team'] in [home_abbr, away_abbr]]
         
         if game_hitters:
@@ -180,7 +180,6 @@ for game in games:
                 h_prob = np.mean(sim_results > line) * 100
                 l_prob = 100 - h_prob
                 
-                # EV Logic (assuming standard -122 baseline)
                 ev = (h_prob/100 * (100/122)) - (l_prob/100) if h_prob > l_prob else (l_prob/100 * (100/122)) - (h_prob/100)
 
                 c1, c2, c3 = st.columns(3)
