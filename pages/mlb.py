@@ -33,7 +33,7 @@ def log_play_to_csv(date, player, team, opponent, line, pick, prob, ev, median_t
 # PAGE SETUP & LEAGUE CONSTANTS
 # ==============================================================================
 st.set_page_config(page_title="MLB Hitter Quant - Total Bases", page_icon="🏏", layout="wide")
-st.sidebar.title("🤖 Hitter Autopilot v2.0")
+st.sidebar.title("🤖 Hitter Autopilot v2.1")
 selected_date = st.sidebar.date_input("📅 Select Slate", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
@@ -41,12 +41,11 @@ if st.sidebar.button("🔄 Force Refresh Data"):
     st.cache_data.clear()
     st.sidebar.success("Data Refreshed! Cache cleared.")
 
-st.sidebar.caption("v2.0: Integrated Pitcher Matchup Engine")
+st.sidebar.caption("v2.1: Added Park Factors & Away Team PA Bump")
 
 LEAGUE_OUT_RATE = 0.695
 LEAGUE_K_RATE   = 0.225
 LEAGUE_BB_RATE  = 0.080
-LEAGUE_AVG_BF   = 22.5
 LEAGUE_HIT_RATE = max(0.10, 1.0 - LEAGUE_OUT_RATE - LEAGUE_BB_RATE)
 
 # ==============================================================================
@@ -63,6 +62,15 @@ STADIUM_COORDS = {
     'PIT': (40.447, -80.006, 125),  'SD':  (32.707, -117.157, 0),   'SF':  (37.778, -122.389, 90),
     'SEA': (47.591, -122.332, 45),  'STL': (38.622, -90.193, 70),   'TB':  (27.768, -82.653, 60),
     'TEX': (32.751, -97.082, 70),   'TOR': (43.641, -79.389, 0),    'WSH': (38.873, -77.007, 25),
+}
+
+# Total Bases Park Factors ( >1.0 favors hitters, <1.0 favors pitchers)
+TB_PARK_FACTORS = {
+    'COL': 1.15, 'CIN': 1.12, 'BOS': 1.10, 'KC': 1.08, 'ATL': 1.05, 'PHI': 1.05, 
+    'CHW': 1.04, 'TEX': 1.03, 'LAA': 1.03, 'LAD': 1.02, 'TOR': 1.02, 'HOU': 1.01,
+    'BAL': 1.00, 'MIN': 1.00, 'ARI': 1.00, 'NYY': 0.99, 'CHC': 0.99, 'MIL': 0.98,
+    'MIA': 0.97, 'TB': 0.97, 'SD': 0.96, 'WSH': 0.96, 'NYM': 0.95, 'CLE': 0.95,
+    'PIT': 0.94, 'DET': 0.94, 'STL': 0.94, 'SF': 0.93, 'OAK': 0.92, 'SEA': 0.90
 }
 
 TEAM_MAP = {
@@ -90,7 +98,6 @@ def get_shrinkage_prior(date_str: str) -> int:
 
 @st.cache_data(ttl=86400)
 def get_pitcher_stats():
-    """Fetches Pitcher talent for matchup multipliers."""
     pitcher_db = {}
     prior = get_shrinkage_prior(datetime.now().strftime('%Y-%m-%d'))
     try:
@@ -102,8 +109,7 @@ def get_pitcher_stats():
                 if ctbf > 0:
                     career_lookup[pid] = {
                         'out_rate': (ctbf - s.get('baseOnBalls', 0) - s.get('hits', 0)) / ctbf,
-                        'bb_rate': s.get('baseOnBalls', 0) / ctbf,
-                        'tbf': ctbf
+                        'bb_rate': s.get('baseOnBalls', 0) / ctbf, 'tbf': ctbf
                     }
         except: pass
 
@@ -167,9 +173,9 @@ def get_weather_data(team_abbr, date_str):
     except: return 70.0, 0.0, 0.0, 0.0
 
 # ==============================================================================
-# TB MONTE CARLO ENGINE
+# TB MONTE CARLO ENGINE (v2.1 Physics & Volume Expansion)
 # ==============================================================================
-def run_tb_sim(h_data, temp, wind_speed, wind_dir, azimuth, matchup_mod, num_sims=10000):
+def run_tb_sim(h_data, temp, wind_speed, wind_dir, azimuth, matchup_mod, park_factor, is_away_team, num_sims=10000):
     p_1, p_2, p_3, p_hr = h_data['P_1B'], h_data['P_2B'], h_data['P_3B'], h_data['P_HR']
     
     # 1. APPLY PITCHER MATCHUP MODIFIER
@@ -178,23 +184,31 @@ def run_tb_sim(h_data, temp, wind_speed, wind_dir, azimuth, matchup_mod, num_sim
     p_3 *= matchup_mod
     p_hr *= matchup_mod
 
-    # 2. APPLY PHYSICS / WEATHER PENALTY
+    # 2. APPLY PARK FACTOR (Boosts Extra Base Hits Heavily)
+    p_2 *= park_factor
+    p_3 *= park_factor
+    p_hr *= (park_factor ** 1.5) # Park size affects HRs more than singles
+
+    # 3. APPLY PHYSICS / WEATHER PENALTY
     wind_factor = math.cos(math.radians(azimuth - wind_dir))
     effective_wind = wind_speed * wind_factor
     
     weather_mod = 1.0
-    if temp < 55: weather_mod *= 0.90 
+    if temp < 55: weather_mod *= 0.92 
     if effective_wind > 10.0: weather_mod *= 0.88 
     elif effective_wind < -10.0: weather_mod *= 1.15 
     
     adj_hr = p_hr * weather_mod
     adj_2b = p_2 * (1 + (weather_mod - 1) * 0.4) 
     
-    # Recalculate outs so probabilities equal 1.0
     adj_out = 1 - (p_1 + adj_2b + p_3 + adj_hr)
     if adj_out < 0: adj_out = 0.05
     
-    expected_pa = max(h_data['PA_G'], 4.25) 
+    # 4. AWAY TEAM VOLUME BUMP
+    # Away teams bat in the 9th inning guaranteeing more PA
+    expected_pa = max(h_data['PA_G'], 4.1)
+    if is_away_team: expected_pa += 0.25 
+    
     pa_dist = np.random.normal(expected_pa, 0.6, num_sims).round().astype(int)
     pa_dist = np.clip(pa_dist, 3, 6) 
     
@@ -211,7 +225,7 @@ def run_tb_sim(h_data, temp, wind_speed, wind_dir, azimuth, matchup_mod, num_sim
 # ==============================================================================
 # UI
 # ==============================================================================
-st.title("🏏 MLB Quant AI - Total Bases (Integrated Matchup Engine)")
+st.title("🏏 MLB Quant AI - Total Bases (Integrated Engine)")
 
 try:
     schedule = requests.get(f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}&hydrate=probablePitcher").json()
@@ -226,7 +240,6 @@ for game in games:
     home_abbr = TEAM_MAP.get(h_team_name, h_team_name[:3].upper())
     away_abbr = TEAM_MAP.get(a_team_name, a_team_name[:3].upper())
     
-    # FETCH PROBABLE PITCHERS
     h_sp_name = game['teams']['home'].get('probablePitcher', {}).get('fullName', 'TBD')
     a_sp_name = game['teams']['away'].get('probablePitcher', {}).get('fullName', 'TBD')
     h_sp_id = game['teams']['home'].get('probablePitcher', {}).get('id')
@@ -258,7 +271,6 @@ for game in games:
             target_name = st.selectbox("Select Player:", [p['Name'] for p in game_hitters], key=f"sel_{game['gamePk']}")
             h_data = next(p for p in game_hitters if p['Name'] == target_name)
             
-            # --- DYNAMIC PITCHER MATCHUP CALCULATION ---
             opp_sp_name = h_sp_name if h_data['Team'] == away_abbr else a_sp_name
             opp_sp_id = h_sp_id if h_data['Team'] == away_abbr else a_sp_id
             
@@ -268,10 +280,12 @@ for game in games:
                 p_hit_rate = max(0.10, 1.0 - p_stats['Out%'] - p_stats['BB%'])
                 matchup_mod = p_hit_rate / LEAGUE_HIT_RATE
             
-            st.caption(f"🎯 **Opposing Pitcher:** {opp_sp_name} | **Matchup Multiplier:** x{matchup_mod:.2f}")
+            park_factor = TB_PARK_FACTORS.get(home_abbr, 1.0)
+            is_away_team = (h_data['Team'] == away_abbr)
+            
+            st.caption(f"🎯 **Opposing Pitcher:** {opp_sp_name} (x{matchup_mod:.2f}) | **Park Factor:** {home_abbr} (x{park_factor:.2f})")
 
-            # Run simulation with the dynamic modifier
-            sim_results = run_tb_sim(h_data, temp, w_spd, w_dir, azm, matchup_mod)
+            sim_results = run_tb_sim(h_data, temp, w_spd, w_dir, azm, matchup_mod, park_factor, is_away_team)
             
             line = st.number_input("Underdog TB Line:", value=1.5, step=0.5, key=f"line_{target_name}_{game['gamePk']}")
             h_prob = np.mean(sim_results > line) * 100
