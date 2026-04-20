@@ -14,6 +14,7 @@ def log_play_to_csv(date, player, team, opponent, line, pick, prob, ev, median_t
     file_exists = os.path.isfile(file_name)
     data = {
         "Date": date,
+        "Timestamp": datetime.now().strftime("%H:%M:%S"),
         "Player": player,
         "Team": team,
         "Opponent": opponent,
@@ -31,12 +32,16 @@ def log_play_to_csv(date, player, team, opponent, line, pick, prob, ev, median_t
 # PAGE SETUP
 # ==============================================================================
 st.set_page_config(page_title="MLB Hitter Quant - Total Bases", page_icon="🏏", layout="wide")
-st.sidebar.title("🤖 Hitter Autopilot v1")
+st.sidebar.title("🤖 Hitter Autopilot v1.1")
 selected_date = st.sidebar.date_input("📅 Select Slate", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
+if st.sidebar.button("🔄 Force Refresh Data"):
+    st.cache_data.clear()
+    st.sidebar.success("Data Refreshed!")
+
 # ==============================================================================
-# STATIC DATABASES
+# STATIC DATABASES & MAPPING
 # ==============================================================================
 STADIUM_COORDS = {
     'ARI': (33.445, -112.067, 0),   'ATL': (33.891, -84.468, 110),  'BAL': (39.284, -76.622, 38),
@@ -59,7 +64,7 @@ TEAM_MAP = {
     'Minnesota Twins': 'MIN', 'New York Mets': 'NYM', 'New York Yankees': 'NYY', 'Oakland Athletics': 'OAK',
     'Philadelphia Phillies': 'PHI', 'Pittsburgh Pirates': 'PIT', 'San Diego Padres': 'SD', 'San Francisco Giants': 'SF',
     'Seattle Mariners': 'SEA', 'St. Louis Cardinals': 'STL', 'Tampa Bay Rays': 'TB', 'Texas Rangers': 'TEX',
-    'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH',
+    'Toronto Blue Jays': 'TOR', 'Washington Nationals': 'WSH', 'Athletics': 'OAK', 'Diamondbacks': 'ARI', 'Guardians': 'CLE'
 }
 
 # ==============================================================================
@@ -74,20 +79,21 @@ def get_hitter_stats():
         for rec in data['stats'][0]['splits']:
             name, pid, s = rec['player']['fullName'], rec['player']['id'], rec['stat']
             pa = s.get('plateAppearances', 0)
-            if pa < 20: continue
             
-            # Calculate Base Probabilities
+            # REDUCED THRESHOLD: Lowered from 20 to 5 to show more hitters
+            if pa < 5: continue
+            
             h, d, t, hr = s.get('hits', 0), s.get('doubles', 0), s.get('triples', 0), s.get('homeRuns', 0)
-            s_single = h - (d + t + hr)
+            s_single = max(0, h - (d + t + hr))
+            
+            team_name = rec.get('team', {}).get('name', 'UNK')
+            abbr = TEAM_MAP.get(team_name, team_name[:3].upper())
             
             hitter_db[pid] = {
                 'Name': name,
-                'Team': TEAM_MAP.get(rec.get('team', {}).get('name', ''), 'UNK'),
+                'Team': abbr,
                 'PA_G': pa / s.get('gamesPlayed', 1),
-                'P_1B': s_single / pa,
-                'P_2B': d / pa,
-                'P_3B': t / pa,
-                'P_HR': hr / pa,
+                'P_1B': s_single / pa, 'P_2B': d / pa, 'P_3B': t / pa, 'P_HR': hr / pa,
                 'P_OUT': (pa - h - s.get('baseOnBalls', 0)) / pa
             }
         return hitter_db
@@ -96,7 +102,7 @@ def get_hitter_stats():
 HITTER_DB = get_hitter_stats()
 
 @st.cache_data(ttl=3600)
-def get_weather(team_abbr, date_str):
+def get_weather_data(team_abbr, date_str):
     coords = STADIUM_COORDS.get(team_abbr)
     if not coords: return 70.0, 0.0, 0.0, 0.0
     try:
@@ -110,29 +116,27 @@ def get_weather(team_abbr, date_str):
 # TB MONTE CARLO ENGINE
 # ==============================================================================
 def run_tb_sim(h_data, temp, wind_speed, wind_dir, azimuth, num_sims=10000):
-    # Base Stats
     p_1, p_2, p_3, p_hr = h_data['P_1B'], h_data['P_2B'], h_data['P_3B'], h_data['P_HR']
     
-    # Physics Penalty
     wind_factor = math.cos(math.radians(azimuth - wind_dir))
     effective_wind = wind_speed * wind_factor
     
     penalty = 1.0
-    if temp < 55: penalty *= 0.92  # Cold air kills carry
-    if effective_wind > 8.0: penalty *= 0.90 # Wind in kills carry
-    elif effective_wind < -8.0: penalty *= 1.10 # Wind out boosts carry
+    if temp < 55: penalty *= 0.90 # High density air penalty
+    if effective_wind > 10.0: penalty *= 0.88 # Wind in penalty
+    elif effective_wind < -10.0: penalty *= 1.12 # Wind out boost
     
-    # Adjust Power Probabilities (HR and Extra Base Hits)
-    p_hr *= penalty
-    p_2 *= (1 + (penalty - 1) * 0.5)
+    # Adjust Power Probabilities
+    adj_hr = p_hr * penalty
+    adj_2b = p_2 * (1 + (penalty - 1) * 0.4)
+    adj_out = 1 - (p_1 + adj_2b + p_3 + adj_hr)
     
-    # Simulate Games
+    pa_dist = np.random.normal(h_data['PA_G'], 0.6, num_sims).round().astype(int)
+    pa_dist = np.clip(pa_dist, 3, 6) # Professional plate appearance range
+    
     results = []
-    pa_per_game = np.random.normal(h_data['PA_G'], 0.5, num_sims).round().astype(int)
-    
-    for pa_count in pa_per_game:
-        # 0=Out, 1=1B, 2=2B, 3=3B, 4=HR
-        probs = [1 - (p_1+p_2+p_3+p_hr), p_1, p_2, p_3, p_hr]
+    probs = [adj_out, p_1, adj_2b, p_3, adj_hr]
+    for pa_count in pa_dist:
         outcomes = np.random.choice([0, 1, 2, 3, 4], size=pa_count, p=probs)
         results.append(np.sum(outcomes))
         
@@ -148,40 +152,53 @@ try:
     games = schedule.get('dates', [{}])[0].get('games', [])
 except: games = []
 
+if not games: st.info("No games found for this date.")
+
 for game in games:
-    home_abbr = TEAM_MAP.get(game['teams']['home']['team']['name'], 'UNK')
-    away_abbr = TEAM_MAP.get(game['teams']['away']['team']['name'], 'UNK')
+    h_team_name = game['teams']['home']['team']['name']
+    a_team_name = game['teams']['away']['team']['name']
+    home_abbr = TEAM_MAP.get(h_team_name, h_team_name[:3].upper())
+    away_abbr = TEAM_MAP.get(a_team_name, a_team_name[:3].upper())
     
-    temp, w_spd, w_dir, azm = get_weather(home_abbr, target_date_str)
+    temp, w_spd, w_dir, azm = get_weather_data(home_abbr, target_date_str)
     
-    with st.expander(f"🏟️ {away_abbr} @ {home_abbr} | {temp:.0f}°F | Wind: {w_spd:.0f}mph"):
-        # Select Hitters in this game
+    with st.expander(f"🏟️ {away_abbr} @ {home_abbr} | {temp:.0f}°F | Wind: {w_spd:.1f}mph"):
+        # SEARCH FILTERED LIST
         game_hitters = [p for p in HITTER_DB.values() if p['Team'] in [home_abbr, away_abbr]]
         
         if game_hitters:
-            target_hitter_name = st.selectbox("Select Hitter:", [p['Name'] for p in game_hitters], key=f"sel_{game['gamePk']}")
-            h_data = next(p for p in game_hitters if p['Name'] == target_hitter_name)
+            search_query = st.text_input(f"🔍 Search player in {home_abbr}/{away_abbr}:", key=f"q_{game['gamePk']}")
+            filtered_names = [p['Name'] for p in game_hitters if search_query.lower() in p['Name'].lower()]
             
-            sim_results = run_tb_sim(h_data, temp, w_spd, w_dir, azm)
-            
-            line = st.number_input("TB Line:", value=1.5, step=0.5, key=f"line_{target_hitter_name}")
-            h_prob = np.mean(sim_results > line) * 100
-            l_prob = 100 - h_prob
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Higher Prob", f"{h_prob:.1f}%")
-                if h_prob > 55: st.success("🔥 BEST BET: HIGHER")
-            with col2:
-                st.metric("Lower Prob", f"{l_prob:.1f}%")
-                if l_prob > 55: st.error("❄️ BEST BET: LOWER")
-            
-            st.info(f"📊 Median TB: {np.median(sim_results)} | Avg PA: {h_data['PA_G']:.1f}")
-            
-            if st.button(f"💾 Log {target_hitter_name}", key=f"btn_{target_hitter_name}"):
-                pick = "HIGHER" if h_prob > l_prob else "LOWER"
-                log_play_to_csv(target_date_str, target_hitter_name, h_data['Team'], "OPP", line, pick, max(h_prob, l_prob), 0, np.median(sim_results), f"{temp:.0f}F {w_spd}mph")
-                st.toast("Logged!")
+            if filtered_names:
+                target_name = st.selectbox("Select Player:", filtered_names, key=f"sel_{game['gamePk']}")
+                h_data = next(p for p in game_hitters if p['Name'] == target_name)
+                
+                sim_results = run_tb_sim(h_data, temp, w_spd, w_dir, azm)
+                
+                line = st.number_input("Underdog TB Line:", value=1.5, step=0.5, key=f"line_{target_name}")
+                h_prob = np.mean(sim_results > line) * 100
+                l_prob = 100 - h_prob
+                
+                # EV Logic (assuming standard -122 baseline)
+                ev = (h_prob/100 * (100/122)) - (l_prob/100) if h_prob > l_prob else (l_prob/100 * (100/122)) - (h_prob/100)
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Higher", f"{h_prob:.1f}%")
+                c2.metric("Lower", f"{l_prob:.1f}%")
+                c3.metric("EV", f"{ev*100:+.1f}%")
+
+                if h_prob > 55.1: st.success(f"🔥 HIGHER: Model projects {np.median(sim_results):.1f} TB")
+                elif l_prob > 55.1: st.error(f"❄️ LOWER: Model projects {np.median(sim_results):.1f} TB")
+
+                if st.button(f"💾 Log {target_name}", key=f"log_{target_name}"):
+                    pick = "HIGHER" if h_prob > l_prob else "LOWER"
+                    log_play_to_csv(target_date_str, target_name, h_data['Team'], "OPP", line, pick, max(h_prob, l_prob), ev*100, np.median(sim_results), f"{temp:.0f}F {w_spd}mph")
+                    st.toast(f"Logged {target_name}")
+            else:
+                st.warning("No players match your search.")
+        else:
+            st.info("Loading team rosters...")
 
 # ==============================================================================
 # LEDGER
@@ -189,4 +206,4 @@ for game in games:
 st.divider()
 if os.path.exists("hitter_quant_ledger.csv"):
     st.header("📋 Hitter Ledger")
-    st.dataframe(pd.read_csv("hitter_quant_ledger.csv").sort_index(ascending=False))
+    st.dataframe(pd.read_csv("hitter_quant_ledger.csv").sort_index(ascending=False), use_container_width=True)
