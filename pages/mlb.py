@@ -32,7 +32,7 @@ def log_play_to_csv(date, player, team, opponent, line, pick, prob, ev, median_t
 # PAGE SETUP
 # ==============================================================================
 st.set_page_config(page_title="MLB Hitter Quant - Total Bases", page_icon="🏏", layout="wide")
-st.sidebar.title("🤖 Hitter Autopilot v1.2")
+st.sidebar.title("🤖 Hitter Autopilot v1.3")
 selected_date = st.sidebar.date_input("📅 Select Slate", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
 
@@ -40,7 +40,7 @@ if st.sidebar.button("🔄 Force Refresh Data"):
     st.cache_data.clear()
     st.sidebar.success("Data Refreshed!")
 
-st.sidebar.caption("v1.2: Strict Filters Removed - Showing All Active Hitters")
+st.sidebar.caption("v1.3: Live Lineup Filtering Integrated")
 
 # ==============================================================================
 # STATIC DATABASES & MAPPING
@@ -82,7 +82,6 @@ def get_hitter_stats():
             name, pid, s = rec['player']['fullName'], rec['player']['id'], rec['stat']
             pa = s.get('plateAppearances', 0)
             
-            # FILTER COMPLETELY REMOVED. Only skipping 0 PA to prevent math crashes.
             if pa == 0: continue
             
             h, d, t, hr = s.get('hits', 0), s.get('doubles', 0), s.get('triples', 0), s.get('homeRuns', 0)
@@ -163,39 +162,53 @@ for game in games:
     
     temp, w_spd, w_dir, azm = get_weather_data(home_abbr, target_date_str)
     
-    with st.expander(f"🏟️ {away_abbr} @ {home_abbr} | {temp:.0f}°F | Wind: {w_spd:.1f}mph"):
-        game_hitters = [p for p in HITTER_DB.values() if p['Team'] in [home_abbr, away_abbr]]
+    # FETCH LIVE LINEUPS FROM BOXSCORE
+    active_pids = []
+    lineups_out = False
+    try:
+        bx = requests.get(f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore", timeout=5).json()
+        active_pids = bx['teams']['away'].get('batters', []) + bx['teams']['home'].get('batters', [])
+        if active_pids: lineups_out = True
+    except: pass
+    
+    with st.expander(f"🏟️ {away_abbr} @ {home_abbr} | {temp:.0f}°F | Wind: {w_spd:.1f}mph" + (" (Lineups Posted)" if lineups_out else "")):
+        
+        # Filter and Sort Hitters
+        game_hitters = []
+        for pid, pdata in HITTER_DB.items():
+            if pdata['Team'] in [home_abbr, away_abbr]:
+                if lineups_out and pid not in active_pids:
+                    continue # Skip bench/IL players if lineups are known
+                game_hitters.append(pdata)
+                
+        # Sort by Everyday Starters (Plate Appearances per Game)
+        game_hitters = sorted(game_hitters, key=lambda x: x['PA_G'], reverse=True)
         
         if game_hitters:
-            search_query = st.text_input(f"🔍 Search player in {home_abbr}/{away_abbr}:", key=f"q_{game['gamePk']}")
-            filtered_names = [p['Name'] for p in game_hitters if search_query.lower() in p['Name'].lower()]
+            # Clean Dropdown Selection (No Search Bar Needed)
+            target_name = st.selectbox("Select Player:", [p['Name'] for p in game_hitters], key=f"sel_{game['gamePk']}")
+            h_data = next(p for p in game_hitters if p['Name'] == target_name)
             
-            if filtered_names:
-                target_name = st.selectbox("Select Player:", filtered_names, key=f"sel_{game['gamePk']}")
-                h_data = next(p for p in game_hitters if p['Name'] == target_name)
-                
-                sim_results = run_tb_sim(h_data, temp, w_spd, w_dir, azm)
-                
-                line = st.number_input("Underdog TB Line:", value=1.5, step=0.5, key=f"line_{target_name}")
-                h_prob = np.mean(sim_results > line) * 100
-                l_prob = 100 - h_prob
-                
-                ev = (h_prob/100 * (100/122)) - (l_prob/100) if h_prob > l_prob else (l_prob/100 * (100/122)) - (h_prob/100)
+            sim_results = run_tb_sim(h_data, temp, w_spd, w_dir, azm)
+            
+            line = st.number_input("Underdog TB Line:", value=1.5, step=0.5, key=f"line_{target_name}_{game['gamePk']}")
+            h_prob = np.mean(sim_results > line) * 100
+            l_prob = 100 - h_prob
+            
+            ev = (h_prob/100 * (100/122)) - (l_prob/100) if h_prob > l_prob else (l_prob/100 * (100/122)) - (h_prob/100)
 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Higher", f"{h_prob:.1f}%")
-                c2.metric("Lower", f"{l_prob:.1f}%")
-                c3.metric("EV", f"{ev*100:+.1f}%")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Higher", f"{h_prob:.1f}%")
+            c2.metric("Lower", f"{l_prob:.1f}%")
+            c3.metric("EV", f"{ev*100:+.1f}%")
 
-                if h_prob > 55.1: st.success(f"🔥 HIGHER: Model projects {np.median(sim_results):.1f} TB")
-                elif l_prob > 55.1: st.error(f"❄️ LOWER: Model projects {np.median(sim_results):.1f} TB")
+            if h_prob > 55.1: st.success(f"🔥 HIGHER: Model projects {np.median(sim_results):.1f} TB")
+            elif l_prob > 55.1: st.error(f"❄️ LOWER: Model projects {np.median(sim_results):.1f} TB")
 
-                if st.button(f"💾 Log {target_name}", key=f"log_{target_name}"):
-                    pick = "HIGHER" if h_prob > l_prob else "LOWER"
-                    log_play_to_csv(target_date_str, target_name, h_data['Team'], "OPP", line, pick, max(h_prob, l_prob), ev*100, np.median(sim_results), f"{temp:.0f}F {w_spd}mph")
-                    st.toast(f"Logged {target_name}")
-            else:
-                st.warning("No players match your search.")
+            if st.button(f"💾 Log {target_name}", key=f"log_{target_name}_{game['gamePk']}"):
+                pick = "HIGHER" if h_prob > l_prob else "LOWER"
+                log_play_to_csv(target_date_str, target_name, h_data['Team'], "OPP", line, pick, max(h_prob, l_prob), ev*100, np.median(sim_results), f"{temp:.0f}F {w_spd}mph")
+                st.toast(f"Logged {target_name}")
         else:
             st.info("Loading team rosters...")
 
