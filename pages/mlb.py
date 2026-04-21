@@ -754,6 +754,10 @@ if os.path.exists("k_tracking_ledger.csv"):
         over_pct = (df['Pick'] == 'OVER').mean() * 100
         c4.metric("Over%", f"{over_pct:.0f}%")
 
+    # Inject missing columns so old CSVs don't crash
+    if 'Result'    not in df.columns: df['Result']    = ""
+    if 'Actual_Ks' not in df.columns: df['Actual_Ks'] = ""
+
     st.dataframe(df.sort_index(ascending=False), use_container_width=True)
 
     # Result entry — edit W/L/PUSH and actual Ks then save back to CSV
