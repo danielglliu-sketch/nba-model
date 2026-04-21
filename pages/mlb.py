@@ -394,6 +394,8 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev,
         "Stuff_Plus":      round(stuff_plus, 1),
         "Umpire":          umpire_name,
         "Platform":        "Underdog",
+        "Result":          "",   # fill in manually: W, L, or PUSH
+        "Actual_Ks":       "",   # fill in actual K total after game
     }
     pd.DataFrame([data]).to_csv(fname, mode='a', header=not file_exists, index=False)
 
@@ -686,7 +688,10 @@ for game in games:
 
                 # Signal threshold: 55.1% (meaningful edge over -122 implied 45%)
                 if h_prob > 55.1:
-                    st.success(f"🔥 OVER {line_val:.1f}: {h_prob:.1f}% | EV: {ev*100:+.1f}%")
+                    if line_val < 4.5:
+                        st.warning(f"⚠️ LOW LINE FILTER: OVER {line_val:.1f} ({h_prob:.1f}%) — line below 4.5 minimum, likely model noise not a real edge")
+                    else:
+                        st.success(f"🔥 OVER {line_val:.1f}: {h_prob:.1f}% | EV: {ev*100:+.1f}%")
                 elif l_prob > 55.1:
                     st.error(f"❄️ UNDER {line_val:.1f}: {l_prob:.1f}% | EV: {ev*100:+.1f}%")
                 else:
@@ -716,6 +721,18 @@ for game in games:
                         st.caption(f"• 💪 Stuff+ source: Baseball Savant (live)")
                     else:
                         st.caption("• ⚠️ No Savant data for this pitcher — using league avg SwStr%/Stuff+")
+                    # Savant raw debug — use this to verify correct column parsing
+                    st.markdown("**🔍 Savant Raw Debug**")
+                    raw_savant = SAVANT_DB.get(sp_id, {})
+                    if raw_savant:
+                        st.json({
+                            "player_id":   sp_id,
+                            "swstr_raw":   raw_savant.get('swstr'),
+                            "swstr_pct":   f"{raw_savant.get('swstr', 0)*100:.2f}%",
+                            "stuff_plus":  raw_savant.get('stuff_plus'),
+                        })
+                    else:
+                        st.caption(f"❌ No Savant entry found for player_id={sp_id} — check if ID matches Savant's player_id column")
 
 # ==============================================================================
 # LEDGER VIEWER
@@ -738,6 +755,30 @@ if os.path.exists("k_tracking_ledger.csv"):
         c4.metric("Over%", f"{over_pct:.0f}%")
 
     st.dataframe(df.sort_index(ascending=False), use_container_width=True)
+
+    # Result entry — edit W/L/PUSH and actual Ks then save back to CSV
+    st.markdown("**✏️ Update Results**")
+    edited_df = st.data_editor(
+        df[['Game_Date','Pitcher','Line','Pick','Median_Ks','Result','Actual_Ks']],
+        column_config={
+            "Result":     st.column_config.SelectboxColumn("Result", options=["", "W", "L", "PUSH"]),
+            "Actual_Ks":  st.column_config.NumberColumn("Actual Ks", min_value=0, max_value=20, step=1),
+        },
+        use_container_width=True,
+        hide_index=True,
+        key="ledger_editor",
+    )
+    if st.button("💾 Save Results to CSV"):
+        df['Result']     = edited_df['Result'].values
+        df['Actual_Ks']  = edited_df['Actual_Ks'].values
+        df.to_csv("k_tracking_ledger.csv", index=False)
+        st.success("✅ Results saved!")
+        # Show quick W/L summary if results exist
+        filled = df[df['Result'].isin(['W','L'])]
+        if len(filled) > 0:
+            wins  = (filled['Result'] == 'W').sum()
+            total = len(filled)
+            st.metric("Record", f"{wins}-{total-wins}", delta=f"{wins/total*100:.1f}% win rate")
     st.download_button(
         "📥 Download K Ledger CSV",
         data=df.to_csv(index=False).encode('utf-8'),
