@@ -551,7 +551,7 @@ with st.sidebar:
 try:
     games = requests.get(
         f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}"
-        f"&hydrate=probablePitcher,decisions,umpire",
+        f"&hydrate=probablePitcher,decisions,officials",
         timeout=8
     ).json().get('dates', [{}])[0].get('games', [])
 except:
@@ -578,8 +578,12 @@ for game in games:
     api_ump = "Neutral"
     try:
         for off in game.get('officials', []):
-            if off['officialType'] == 'Home Plate':
-                api_ump = off['official']['fullName']
+            role = off.get('officialType', '')
+            if 'Home Plate' in role or role == 'HP':
+                name = off.get('official', {}).get('fullName', '')
+                if name:
+                    api_ump = name
+                    break
     except: pass
 
     temp_f, wind_spd, wind_dir, azimuth = get_weather_for_date(home_team, target_date_str)
