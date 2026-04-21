@@ -618,7 +618,7 @@ for game in games:
                 # Umpire override
                 ump_options = [f"API Assigned ({api_ump})", "Neutral"] + WIDE_ZONE + TIGHT_ZONE
                 ump_choice  = st.selectbox(f"Umpire Override ({sp_name}):",
-                                           ump_options, key=f"ump_{sp_id}")
+                                           ump_options, key=f"ump_{team_abbr}_{sp_id}")
                 final_ump   = api_ump if "API" in ump_choice else ump_choice
 
                 # Run simulation
@@ -675,7 +675,7 @@ for game in games:
 
                 line_val = st.number_input("UD Line (Ks):", value=default_line,
                                            step=0.5, min_value=0.5, max_value=15.0,
-                                           key=f"l_{sp_id}")
+                                           key=f"l_{team_abbr}_{sp_id}")
 
                 h_prob = float(np.sum(res['k_sims'] > line_val)) / 10000 * 100
                 l_prob = 100.0 - h_prob
@@ -697,7 +697,7 @@ for game in games:
                 st.info(f"📊 Median: {p50:.1f}K | 25th: {p25:.0f} | 75th: {p75:.0f} | BF: {res['adj_bf']:.1f}")
 
                 # Log button
-                if st.button(f"💾 Log Play", key=f"log_{sp_id}"):
+                if st.button(f"💾 Log Play", key=f"log_{team_abbr}_{sp_id}"):
                     log_play_to_csv(
                         target_date_str, sp_name, team_abbr, opp_abbr,
                         line_val,
