@@ -20,7 +20,6 @@ SWSTR_TO_K_SLOPE   = 1.85    # regression coefficient: K% ≈ 0.45 + 1.85 × SwS
 STUFF_K_PER_10     = 0.015   # +10 Stuff+ points ≈ +1.5% K rate
 
 # K Park Factors — how much each park boosts/suppresses strikeouts
-# Domed/sea-level parks help Ks; hitter-friendly / high-altitude parks suppress
 K_PARK_FACTORS = {
     'SEA': 1.03, 'TB':  1.02, 'MIA': 1.02, 'SD':  1.01, 'OAK': 1.01,
     'SF':  1.01, 'LAD': 1.01, 'NYM': 1.00, 'MIN': 1.00, 'BAL': 0.99,
@@ -43,8 +42,7 @@ STADIUM_COORDS = {
     'TEX': (32.751, -97.082, 70),   'TOR': (43.641, -79.389, 0),    'WSH': (38.873, -77.007, 25),
 }
 
-# Umpires — effect on Ks is STRONGER than on outs (~2.5x)
-# Wide zone = more called K3s, expanded chases; Tight = batters lay off, walk more
+# Umpires
 WIDE_ZONE  = ["Bill Miller","Bill Welke","Laz Diaz","Larry Vanover","Alan Porter","Jordan Baker",
                "Mark Wegner","Chris Guccione","Ron Kulpa","Jeremie Rehak","Vic Carapazza",
                "Lance Barksdale","Doug Eddings","Paul Emmel","Cory Blaser","Adrian Johnson",
@@ -79,7 +77,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 K Master: Fuzzy Match Stuff+ | Strict EV Filters")
+st.sidebar.caption("v2 K Master: Fuzzy Match Stuff+ | Strict EV Filters | Boxscore Fix | Seed Lock | Clear Ledger")
 
 # ==============================================================================
 # BASEBALL SAVANT — SwStr% + Stuff+
@@ -408,13 +406,17 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev,
 
 
 # ==============================================================================
-# MONTE CARLO ENGINE
+# MONTE CARLO ENGINE (Seed Locked for Stability)
 # ==============================================================================
 def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
                       stuff_plus, recent_k_trend, park, temp_f, wind_speed,
                       wind_dir, azimuth, umpire, manager_shift,
-                      pitch_budget, pitches_per_batter, starts_count,
+                      pitch_budget, pitches_per_batter, starts_count, sp_id,
                       num_sims=10000):
+    
+    today_int = int(datetime.now().strftime('%Y%m%d'))
+    np.random.seed(sp_id + today_int)
+    
     factors = []
     adj_k = base_k_rate
 
@@ -484,6 +486,8 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
     )
 
     k_sims = np.random.binomial(dynamic_bf, game_k_rates)
+    
+    np.random.seed(None)
 
     return {
         'k_sims':    k_sims,
@@ -560,6 +564,29 @@ for game in games:
     temp_f, wind_spd, wind_dir, azimuth = get_weather_for_date(home_team, target_date_str)
 
     with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | 🧑‍⚖️ {api_ump}"):
+        
+        # --- THE FIX: BOXSCORE OVERRIDE ---
+        try:
+            bx = requests.get(f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore", timeout=5).json()
+            away_starters = bx['teams']['away'].get('starters', [])
+            home_starters = bx['teams']['home'].get('starters', [])
+            
+            for pid in away_starters:
+                player = bx['teams']['away']['players'].get(f'ID{pid}')
+                if player and player['position']['abbreviation'] == 'P':
+                    a_sp_name = player['person']['fullName']
+                    a_sp_id = pid
+                    break
+                    
+            for pid in home_starters:
+                player = bx['teams']['home']['players'].get(f'ID{pid}')
+                if player and player['position']['abbreviation'] == 'P':
+                    h_sp_name = player['person']['fullName']
+                    h_sp_id = pid
+                    break
+        except: pass
+        # ----------------------------------
+
         col1, col2 = st.columns(2)
 
         for side, sp_name, sp_id, team_abbr, opp_abbr in [
@@ -572,7 +599,6 @@ for game in games:
                     'Hand': 'R', 'GS': 0, 'IsGhost': True, 'TBF': 0
                 })
 
-                # Savant data with Fuzzy String Match Fallback
                 savant = SAVANT_DB.get(sp_id)
                 if not savant:
                     matches = difflib.get_close_matches(sp_name.title(), SAVANT_NAMES.keys(), n=1, cutoff=0.7)
@@ -600,7 +626,7 @@ for game in games:
                     sp_name, lp['k_rate'], lp['bb_rate'], opp_k_rate, swstr, stuff_plus,
                     lp['recent_k_trend'], home_team, temp_f, wind_spd, wind_dir, azimuth,
                     final_ump, MANAGER_DB.get(team_abbr, 0.0), lp['pitch_budget'],
-                    lp['pitches_per_batter'], lp['starts_count'],
+                    lp['pitches_per_batter'], lp['starts_count'], sp_id,
                 )
 
                 st.markdown(f"### {sp_name}")
@@ -640,7 +666,6 @@ for game in games:
                 target_prob = h_prob if h_prob > l_prob else l_prob
                 ev = ((target_prob / 100.0) * (100.0 / 122.0)) - (1.0 - target_prob / 100.0)
 
-                # STRICT EV FILTER LOGIC
                 if (ev * 100) > 15.0:
                     if target_prob == h_prob:
                         st.success(f"🔥 BEST BET: OVER {line_val:.1f} ({h_prob:.1f}%) | EV: {ev*100:+.1f}%")
@@ -708,6 +733,14 @@ if os.path.exists("k_tracking_ledger.csv"):
 
     if 'Result'    not in df.columns: df['Result']    = ""
     if 'Actual_Ks' not in df.columns: df['Actual_Ks'] = ""
+
+    # --- CLEAR LEDGER BUTTON ---
+    if st.button("🗑️ Clear Entire Ledger", type="primary"):
+        if os.path.exists("k_tracking_ledger.csv"):
+            os.remove("k_tracking_ledger.csv")
+            st.success("Ledger completely cleared!")
+            st.rerun() 
+    # ---------------------------
 
     st.dataframe(df.sort_index(ascending=False), use_container_width=True)
 
