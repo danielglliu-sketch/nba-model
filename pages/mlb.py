@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from io import StringIO
+import difflib
 
 # ==============================================================================
 # CONSTANTS
@@ -68,7 +69,7 @@ TEAM_MAP = {
 # PAGE SETUP
 # ==============================================================================
 st.set_page_config(page_title="MLB K Quant AI", page_icon="🔥", layout="wide")
-st.sidebar.title("🔥 K Autopilot v1")
+st.sidebar.title("🔥 K Autopilot v2")
 api_key        = st.sidebar.text_input("🔑 The Odds API Key (Optional)", type="password")
 selected_date  = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
 target_date_str = selected_date.strftime('%Y-%m-%d')
@@ -78,21 +79,16 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v1 K Master: SwStr% + Stuff+ | Umpire Enhanced | Underdog Optimized")
+st.sidebar.caption("v2 K Master: Fuzzy Match Stuff+ | Strict EV Filters")
 
 # ==============================================================================
 # BASEBALL SAVANT — SwStr% + Stuff+
-# Whiff rate (SwStr%) is the single best predictor of K rate.
-# Stuff+ captures raw arsenal quality independent of results.
 # ==============================================================================
 @st.cache_data(ttl=86400)
 def fetch_savant_data():
-    """
-    Returns dict: {mlb_player_id (int): {'swstr': float, 'stuff_plus': float}}
-    Falls back gracefully if Savant is unreachable.
-    """
     savant_db = {}
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; MLBQuantBot/1.0)'}
+    savant_names = {}
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; MLBQuantBot/2.0)'}
     base = "https://baseballsavant.mlb.com/leaderboard/custom"
 
     # --- SwStr% (whiff_percent) ---
@@ -103,18 +99,27 @@ def fetch_savant_data():
             'player_type': 'pitcher', 'csv': 'true'
         }, headers=headers, timeout=10)
         df = pd.read_csv(StringIO(r.text))
-        # column name varies slightly by year — normalize
         df.columns = [c.lower().strip() for c in df.columns]
         pid_col    = next((c for c in df.columns if 'player_id' in c or c == 'pitcher'), None)
         swstr_col  = next((c for c in df.columns if 'whiff' in c), None)
+        name_col   = next((c for c in df.columns if 'name' in c), None)
+        
         if pid_col and swstr_col:
             for _, row in df.iterrows():
                 try:
                     pid   = int(row[pid_col])
                     swstr = float(row[swstr_col])
-                    # Savant returns as percentage (e.g. 12.3 = 12.3%)
-                    savant_db[pid] = {'swstr': swstr / 100.0 if swstr > 1 else swstr,
-                                      'stuff_plus': 100.0}
+                    swstr = swstr / 100.0 if swstr > 1 else swstr
+                    savant_db[pid] = {'swstr': swstr, 'stuff_plus': 100.0}
+                    
+                    if name_col:
+                        raw_name = str(row[name_col])
+                        if ',' in raw_name:
+                            parts = raw_name.split(',')
+                            fmt_name = f"{parts[1].strip()} {parts[0].strip()}".title()
+                        else:
+                            fmt_name = raw_name.strip().title()
+                        savant_names[fmt_name] = {'swstr': swstr, 'stuff_plus': 100.0}
                 except: pass
     except Exception as e:
         st.sidebar.warning(f"⚠️ Savant SwStr% unavailable: {e}")
@@ -130,6 +135,8 @@ def fetch_savant_data():
         df.columns = [c.lower().strip() for c in df.columns]
         pid_col   = next((c for c in df.columns if 'player_id' in c or c == 'pitcher'), None)
         stuff_col = next((c for c in df.columns if 'stuff' in c), None)
+        name_col  = next((c for c in df.columns if 'name' in c), None)
+        
         if pid_col and stuff_col:
             for _, row in df.iterrows():
                 try:
@@ -139,6 +146,19 @@ def fetch_savant_data():
                         savant_db[pid]['stuff_plus'] = stuff
                     else:
                         savant_db[pid] = {'swstr': LEAGUE_SWSTR_RATE, 'stuff_plus': stuff}
+                        
+                    if name_col:
+                        raw_name = str(row[name_col])
+                        if ',' in raw_name:
+                            parts = raw_name.split(',')
+                            fmt_name = f"{parts[1].strip()} {parts[0].strip()}".title()
+                        else:
+                            fmt_name = raw_name.strip().title()
+                            
+                        if fmt_name in savant_names:
+                            savant_names[fmt_name]['stuff_plus'] = stuff
+                        else:
+                            savant_names[fmt_name] = {'swstr': LEAGUE_SWSTR_RATE, 'stuff_plus': stuff}
                 except: pass
     except Exception as e:
         st.sidebar.warning(f"⚠️ Savant Stuff+ unavailable: {e}")
@@ -146,7 +166,7 @@ def fetch_savant_data():
     loaded = len(savant_db)
     if loaded > 0:
         st.sidebar.success(f"✅ Savant data: {loaded} pitchers loaded")
-    return savant_db
+    return savant_db, savant_names
 
 
 # ==============================================================================
@@ -181,7 +201,6 @@ def fetch_automated_vegas_odds(api_key):
 
 # ==============================================================================
 # WEATHER — Open-Meteo (free, no key required)
-# Wind matters LESS for Ks than for outs but high temp = looser pitching arm
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def get_weather_for_date(team_abbr, date_str):
@@ -208,14 +227,10 @@ def get_weather_for_date(team_abbr, date_str):
 
 
 # ==============================================================================
-# MLB API — Team K rates vs L/R (opponent quality adjustment)
+# MLB API — Team K rates vs L/R
 # ==============================================================================
 @st.cache_data(ttl=86400)
 def get_team_k_rates():
-    """
-    Returns {team_abbr: {'L': k_rate, 'R': k_rate}}
-    Higher = team strikes out more (good for the pitcher prop).
-    """
     team_k = {}
     try:
         r = requests.get(
@@ -231,13 +246,13 @@ def get_team_k_rates():
             ab = s.get('atBats', 0)
             so = s.get('strikeOuts', 0)
             if ab > 0:
-                team_k[abbr] = {'L': so / ab, 'R': so / ab}  # same for both until splits available
+                team_k[abbr] = {'L': so / ab, 'R': so / ab}
     except: pass
     return team_k
 
 
 # ==============================================================================
-# MLB API — Pitcher Season Stats (Bayesian-shrunk K rate)
+# MLB API — Pitcher Season Stats
 # ==============================================================================
 def get_shrinkage_prior(date_str):
     try:
@@ -251,13 +266,11 @@ def get_pitcher_stats():
     pitcher_db, manager_db = {}, {}
     prior = get_shrinkage_prior(datetime.now().strftime('%Y-%m-%d'))
     try:
-        # Handedness map
         people = requests.get(
             "https://statsapi.mlb.com/api/v1/sports/1/players?season=2026", timeout=10
         ).json()
         hand_map = {p['id']: p.get('pitchHand', {}).get('code', 'R') for p in people.get('people', [])}
 
-        # Career K% for Bayesian blend
         career_k = {}
         try:
             cr = requests.get(
@@ -273,7 +286,6 @@ def get_pitcher_stats():
                     career_k[pid] = so / tbf
         except: pass
 
-        # Season stats
         sr = requests.get(
             "https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&playerPool=ALL&season=2026&limit=2000",
             timeout=15
@@ -290,10 +302,8 @@ def get_pitcher_stats():
             gs    = s.get('gamesStarted', 0)
             if tbf == 0: continue
 
-            # Bayesian shrinkage toward league K rate
             shrunk_k = (so + LEAGUE_K_RATE * prior) / (tbf + prior)
 
-            # Blend with career if enough data
             if pid in career_k:
                 w        = min(tbf / 300.0, 0.70)
                 shrunk_k = shrunk_k * w + career_k[pid] * (1.0 - w)
@@ -327,7 +337,7 @@ def get_pitcher_stats():
 
 
 # ==============================================================================
-# LIVE PITCHER GAME LOG — pitch budget, P/BF, recent K trend
+# LIVE PITCHER GAME LOG
 # ==============================================================================
 @st.cache_data(ttl=3600)
 def get_live_pitcher_profile(player_id, fallback, target_date_str):
@@ -338,7 +348,7 @@ def get_live_pitcher_profile(player_id, fallback, target_date_str):
         'pitches_per_batter': 4.1,
         'starts_count':     fallback['GS'],
         'is_ghost':         fallback['IsGhost'],
-        'recent_k_trend':   0.0,   # rolling K/start vs season avg
+        'recent_k_trend':   0.0,
     }
     if not player_id: return profile
     try:
@@ -348,18 +358,15 @@ def get_live_pitcher_profile(player_id, fallback, target_date_str):
         if starts:
             profile['starts_count'] = len(starts)
 
-            # Pitch budget (from peak of last 3 starts)
             recent_pitches = [s['stat'].get('numberOfPitches', 0) for s in starts[:3]]
             peak           = max(recent_pitches) if recent_pitches else 0
             profile['pitch_budget'] = float(peak) if 65 <= peak <= 120 else 95.0
 
-            # Pitches per batter (last 5)
             t_p = sum(s['stat'].get('numberOfPitches', 0) for s in starts[:5])
             t_b = sum(s['stat'].get('battersFaced', 0)    for s in starts[:5])
             if t_b > 0:
                 profile['pitches_per_batter'] = max(3.5, t_p / t_b)
 
-            # Recent K trend: avg Ks last 3 starts vs season rate
             if len(starts) >= 3:
                 recent_k  = sum(s['stat'].get('strikeOuts', 0) for s in starts[:3]) / 3
                 recent_bf = sum(s['stat'].get('battersFaced', 0) for s in starts[:3]) / 3
@@ -394,26 +401,14 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev,
         "Stuff_Plus":      round(stuff_plus, 1),
         "Umpire":          umpire_name,
         "Platform":        "Underdog",
-        "Result":          "",   # fill in manually: W, L, or PUSH
-        "Actual_Ks":       "",   # fill in actual K total after game
+        "Result":          "",
+        "Actual_Ks":       "",
     }
     pd.DataFrame([data]).to_csv(fname, mode='a', header=not file_exists, index=False)
 
 
 # ==============================================================================
-# MONTE CARLO ENGINE — Strikeouts
-#
-# The core change from the outs model:
-#   k_sims = np.random.binomial(dynamic_bf, game_k_rates)
-#
-# New inputs:
-#   swstr_rate  — swinging strike rate (from Savant); strongest K predictor
-#   stuff_plus  — Savant Stuff+ (arsenal quality independent of results)
-#   opp_k_rate  — opponent team K% (how often they strike out)
-#   recent_k_trend — last-3-start K rate vs season avg
-#
-# Umpire effect is LARGER here than in the outs model (~2.5% vs ~1.2%)
-# because wide zones directly produce called K3s and expand chases.
+# MONTE CARLO ENGINE
 # ==============================================================================
 def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
                       stuff_plus, recent_k_trend, park, temp_f, wind_speed,
@@ -421,46 +416,32 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
                       pitch_budget, pitches_per_batter, starts_count,
                       num_sims=10000):
     factors = []
-
-    # ── 1. Base K rate (already Bayesian-shrunk from season stats) ──────────
     adj_k = base_k_rate
 
-    # ── 2. SwStr% adjustment — best single predictor ─────────────────────────
-    # Expected K% from SwStr% alone: K% ≈ 0.45 + 1.85 × SwStr%
-    # We use the DELTA between pitcher's SwStr% and league avg as the edge
     swstr_delta = swstr_rate - LEAGUE_SWSTR_RATE
     swstr_adj   = swstr_delta * SWSTR_TO_K_SLOPE
-    adj_k      += swstr_adj * 0.60   # 60% weight — blended with observed K%
+    adj_k      += swstr_adj * 0.60
     if abs(swstr_adj) > 0.005:
         direction = "⬆️" if swstr_adj > 0 else "⬇️"
         factors.append(f"🌀 SwStr%: {swstr_rate*100:.1f}% {direction} ({swstr_adj*100:+.1f}% K adj)")
 
-    # ── 3. Stuff+ adjustment ─────────────────────────────────────────────────
     stuff_adj = (stuff_plus - 100.0) * (STUFF_K_PER_10 / 10.0)
-    adj_k    += stuff_adj * 0.40   # 40% weight — arsenal quality signal
+    adj_k    += stuff_adj * 0.40
     if abs(stuff_adj) > 0.003:
         factors.append(f"💪 Stuff+: {stuff_plus:.0f} ({stuff_adj*100:+.1f}% K adj)")
 
-    # ── 4. Opponent K% adjustment ────────────────────────────────────────────
-    # If the opposing lineup K's more than average, pitcher's K rate gets a boost
-    league_avg_opp_k = 0.215   # league avg team K/AB
-    # Guard: early-season API returns 0 atBats → division by zero → inf/NaN cascade
+    league_avg_opp_k = 0.215
     if not (opp_k_rate and math.isfinite(opp_k_rate) and opp_k_rate > 0):
         opp_k_rate = league_avg_opp_k
     opp_adj  = (opp_k_rate - league_avg_opp_k) / league_avg_opp_k * 0.12
-    opp_adj  = float(np.clip(opp_adj, -0.15, 0.15))   # cap so no single factor blows up adj_k
+    opp_adj  = float(np.clip(opp_adj, -0.15, 0.15))
     adj_k   *= (1.0 + opp_adj)
     factors.append(f"👥 Opp K%: {opp_k_rate*100:.1f}% ({opp_adj*100:+.1f}%)")
 
-    # ── 5. Recent K trend (last 3 starts) ────────────────────────────────────
-    # 25% weight — recency signal without overreacting to small samples
     adj_k += recent_k_trend * 0.25
     if abs(recent_k_trend) > 0.010:
         factors.append(f"📈 Recent K trend: {recent_k_trend*100:+.1f}% vs season avg")
 
-    # ── 6. Umpire — STRONGER effect on Ks than on outs ───────────────────────
-    # Wide zone → called K3s, expanded chases = +2.5% K rate
-    # Tight zone → batters lay off borderline pitches, more walks = -3.0% K rate
     if umpire in WIDE_ZONE:
         adj_k += 0.025
         factors.append("🧑‍⚖️ Ump: Wide Zone (+2.5% K rate)")
@@ -468,13 +449,11 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
         adj_k -= 0.030
         factors.append("🧑‍⚖️ Ump: Tight Zone (-3.0% K rate)")
 
-    # ── 7. Park factor ────────────────────────────────────────────────────────
     park_pf = K_PARK_FACTORS.get(park, 1.0)
     adj_k  *= park_pf
     if park_pf != 1.0:
         factors.append(f"🏟️ Park: {park} (×{park_pf:.2f})")
 
-    # ── 8. Temperature — cold air = stiffer arm = fewer Ks ───────────────────
     if temp_f < 45:
         adj_k -= 0.012
         factors.append(f"🥶 Cold ({temp_f:.0f}°F): -1.2% K adj")
@@ -482,27 +461,21 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
         adj_k += 0.006
         factors.append(f"☀️ Hot ({temp_f:.0f}°F): +0.6% K adj")
 
-    # ── 9. BF projection (same volume model as outs engine) ─────────────────
     raw_bf  = (pitch_budget / max(pitches_per_batter, 3.5)) + 2.0 + (manager_shift * 0.5)
     adj_bf  = min(raw_bf, 26.5)
-    # Elite workhorses bypass the BF cap
     if sp_name in ["Logan Gilbert","Zack Wheeler","Corbin Burnes","Gerrit Cole",
                    "Spencer Strider","Dylan Cease","Kevin Gausman"]:
         adj_bf = raw_bf
     factors.append(f"🎯 Target BF: {adj_bf:.1f} | Adj K%: {adj_k*100:.1f}%")
 
-    # ── 10. Monte Carlo simulation ────────────────────────────────────────────
-    # Final NaN/inf guard — any upstream factor that produced NaN falls back to league avg
     if not math.isfinite(adj_k):
         adj_k = LEAGUE_K_RATE
     adj_k  = float(np.clip(adj_k, 0.05, 0.55))
 
-    k_std  = 0.040 if starts_count < 5 else 0.032   # K rate is more stable than out rate
+    k_std  = 0.040 if starts_count < 5 else 0.032
     game_k_rates = np.clip(np.random.normal(adj_k, k_std, num_sims), 0.05, 0.55)
-    # np.clip passes NaN through silently — replace any survivors with adj_k
     game_k_rates = np.where(np.isfinite(game_k_rates), game_k_rates, adj_k)
 
-    # BF variance tied to performance (throwing well → more BF opportunity)
     perf_z    = (game_k_rates - adj_k) / k_std
     bf_mod    = np.where(perf_z > 0, perf_z * 2.5, perf_z * 1.8)
     dynamic_bf = np.clip(
@@ -510,7 +483,6 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
         9, 30
     )
 
-    # THE KEY LINE — binomial K draws per simulated start
     k_sims = np.random.binomial(dynamic_bf, game_k_rates)
 
     return {
@@ -525,7 +497,7 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
 # LOAD GLOBAL DATA
 # ==============================================================================
 STATS_DB, MANAGER_DB = get_pitcher_stats()
-SAVANT_DB            = fetch_savant_data()
+SAVANT_DB, SAVANT_NAMES = fetch_savant_data()
 TEAM_K_DB            = get_team_k_rates()
 vegas_lines          = fetch_automated_vegas_odds(api_key)
 
@@ -533,10 +505,9 @@ vegas_lines          = fetch_automated_vegas_odds(api_key)
 # ==============================================================================
 # MAIN UI
 # ==============================================================================
-st.title("🔥 Underdog Quant AI — Strikeout Engine v1")
-st.caption("SwStr% + Stuff+ integrated | Umpire K-zone enhanced | Bayesian K-rate shrinkage")
+st.title("🔥 Underdog Quant AI — Strikeout Engine v2")
+st.caption("Fuzzy Match Stuff+ integrated | Strict >15% EV Filtering")
 
-# Sidebar Savant summary
 with st.sidebar:
     st.markdown("---")
     st.markdown("**🌀 Savant Data Status**")
@@ -549,7 +520,6 @@ with st.sidebar:
     else:
         st.warning("No Savant data — model using MLB API stats only")
 
-# Fetch today's schedule
 try:
     games = requests.get(
         f"https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={target_date_str}"
@@ -576,7 +546,6 @@ for game in games:
 
     if h_sp_name == 'TBD' or a_sp_name == 'TBD': continue
 
-    # Umpire from API
     api_ump = "Neutral"
     try:
         for off in game.get('officials', []):
@@ -598,63 +567,52 @@ for game in games:
             (col2, h_sp_name, h_sp_id, home_team, away_team)
         ]:
             with side:
-                # Pitcher base stats
                 match = STATS_DB.get(sp_id, {
                     'K%': LEAGUE_K_RATE, 'BB%': LEAGUE_BB_RATE,
                     'Hand': 'R', 'GS': 0, 'IsGhost': True, 'TBF': 0
                 })
 
-                # Savant data
-                savant    = SAVANT_DB.get(sp_id, {})
-                swstr     = savant.get('swstr',      LEAGUE_SWSTR_RATE)
-                stuff_plus= savant.get('stuff_plus', 100.0)
+                # Savant data with Fuzzy String Match Fallback
+                savant = SAVANT_DB.get(sp_id)
+                if not savant:
+                    matches = difflib.get_close_matches(sp_name.title(), SAVANT_NAMES.keys(), n=1, cutoff=0.7)
+                    if matches:
+                        savant = SAVANT_NAMES[matches[0]]
+                        st.caption(f"*(Fuzzy matched Savant data: {matches[0]})*")
+                    else:
+                        savant = {}
+                
+                swstr      = savant.get('swstr',      LEAGUE_SWSTR_RATE)
+                stuff_plus = savant.get('stuff_plus', 100.0)
 
-                # Opponent K rate (vs pitcher handedness)
                 hand      = match.get('Hand', 'R')
                 opp_data  = TEAM_K_DB.get(opp_abbr, {})
                 opp_k_rate= opp_data.get(hand, 0.215)
 
-                # Live game-log profile
                 lp = get_live_pitcher_profile(sp_id, match, target_date_str)
 
-                # Umpire override
                 ump_options = [f"API Assigned ({api_ump})", "Neutral"] + WIDE_ZONE + TIGHT_ZONE
                 ump_choice  = st.selectbox(f"Umpire Override ({sp_name}):",
                                            ump_options, key=f"ump_{team_abbr}_{sp_id}")
                 final_ump   = api_ump if "API" in ump_choice else ump_choice
 
-                # Run simulation
                 res = run_monte_carlo_k(
-                    sp_name,
-                    lp['k_rate'],
-                    lp['bb_rate'],
-                    opp_k_rate,
-                    swstr,
-                    stuff_plus,
-                    lp['recent_k_trend'],
-                    home_team,
-                    temp_f, wind_spd, wind_dir, azimuth,
-                    final_ump,
-                    MANAGER_DB.get(team_abbr, 0.0),
-                    lp['pitch_budget'],
-                    lp['pitches_per_batter'],
-                    lp['starts_count'],
+                    sp_name, lp['k_rate'], lp['bb_rate'], opp_k_rate, swstr, stuff_plus,
+                    lp['recent_k_trend'], home_team, temp_f, wind_spd, wind_dir, azimuth,
+                    final_ump, MANAGER_DB.get(team_abbr, 0.0), lp['pitch_budget'],
+                    lp['pitches_per_batter'], lp['starts_count'],
                 )
 
-                # ── Display ───────────────────────────────────────────────
                 st.markdown(f"### {sp_name}")
-
-                # Ghost pitcher warning
                 if match.get('IsGhost'):
                     st.warning("⚠️ Limited MLB data — projections use league averages")
 
-                # Core metrics (K-focused)
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("K%",        f"{lp['k_rate']*100:.1f}%")
                 m2.metric("SwStr%",    f"{swstr*100:.1f}%",
-                          delta="savant" if sp_id in SAVANT_DB else "est.")
+                          delta="savant" if savant else "est.")
                 m3.metric("Stuff+",    f"{stuff_plus:.0f}",
-                          delta=f"{stuff_plus-100:+.0f}" if sp_id in SAVANT_DB else None)
+                          delta=f"{stuff_plus-100:+.0f}" if savant else None)
                 m4.metric("Starts",    lp['starts_count'])
 
                 m5, m6, m7 = st.columns(3)
@@ -664,13 +622,10 @@ for game in games:
                              else ("Tight 🔴" if final_ump in TIGHT_ZONE else "Neutral ⚪"))
                 m7.metric("Ump Zone", ump_label)
 
-                # K trend indicator
                 if abs(lp['recent_k_trend']) > 0.010:
                     trend_dir = "📈 Running HOT" if lp['recent_k_trend'] > 0 else "📉 Running COLD"
                     st.caption(f"{trend_dir}: {lp['recent_k_trend']*100:+.1f}% vs season K%")
 
-                # ── Line input + EV ───────────────────────────────────────
-                # Pull from Vegas / Odds API if available; default 5.5
                 default_line = 5.5
                 if sp_name in vegas_lines:
                     default_line = vegas_lines[sp_name]['Over']['line']
@@ -682,26 +637,26 @@ for game in games:
                 h_prob = float(np.sum(res['k_sims'] > line_val)) / 10000 * 100
                 l_prob = 100.0 - h_prob
 
-                # EV locked to -122 break-even (Underdog standard)
                 target_prob = h_prob if h_prob > l_prob else l_prob
                 ev = ((target_prob / 100.0) * (100.0 / 122.0)) - (1.0 - target_prob / 100.0)
 
-                # Signal threshold: 55.1% (meaningful edge over -122 implied 45%)
-                if h_prob > 55.1:
-                    if line_val < 4.5:
-                        st.warning(f"⚠️ LOW LINE FILTER: OVER {line_val:.1f} ({h_prob:.1f}%) — line below 4.5 minimum, likely model noise not a real edge")
+                # STRICT EV FILTER LOGIC
+                if (ev * 100) > 15.0:
+                    if target_prob == h_prob:
+                        st.success(f"🔥 BEST BET: OVER {line_val:.1f} ({h_prob:.1f}%) | EV: {ev*100:+.1f}%")
                     else:
-                        st.success(f"🔥 OVER {line_val:.1f}: {h_prob:.1f}% | EV: {ev*100:+.1f}%")
-                elif l_prob > 55.1:
-                    st.error(f"❄️ UNDER {line_val:.1f}: {l_prob:.1f}% | EV: {ev*100:+.1f}%")
+                        st.success(f"🔥 BEST BET: UNDER {line_val:.1f} ({l_prob:.1f}%) | EV: {ev*100:+.1f}%")
+                elif target_prob > 55.1:
+                    if target_prob == h_prob:
+                        st.info(f"✅ OVER {line_val:.1f}: {h_prob:.1f}% | EV: {ev*100:+.1f}% (No Play: EV < 15%)")
+                    else:
+                        st.info(f"✅ UNDER {line_val:.1f}: {l_prob:.1f}% | EV: {ev*100:+.1f}% (No Play: EV < 15%)")
                 else:
-                    st.warning(f"⚖️ NO PLAY: {max(h_prob, l_prob):.1f}% (need >55.1%)")
+                    st.warning(f"⚖️ NO PLAY: Edge is too small (Max Prob: {target_prob:.1f}%)")
 
-                # Distribution summary
                 p25, p50, p75 = np.percentile(res['k_sims'], [25, 50, 75])
                 st.info(f"📊 Median: {p50:.1f}K | 25th: {p25:.0f} | 75th: {p75:.0f} | BF: {res['adj_bf']:.1f}")
 
-                # Log button
                 if st.button(f"💾 Log Play", key=f"log_{team_abbr}_{sp_id}"):
                     log_play_to_csv(
                         target_date_str, sp_name, team_abbr, opp_abbr,
@@ -712,27 +667,25 @@ for game in games:
                     )
                     st.success("✅ Logged to k_tracking_ledger.csv")
 
-                # Model breakdown
                 with st.expander("🔬 Model Breakdown"):
                     for f in res['factors']:
                         st.caption(f"• {f}")
-                    if sp_id in SAVANT_DB:
-                        st.caption(f"• 🌀 SwStr% source: Baseball Savant (live)")
-                        st.caption(f"• 💪 Stuff+ source: Baseball Savant (live)")
+                    if savant:
+                        st.caption(f"• 🌀 SwStr% source: Baseball Savant")
+                        st.caption(f"• 💪 Stuff+ source: Baseball Savant")
                     else:
                         st.caption("• ⚠️ No Savant data for this pitcher — using league avg SwStr%/Stuff+")
-                    # Savant raw debug — use this to verify correct column parsing
+                    
                     st.markdown("**🔍 Savant Raw Debug**")
-                    raw_savant = SAVANT_DB.get(sp_id, {})
-                    if raw_savant:
+                    if savant:
                         st.json({
-                            "player_id":   sp_id,
-                            "swstr_raw":   raw_savant.get('swstr'),
-                            "swstr_pct":   f"{raw_savant.get('swstr', 0)*100:.2f}%",
-                            "stuff_plus":  raw_savant.get('stuff_plus'),
+                            "pitcher_name": sp_name,
+                            "swstr_raw":   savant.get('swstr'),
+                            "swstr_pct":   f"{savant.get('swstr', 0)*100:.2f}%",
+                            "stuff_plus":  savant.get('stuff_plus'),
                         })
                     else:
-                        st.caption(f"❌ No Savant entry found for player_id={sp_id} — check if ID matches Savant's player_id column")
+                        st.caption(f"❌ No Savant entry found for {sp_name}")
 
 # ==============================================================================
 # LEDGER VIEWER
@@ -742,7 +695,6 @@ st.header("📊 K Betting Ledger")
 if os.path.exists("k_tracking_ledger.csv"):
     df = pd.read_csv("k_tracking_ledger.csv")
 
-    # Summary stats
     total = len(df)
     if total > 0:
         c1, c2, c3, c4 = st.columns(4)
@@ -754,13 +706,11 @@ if os.path.exists("k_tracking_ledger.csv"):
         over_pct = (df['Pick'] == 'OVER').mean() * 100
         c4.metric("Over%", f"{over_pct:.0f}%")
 
-    # Inject missing columns so old CSVs don't crash
     if 'Result'    not in df.columns: df['Result']    = ""
     if 'Actual_Ks' not in df.columns: df['Actual_Ks'] = ""
 
     st.dataframe(df.sort_index(ascending=False), use_container_width=True)
 
-    # Result entry — edit W/L/PUSH and actual Ks then save back to CSV
     st.markdown("**✏️ Update Results**")
     edited_df = st.data_editor(
         df[['Game_Date','Pitcher','Line','Pick','Median_Ks','Result','Actual_Ks']],
@@ -777,12 +727,12 @@ if os.path.exists("k_tracking_ledger.csv"):
         df['Actual_Ks']  = edited_df['Actual_Ks'].values
         df.to_csv("k_tracking_ledger.csv", index=False)
         st.success("✅ Results saved!")
-        # Show quick W/L summary if results exist
+        
         filled = df[df['Result'].isin(['W','L'])]
         if len(filled) > 0:
             wins  = (filled['Result'] == 'W').sum()
-            total = len(filled)
-            st.metric("Record", f"{wins}-{total-wins}", delta=f"{wins/total*100:.1f}% win rate")
+            total_graded = len(filled)
+            st.metric("Record", f"{wins}-{total_graded-wins}", delta=f"{wins/total_graded*100:.1f}% win rate")
     st.download_button(
         "📥 Download K Ledger CSV",
         data=df.to_csv(index=False).encode('utf-8'),
