@@ -442,7 +442,11 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
     # ── 4. Opponent K% adjustment ────────────────────────────────────────────
     # If the opposing lineup K's more than average, pitcher's K rate gets a boost
     league_avg_opp_k = 0.215   # league avg team K/AB
+    # Guard: early-season API returns 0 atBats → division by zero → inf/NaN cascade
+    if not (opp_k_rate and math.isfinite(opp_k_rate) and opp_k_rate > 0):
+        opp_k_rate = league_avg_opp_k
     opp_adj  = (opp_k_rate - league_avg_opp_k) / league_avg_opp_k * 0.12
+    opp_adj  = float(np.clip(opp_adj, -0.15, 0.15))   # cap so no single factor blows up adj_k
     adj_k   *= (1.0 + opp_adj)
     factors.append(f"👥 Opp K%: {opp_k_rate*100:.1f}% ({opp_adj*100:+.1f}%)")
 
@@ -486,9 +490,15 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
     factors.append(f"🎯 Target BF: {adj_bf:.1f} | Adj K%: {adj_k*100:.1f}%")
 
     # ── 10. Monte Carlo simulation ────────────────────────────────────────────
+    # Final NaN/inf guard — any upstream factor that produced NaN falls back to league avg
+    if not math.isfinite(adj_k):
+        adj_k = LEAGUE_K_RATE
     adj_k  = float(np.clip(adj_k, 0.05, 0.55))
+
     k_std  = 0.040 if starts_count < 5 else 0.032   # K rate is more stable than out rate
     game_k_rates = np.clip(np.random.normal(adj_k, k_std, num_sims), 0.05, 0.55)
+    # np.clip passes NaN through silently — replace any survivors with adj_k
+    game_k_rates = np.where(np.isfinite(game_k_rates), game_k_rates, adj_k)
 
     # BF variance tied to performance (throwing well → more BF opportunity)
     perf_z    = (game_k_rates - adj_k) / k_std
