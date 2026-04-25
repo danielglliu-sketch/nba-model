@@ -77,7 +77,7 @@ if st.sidebar.button("🔄 Force Global Refresh"):
     st.sidebar.success("All caches cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("v2 K Master: Fuzzy Match Stuff+ | Strict EV Filters | Boxscore Fix | Seed Lock | Clear Ledger")
+st.sidebar.caption("v2 K Master: Fuzzy Match | Over Penalties | Ace Warnings")
 
 # ==============================================================================
 # BASEBALL SAVANT — SwStr% + Stuff+
@@ -466,7 +466,7 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
     raw_bf  = (pitch_budget / max(pitches_per_batter, 3.5)) + 2.0 + (manager_shift * 0.5)
     adj_bf  = min(raw_bf, 26.5)
     if sp_name in ["Logan Gilbert","Zack Wheeler","Corbin Burnes","Gerrit Cole",
-                   "Spencer Strider","Dylan Cease","Kevin Gausman"]:
+                   "Spencer Strider","Dylan Cease","Kevin Gausman", "Tarik Skubal"]:
         adj_bf = raw_bf
     factors.append(f"🎯 Target BF: {adj_bf:.1f} | Adj K%: {adj_k*100:.1f}%")
 
@@ -510,7 +510,7 @@ vegas_lines          = fetch_automated_vegas_odds(api_key)
 # MAIN UI
 # ==============================================================================
 st.title("🔥 Underdog Quant AI — Strikeout Engine v2")
-st.caption("Fuzzy Match Stuff+ integrated | Strict >15% EV Filtering")
+st.caption("Fuzzy Match Stuff+ | Strict EV Filters | Autopilot Over Penalties")
 
 with st.sidebar:
     st.markdown("---")
@@ -565,7 +565,6 @@ for game in games:
 
     with st.expander(f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | 🧑‍⚖️ {api_ump}"):
         
-        # --- THE FIX: BOXSCORE OVERRIDE ---
         try:
             bx = requests.get(f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore", timeout=5).json()
             away_starters = bx['teams']['away'].get('starters', [])
@@ -585,7 +584,6 @@ for game in games:
                     h_sp_id = pid
                     break
         except: pass
-        # ----------------------------------
 
         col1, col2 = st.columns(2)
 
@@ -660,22 +658,53 @@ for game in games:
                                            step=0.5, min_value=0.5, max_value=15.0,
                                            key=f"l_{team_abbr}_{sp_id}")
 
-                h_prob = float(np.sum(res['k_sims'] > line_val)) / 10000 * 100
-                l_prob = 100.0 - h_prob
+                # --- BASE PROBABILITIES ---
+                raw_h_prob = float(np.sum(res['k_sims'] > line_val)) / 10000 * 100
+                raw_l_prob = 100.0 - raw_h_prob
 
-                target_prob = h_prob if h_prob > l_prob else l_prob
+                target_prob = raw_h_prob if raw_h_prob > raw_l_prob else raw_l_prob
+                pick_is_over = (target_prob == raw_h_prob)
+                
+                h_prob = raw_h_prob
+                l_prob = raw_l_prob
+
+                # --- FORWARD TESTING PENALTIES ---
+                if pick_is_over:
+                    if line_val <= 4.5 and stuff_plus == 100.0:
+                        target_prob -= 15.0
+                        res['factors'].append("⚠️ PENALTY: Trap Line (<=4.5) & Missing Stuff+ (-15% Prob)")
+                    if swstr < 0.275:
+                        target_prob -= 15.0
+                        res['factors'].append(f"⚠️ PENALTY: Sub-27.5% SwStr% (-15% Prob)")
+                    
+                    h_prob = target_prob # Update display prob
+
                 ev = ((target_prob / 100.0) * (100.0 / 122.0)) - (1.0 - target_prob / 100.0)
 
+                GLASS_CANNONS = [
+                    "Jacob deGrom", "Tyler Glasnow", "Paul Skenes", "Spencer Strider", 
+                    "Garrett Crochet", "Freddy Peralta", "Hunter Greene", "Yoshinobu Yamamoto",
+                    "Tarik Skubal", "Logan Gilbert", "Zack Wheeler", "Corbin Burnes", 
+                    "Gerrit Cole", "Dylan Cease", "Kevin Gausman"
+                ]
+
+                # STRICT EV FILTER LOGIC
                 if (ev * 100) > 15.0:
-                    if target_prob == h_prob:
+                    if pick_is_over:
                         st.success(f"🔥 BEST BET: OVER {line_val:.1f} ({h_prob:.1f}%) | EV: {ev*100:+.1f}%")
                     else:
-                        st.success(f"🔥 BEST BET: UNDER {line_val:.1f} ({l_prob:.1f}%) | EV: {ev*100:+.1f}%")
+                        if sp_name in GLASS_CANNONS:
+                            st.warning(f"⚠️ ELITE ACE WARNING: UNDER {line_val:.1f} ({l_prob:.1f}%) | EV: {ev*100:+.1f}% (Consider Passing)")
+                        else:
+                            st.success(f"🔥 BEST BET: UNDER {line_val:.1f} ({l_prob:.1f}%) | EV: {ev*100:+.1f}%")
                 elif target_prob > 55.1:
-                    if target_prob == h_prob:
+                    if pick_is_over:
                         st.info(f"✅ OVER {line_val:.1f}: {h_prob:.1f}% | EV: {ev*100:+.1f}% (No Play: EV < 15%)")
                     else:
-                        st.info(f"✅ UNDER {line_val:.1f}: {l_prob:.1f}% | EV: {ev*100:+.1f}% (No Play: EV < 15%)")
+                        if sp_name in GLASS_CANNONS:
+                            st.warning(f"⚠️ ELITE ACE WARNING: UNDER {line_val:.1f} ({l_prob:.1f}%) | EV: {ev*100:+.1f}% (No Play: EV < 15%)")
+                        else:
+                            st.info(f"✅ UNDER {line_val:.1f}: {l_prob:.1f}% | EV: {ev*100:+.1f}% (No Play: EV < 15%)")
                 else:
                     st.warning(f"⚖️ NO PLAY: Edge is too small (Max Prob: {target_prob:.1f}%)")
 
@@ -686,7 +715,7 @@ for game in games:
                     log_play_to_csv(
                         target_date_str, sp_name, team_abbr, opp_abbr,
                         line_val,
-                        "OVER" if h_prob > l_prob else "UNDER",
+                        "OVER" if pick_is_over else "UNDER",
                         UD_IMPLIED_ODDS, target_prob, ev * 100,
                         p50, res['adj_bf'], final_ump, swstr, stuff_plus
                     )
@@ -734,13 +763,11 @@ if os.path.exists("k_tracking_ledger.csv"):
     if 'Result'    not in df.columns: df['Result']    = ""
     if 'Actual_Ks' not in df.columns: df['Actual_Ks'] = ""
 
-    # --- CLEAR LEDGER BUTTON ---
     if st.button("🗑️ Clear Entire Ledger", type="primary"):
         if os.path.exists("k_tracking_ledger.csv"):
             os.remove("k_tracking_ledger.csv")
             st.success("Ledger completely cleared!")
             st.rerun() 
-    # ---------------------------
 
     st.dataframe(df.sort_index(ascending=False), use_container_width=True)
 
