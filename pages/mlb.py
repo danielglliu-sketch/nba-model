@@ -18,10 +18,8 @@ LEAGUE_SWSTR_RATE       = 0.108   # ~10.8% swinging strike rate league avg
 UD_IMPLIED_ODDS         = -122    # Underdog break-even
 SWSTR_TO_K_SLOPE        = 1.85    # regression coefficient: K% ≈ 0.45 + 1.85 × SwStr%
 STUFF_K_PER_10          = 0.015   # +10 Stuff+ points ≈ +1.5% K rate
-# FIX 1: Corrected SwStr% penalty threshold (was 0.275 — ~2.5x too high)
 SWSTR_PENALTY_THRESHOLD = 0.095   # Just below league avg (0.108); clearly below-avg whiff rate
-# FIX 2: Dynamic BF cap threshold — pitchers averaging ≥24 BF/start bypass the 26.5 cap
-ACE_BF_THRESHOLD        = 24.0
+ACE_BF_THRESHOLD        = 24.0    # Pitchers averaging >=24 BF/start bypass the 26.5 cap
 
 K_PARK_FACTORS = {
     'SEA': 1.03, 'TB':  1.02, 'MIA': 1.02, 'SD':  1.01, 'OAK': 1.01,
@@ -83,7 +81,7 @@ st.sidebar.caption("v2.1: Lineup Splits | Dynamic BF Cap | SwStr Fix | Sample-We
 
 
 # ==============================================================================
-# FIX 5 HELPER: American odds → decimal payout per $1 risked
+# HELPER: American odds → decimal payout per $1 risked
 # ==============================================================================
 def american_to_payout(american_odds: int) -> float:
     """Convert American odds (e.g. -115, +130) to decimal payout per $1 risked."""
@@ -119,9 +117,13 @@ def fetch_savant_data():
         if pid_col and swstr_col:
             for _, row in df.iterrows():
                 try:
-                    pid   = int(row[pid_col])
-                    swstr = float(row[swstr_col])
-                    swstr = swstr / 100.0 if swstr > 1 else swstr
+                    pid       = int(row[pid_col])
+                    raw_whiff = float(row[swstr_col])
+                    raw_whiff = raw_whiff / 100.0 if raw_whiff > 1 else raw_whiff
+                    
+                    # Convert Whiff% to true SwStr% using the 0.47 multiplier
+                    swstr = raw_whiff * 0.47
+                    
                     savant_db[pid] = {'swstr': swstr, 'stuff_plus': 100.0}
                     if name_col:
                         raw_name = str(row[name_col])
@@ -241,14 +243,10 @@ def get_weather_for_date(team_abbr, date_str):
 
 
 # ==============================================================================
-# FIX 3 — All-player bat/pitch handedness map (used for lineup splits)
+# All-player bat/pitch handedness map (used for lineup splits)
 # ==============================================================================
 @st.cache_data(ttl=86400)
 def get_all_player_hands():
-    """
-    Returns {player_id: {'bat': 'L'/'R'/'S', 'pitch': 'L'/'R'}} for every
-    active 2026 player. Cached daily — one cheap API call.
-    """
     hand_map = {}
     try:
         people = requests.get(
@@ -267,21 +265,10 @@ def get_all_player_hands():
 
 
 # ==============================================================================
-# FIX 3 — Lineup handedness adjustment
+# Lineup handedness adjustment
 # ==============================================================================
 @st.cache_data(ttl=1800)
 def get_lineup_hand_adjustment(game_pk, opp_is_home, pitcher_hand, base_opp_k_rate):
-    """
-    Fetches the opposing lineup from the boxscore and adjusts opponent K rate
-    based on actual pitcher-batter handedness matchups.
-
-    Standard platoon research:
-      - Same-hand matchups give pitchers a slight K edge  (+)
-      - Opposite-hand matchups give hitters the advantage (-)
-    Baseline = 50/50 split; ±7.5% swing at extremes.
-
-    Returns (adjusted_opp_k_rate: float, note: str)
-    """
     hand_map = get_all_player_hands()
     if not hand_map:
         return base_opp_k_rate, ""
@@ -302,8 +289,8 @@ def get_lineup_hand_adjustment(game_pk, opp_is_home, pitcher_hand, base_opp_k_ra
 
         for pid in batting_order[:9]:          # Starting nine only
             bat_hand = hand_map.get(int(pid), {}).get('bat', 'R')
-            if bat_hand == 'S':                # Switch hitter: 0.5 credit each side
-                same_hand += 0.5
+            if bat_hand == 'S':                
+                same_hand += 0.0               # They will always take the opposite-hand advantage
             elif bat_hand == pitcher_hand:
                 same_hand += 1.0
             total += 1
@@ -312,7 +299,6 @@ def get_lineup_hand_adjustment(game_pk, opp_is_home, pitcher_hand, base_opp_k_ra
             return base_opp_k_rate, ""
 
         same_pct    = same_hand / total
-        # (same_pct - 0.50) drives adjustment; slope 0.15 → ±7.5% max at 0/100% same
         platoon_adj = float(np.clip((same_pct - 0.50) * 0.15, -0.075, 0.075))
         adj_k       = base_opp_k_rate * (1.0 + platoon_adj)
         note        = (f"🆚 Lineup splits: {same_hand:.1f}/{total} same-hand batters "
@@ -324,15 +310,10 @@ def get_lineup_hand_adjustment(game_pk, opp_is_home, pitcher_hand, base_opp_k_ra
 
 
 # ==============================================================================
-# MLB API — Team K rates + games played   [FIX 4 addition: gamesPlayed]
+# MLB API — Team K rates + games played 
 # ==============================================================================
 @st.cache_data(ttl=86400)
 def get_team_k_rates():
-    """
-    Returns:
-      team_k     : {abbr: {'L': k_rate, 'R': k_rate}}
-      team_games : {abbr: games_played}   ← FIX 4 — used to weight opp K adj
-    """
     team_k     = {}
     team_games = {}
     try:
@@ -349,7 +330,7 @@ def get_team_k_rates():
             s  = rec['stat']
             ab = s.get('atBats', 0)
             so = s.get('strikeOuts', 0)
-            gp = s.get('gamesPlayed', 0)    # FIX 4
+            gp = s.get('gamesPlayed', 0)    
             if ab > 0:
                 k_rate          = so / ab
                 team_k[abbr]    = {'L': k_rate, 'R': k_rate}
@@ -423,7 +404,6 @@ def get_pitcher_stats():
                 w        = min(tbf / 300.0, 0.70)
                 shrunk_k = shrunk_k * w + career_k[pid] * (1.0 - w)
 
-            # FIX 2: Store avg_bf_per_start so the Monte Carlo can use it dynamically
             avg_bf_per_start = (
                 max(16.0, min(28.0, (tbf + LEAGUE_AVG_BF * 2) / (gs + 2)))
                 if gs > 0 else LEAGUE_AVG_BF
@@ -435,7 +415,7 @@ def get_pitcher_stats():
                 'BB%':             (bb + LEAGUE_BB_RATE * prior) / (tbf + prior),
                 'Hand':            hand_map.get(pid, 'R'),
                 'BF_per_Start':    avg_bf_per_start,
-                'AvgBFperStart':   avg_bf_per_start,   # FIX 2: explicit field for BF cap logic
+                'AvgBFperStart':   avg_bf_per_start, 
                 'GS':              gs,
                 'IsGhost':         tbf < 10,
                 'TBF':             tbf,
@@ -473,7 +453,7 @@ def get_live_pitcher_profile(player_id, fallback, target_date_str):
         'starts_count':       fallback['GS'],
         'is_ghost':           fallback['IsGhost'],
         'recent_k_trend':     0.0,
-        'avg_bf_per_start':   fallback.get('AvgBFperStart', LEAGUE_AVG_BF),  # FIX 2
+        'avg_bf_per_start':   fallback.get('AvgBFperStart', LEAGUE_AVG_BF),
     }
     if not player_id:
         return profile
@@ -495,7 +475,6 @@ def get_live_pitcher_profile(player_id, fallback, target_date_str):
             if t_b > 0:
                 profile['pitches_per_batter'] = max(3.5, t_p / t_b)
 
-            # FIX 2: Compute actual avg BF/start from game log (most accurate signal)
             all_bf = [s['stat'].get('battersFaced', 0) for s in starts if s['stat'].get('battersFaced', 0) > 0]
             if all_bf:
                 profile['avg_bf_per_start'] = sum(all_bf) / len(all_bf)
@@ -543,15 +522,13 @@ def log_play_to_csv(date, pitcher, team, opponent, line, pick, odds, prob, ev,
 
 # ==============================================================================
 # MONTE CARLO ENGINE
-# FIX 2: Dynamic BF cap replaces hardcoded whitelist
-# FIX 4: opp_sample_games weights the opponent K rate adjustment
 # ==============================================================================
 def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
                       stuff_plus, recent_k_trend, park, temp_f, wind_speed,
                       wind_dir, azimuth, umpire, manager_shift,
                       pitch_budget, pitches_per_batter, starts_count, sp_id,
-                      avg_bf_per_start=LEAGUE_AVG_BF,   # FIX 2
-                      opp_sample_games=30,               # FIX 4
+                      avg_bf_per_start=LEAGUE_AVG_BF,   
+                      opp_sample_games=30,               
                       num_sims=10000):
 
     today_int = int(datetime.now().strftime('%Y%m%d'))
@@ -574,12 +551,11 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
     if abs(stuff_adj) > 0.003:
         factors.append(f"💪 Stuff+: {stuff_plus:.0f} ({stuff_adj*100:+.1f}% K adj)")
 
-    # ── Opponent K rate — FIX 4: scale by sample size ──────────────────────────
+    # ── Opponent K rate ────────────────────────────────────────────────────────
     league_avg_opp_k = 0.215
     if not (opp_k_rate and math.isfinite(opp_k_rate) and opp_k_rate > 0):
         opp_k_rate = league_avg_opp_k
 
-    # Weight toward zero early in season; full weight at 30+ games
     sample_weight = float(np.clip(opp_sample_games / 30.0, 0.10, 1.0))
     raw_opp_adj   = (opp_k_rate - league_avg_opp_k) / league_avg_opp_k * 0.12
     opp_adj       = float(np.clip(raw_opp_adj * sample_weight, -0.15, 0.15))
@@ -616,10 +592,8 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
         adj_k += 0.006
         factors.append(f"☀️ Hot ({temp_f:.0f}°F): +0.6% K adj")
 
-    # ── BF projection — FIX 2: dynamic cap based on actual avg BF/start ────────
+    # ── BF projection ──────────────────────────────────────────────────────────
     raw_bf  = (pitch_budget / max(pitches_per_batter, 3.5)) + 2.0 + (manager_shift * 0.5)
-    # Pitchers who actually average ≥ ACE_BF_THRESHOLD BF/start get no cap
-    # (previously used a hardcoded name whitelist which goes stale)
     adj_bf  = raw_bf if avg_bf_per_start >= ACE_BF_THRESHOLD else min(raw_bf, 26.5)
     factors.append(
         f"🎯 Target BF: {adj_bf:.1f} (avg {avg_bf_per_start:.1f}/start) | Adj K%: {adj_k*100:.1f}%"
@@ -656,7 +630,7 @@ def run_monte_carlo_k(sp_name, base_k_rate, bb_rate, opp_k_rate, swstr_rate,
 # ==============================================================================
 STATS_DB, MANAGER_DB       = get_pitcher_stats()
 SAVANT_DB, SAVANT_NAMES    = fetch_savant_data()
-TEAM_K_DB, TEAM_GAMES_DB   = get_team_k_rates()   # FIX 4: now returns tuple
+TEAM_K_DB, TEAM_GAMES_DB   = get_team_k_rates()
 vegas_lines                = fetch_automated_vegas_odds(api_key)
 
 
@@ -725,7 +699,6 @@ for game in games:
     with st.expander(
         f"⚾ {away_team} ({a_sp_name}) @ {home_team} ({h_sp_name}) | 🧑‍⚖️ {api_ump}"
     ):
-        # Try to confirm starter from boxscore (live games)
         try:
             bx             = requests.get(
                 f"https://statsapi.mlb.com/api/v1/game/{game['gamePk']}/boxscore", timeout=5
@@ -752,8 +725,8 @@ for game in games:
         col1, col2 = st.columns(2)
 
         for side, sp_name, sp_id, team_abbr, opp_abbr, opp_is_home in [
-            (col1, a_sp_name, a_sp_id, away_team, home_team, True),   # away pitcher → opp is home
-            (col2, h_sp_name, h_sp_id, home_team, away_team, False),  # home pitcher → opp is away
+            (col1, a_sp_name, a_sp_id, away_team, home_team, True),  
+            (col2, h_sp_name, h_sp_id, home_team, away_team, False), 
         ]:
             with side:
                 match = STATS_DB.get(sp_id, {
@@ -762,7 +735,6 @@ for game in games:
                     'AvgBFperStart': LEAGUE_AVG_BF,
                 })
 
-                # Savant lookup with fuzzy fallback
                 savant = SAVANT_DB.get(sp_id)
                 if not savant:
                     matches = difflib.get_close_matches(
@@ -783,16 +755,13 @@ for game in games:
                 opp_data  = TEAM_K_DB.get(opp_abbr, {})
                 opp_k_rate = opp_data.get(hand, 0.215)
 
-                # FIX 3: Adjust opp K rate for actual lineup handedness
                 opp_k_rate, lineup_note = get_lineup_hand_adjustment(
                     game['gamePk'], opp_is_home, hand, opp_k_rate
                 )
 
-                # FIX 4: Pull opponent sample size
                 opp_sample_games = TEAM_GAMES_DB.get(opp_abbr, 10)
 
                 lp = get_live_pitcher_profile(sp_id, match, target_date_str)
-                # FIX 2: avg_bf_per_start from live profile
                 avg_bf_per_start = lp.get('avg_bf_per_start', match.get('AvgBFperStart', LEAGUE_AVG_BF))
 
                 ump_options = [f"API Assigned ({api_ump})", "Neutral"] + WIDE_ZONE + TIGHT_ZONE
@@ -805,8 +774,8 @@ for game in games:
                     lp['recent_k_trend'], home_team, temp_f, wind_spd, wind_dir, azimuth,
                     final_ump, MANAGER_DB.get(team_abbr, 0.0), lp['pitch_budget'],
                     lp['pitches_per_batter'], lp['starts_count'], sp_id,
-                    avg_bf_per_start=avg_bf_per_start,   # FIX 2
-                    opp_sample_games=opp_sample_games,   # FIX 4
+                    avg_bf_per_start=avg_bf_per_start,   
+                    opp_sample_games=opp_sample_games,   
                 )
 
                 # ── Display ────────────────────────────────────────────────────
@@ -814,7 +783,6 @@ for game in games:
                 if match.get('IsGhost'):
                     st.warning("⚠️ Limited MLB data — projections use league averages")
 
-                # Show lineup note if available (FIX 3)
                 if lineup_note:
                     st.caption(lineup_note)
 
@@ -836,7 +804,6 @@ for game in games:
                     trend_dir = "📈 Running HOT" if lp['recent_k_trend'] > 0 else "📉 Running COLD"
                     st.caption(f"{trend_dir}: {lp['recent_k_trend']*100:+.1f}% vs season K%")
 
-                # FIX 2: show dynamic BF cap status
                 cap_status = ("✅ No BF cap" if avg_bf_per_start >= ACE_BF_THRESHOLD
                               else f"🔒 BF capped at 26.5 (avg {avg_bf_per_start:.1f}/start)")
                 st.caption(cap_status)
@@ -864,7 +831,6 @@ for game in games:
                         res['factors'].append(
                             "⚠️ PENALTY: Trap Line (≤4.5) & Missing Stuff+ (-15% Prob)")
 
-                    # FIX 1: was 0.275 (wrong by ~2.5×); corrected to SWSTR_PENALTY_THRESHOLD (0.095)
                     if swstr < SWSTR_PENALTY_THRESHOLD:
                         target_prob -= 15.0
                         res['factors'].append(
@@ -873,7 +839,7 @@ for game in games:
 
                     h_prob = target_prob
 
-                # ── EV — FIX 5: use actual odds if available, else fall back to UD default ──
+                # ── EV ──────────────────────────────────────────────────────────
                 if pick_is_over:
                     actual_price = (vegas_lines[sp_name]['Over']['price']
                                     if sp_name in vegas_lines else UD_IMPLIED_ODDS)
@@ -885,13 +851,6 @@ for game in games:
                 ev         = (target_prob / 100.0) * payout - (1.0 - target_prob / 100.0)
                 odds_label = f"@{actual_price:+d}" if actual_price != UD_IMPLIED_ODDS else f"@{UD_IMPLIED_ODDS} (UD default)"
 
-                GLASS_CANNONS = [
-                    "Jacob deGrom", "Tyler Glasnow", "Paul Skenes", "Spencer Strider",
-                    "Garrett Crochet", "Freddy Peralta", "Hunter Greene", "Yoshinobu Yamamoto",
-                    "Tarik Skubal", "Logan Gilbert", "Zack Wheeler", "Corbin Burnes",
-                    "Gerrit Cole", "Dylan Cease", "Kevin Gausman",
-                    "Cole Ragans", "MacKenzie Gore", "Jacob Misiorowski",
-                ]
 
                 # ── Bet recommendation ─────────────────────────────────────────
                 if (ev * 100) > 15.0:
@@ -900,7 +859,7 @@ for game in games:
                             f"🔥 BEST BET: OVER {line_val:.1f} ({h_prob:.1f}%) "
                             f"| EV: {ev*100:+.1f}% {odds_label}")
                     else:
-                        if sp_name in GLASS_CANNONS:
+                        if avg_bf_per_start >= ACE_BF_THRESHOLD:
                             st.warning(
                                 f"⚠️ ELITE ACE WARNING: UNDER {line_val:.1f} ({l_prob:.1f}%) "
                                 f"| EV: {ev*100:+.1f}% {odds_label} (Consider Passing)")
@@ -914,7 +873,7 @@ for game in games:
                             f"✅ OVER {line_val:.1f}: {h_prob:.1f}% "
                             f"| EV: {ev*100:+.1f}% {odds_label} (No Play: EV < 15%)")
                     else:
-                        if sp_name in GLASS_CANNONS:
+                        if avg_bf_per_start >= ACE_BF_THRESHOLD:
                             st.warning(
                                 f"⚠️ ELITE ACE WARNING: UNDER {line_val:.1f} ({l_prob:.1f}%) "
                                 f"| EV: {ev*100:+.1f}% {odds_label} (No Play: EV < 15%)")
@@ -961,7 +920,6 @@ for game in games:
                     st.caption(
                         f"• 💵 EV odds used: {odds_label}"
                     )
-                    # FIX 1 note
                     st.caption(
                         f"• 🌀 SwStr% penalty threshold: {SWSTR_PENALTY_THRESHOLD*100:.1f}% "
                         f"(league avg: {LEAGUE_SWSTR_RATE*100:.1f}%)"
