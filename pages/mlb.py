@@ -685,7 +685,8 @@ for game in games:
                     "Jacob deGrom", "Tyler Glasnow", "Paul Skenes", "Spencer Strider", 
                     "Garrett Crochet", "Freddy Peralta", "Hunter Greene", "Yoshinobu Yamamoto",
                     "Tarik Skubal", "Logan Gilbert", "Zack Wheeler", "Corbin Burnes", 
-                    "Gerrit Cole", "Dylan Cease", "Kevin Gausman"
+                    "Gerrit Cole", "Dylan Cease", "Kevin Gausman",
+                    "Cole Ragans", "MacKenzie Gore", "Jacob Misiorowski"
                 ]
 
                 # STRICT EV FILTER LOGIC
