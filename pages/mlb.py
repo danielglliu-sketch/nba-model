@@ -516,8 +516,8 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**🌀 Savant Data Status**")
     if SAVANT_DB:
-        avg_swstr  = np.mean([v['swstr']      for v in SAVANT_DB.values()])
-        avg_stuff  = np.mean([v['stuff_plus'] for v in SAVANT_DB.values()])
+        avg_swstr  = np.mean([v['swstr']      for v in SAVANT_DB.values() if not math.isnan(v['swstr'])])
+        avg_stuff  = np.mean([v['stuff_plus'] for v in SAVANT_DB.values() if not math.isnan(v['stuff_plus'])])
         st.metric("Pitchers Loaded", len(SAVANT_DB))
         st.metric("Avg SwStr%",      f"{avg_swstr*100:.1f}%")
         st.metric("Avg Stuff+",      f"{avg_stuff:.0f}")
@@ -608,6 +608,12 @@ for game in games:
                 
                 swstr      = savant.get('swstr',      LEAGUE_SWSTR_RATE)
                 stuff_plus = savant.get('stuff_plus', 100.0)
+
+                # NEW FAILSAFE: Catch 'NaN' (Not a Number) from empty CSV cells
+                if math.isnan(swstr): 
+                    swstr = LEAGUE_SWSTR_RATE
+                if math.isnan(stuff_plus): 
+                    stuff_plus = 100.0
 
                 hand      = match.get('Hand', 'R')
                 opp_data  = TEAM_K_DB.get(opp_abbr, {})
