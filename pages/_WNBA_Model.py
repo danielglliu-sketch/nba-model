@@ -91,11 +91,11 @@ TEAM_DATA = {
 }
 
 def norm(abbr):
-    mapping = {'LVA': 'LV', 'NYL': 'NY', 'CON': 'CONN', 'PHX': 'PHO', 'LAS': 'LA', 'MINN': 'MIN'}
+    mapping = {'LVA': 'LV', 'NYL': 'NY', 'CON': 'CONN', 'PHX': 'PHO', 'LAS': 'LA', 'MINN': 'MIN', 'WSH': 'WAS'}
     return mapping.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. DATA FETCHERS (WNBA Endpoints)
+# 2. DATA FETCHERS (WNBA Endpoints - Robust Fix)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate(date_string):
@@ -119,35 +119,45 @@ def get_standings():
     try:
         data = requests.get(url, timeout=5).json()
         result = {}
-        for conf in data.get('children', []):
-            for entry in conf.get('standings', {}).get('entries', []):
-                abbr = norm(entry['team']['abbreviation'])
-                stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
-                wins = int(stats.get('wins', {}).get('value', 0))
-                losses = int(stats.get('losses', {}).get('value', 0))
-                win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
-                
-                l10_pct = win_pct
-                l10_record = "0-0"
-                for key in ['lasttengames', 'lastten', 'last10', 'l10', 'last10games']:
-                    if key in stats:
-                        l10_record = stats[key].get('displayValue', '0-0')
+        
+        entries = []
+        if 'children' in data:
+            for conf in data['children']:
+                if 'standings' in conf and 'entries' in conf['standings']:
+                    entries.extend(conf['standings']['entries'])
+        if not entries and 'standings' in data and 'entries' in data['standings']:
+            entries.extend(data['standings']['entries'])
+        if not entries and 'entries' in data:
+            entries.extend(data['entries'])
+            
+        for entry in entries:
+            abbr = norm(entry['team']['abbreviation'])
+            stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
+            wins = int(stats.get('wins', {}).get('value', 0))
+            losses = int(stats.get('losses', {}).get('value', 0))
+            win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
+            
+            l10_pct = win_pct
+            l10_record = "0-0"
+            for key in ['lasttengames', 'lastten', 'last10', 'l10', 'last10games']:
+                if key in stats:
+                    l10_record = stats[key].get('displayValue', '0-0')
+                    break
+            
+            if l10_record == "0-0" and 'records' in entry:
+                for rec in entry['records']:
+                    if rec.get('name') == 'lastTen':
+                        l10_record = rec.get('summary', '0-0')
                         break
-                
-                if l10_record == "0-0" and 'records' in entry:
-                    for rec in entry['records']:
-                        if rec.get('name') == 'lastTen':
-                            l10_record = rec.get('summary', '0-0')
-                            break
-                try:
-                    l10_w, l10_l = map(int, l10_record.split('-'))
-                    l10_pct = l10_w / (l10_w + l10_l) if (l10_w + l10_l) > 0 else win_pct
-                except: pass
-                
-                result[abbr] = {
-                    'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
-                    'win_pct': win_pct, 'l10_pct': l10_pct, 'l10_record': l10_record
-                }
+            try:
+                l10_w, l10_l = map(int, l10_record.split('-'))
+                l10_pct = l10_w / (l10_w + l10_l) if (l10_w + l10_l) > 0 else win_pct
+            except: pass
+            
+            result[abbr] = {
+                'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
+                'win_pct': win_pct, 'l10_pct': l10_pct, 'l10_record': l10_record
+            }
         return result if len(result) > 5 else BACKUP_STANDINGS
     except: return BACKUP_STANDINGS
 
@@ -168,6 +178,8 @@ def get_injuries():
         for table in soup.find_all('div', class_='TableBase'):
             team_raw = table.find('span', class_='TeamName')
             if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
+            if not team_raw: team_raw = table.find('a', class_='TeamName')
+            
             abbr = None
             if team_raw:
                 team_text = team_raw.get_text(strip=True)
@@ -175,6 +187,7 @@ def get_injuries():
                     if key.lower() in team_text.lower():
                         abbr = val
                         break
+            
             if not abbr: continue
             
             players = []
@@ -185,6 +198,7 @@ def get_injuries():
                     if not p_name_elem: p_name_elem = cols[0].find('a')
                     p_text = p_name_elem.get_text(strip=True) if p_name_elem else cols[0].get_text(strip=True)
                     injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
+                    
                     if status.lower() not in ['expected to play', 'probable', 'active', 'day-to-day']:
                         players.append(f"{p_text} ({injury})")
             if players: news[abbr] = players 
