@@ -7,12 +7,19 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="WNBA Quant AI 2026", page_icon="🏀", layout="wide")
 
 st.sidebar.title("⚙️ System Tools")
+
+# --- DATE SELECTOR ---
+selected_date = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
+target_date_str = selected_date.strftime('%Y%m%d')
+yest_date_str = (selected_date - timedelta(days=1)).strftime('%Y%m%d')
+display_date_str = selected_date.strftime('%B %d, %Y')
+
 if st.sidebar.button("🔄 Force Data Refresh"):
     st.cache_data.clear()
     st.sidebar.success("Cache cleared! The app is pulling fresh WNBA data.")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("WNBA v1.0 | 40-Min Recalibration | B2B Travel Fatigue Active")
+st.sidebar.caption("WNBA v1.1 | 40-Min Recalibration | Historical Backtesting Active")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🚨 MANUAL OVERRIDES & WNBA PLAYER TIERS (2026) 🚨
@@ -32,7 +39,7 @@ ALL_STARS = [
     "Diana Taurasi", "Skylar Diggins-Smith", "Ezi Magbegor"
 ]
 
-# HIGH-IMPACT (-2.5) - Crucial Starters & Defensive Anchors (Penalties higher in WNBA due to short benches)
+# HIGH-IMPACT (-2.5) - Crucial Starters & Defensive Anchors
 HIGH_IMPACT = [
     "Natasha Howard", "Marina Mabrey", "Courtney Vandersloot", "Betnijah Laney-Hamilton",
     "Brionna Jones", "Dearica Hamby", "Allisha Gray", "Rhyne Howard", "Kayla McBride",
@@ -87,14 +94,12 @@ def norm(abbr):
     mapping = {'LVA': 'LV', 'NYL': 'NY', 'CON': 'CONN', 'PHX': 'PHO', 'LAS': 'LA', 'MINN': 'MIN'}
     return mapping.get(abbr, abbr)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. DATA FETCHERS (WNBA Endpoints)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
-def get_daily_slate():
-    today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
-    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={today_str}"
+def get_daily_slate(date_string):
+    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={date_string}"
     try:
         data = requests.get(url, timeout=5).json()
         games = []
@@ -187,10 +192,9 @@ def get_injuries():
     except: return {}
 
 @st.cache_data(ttl=600)
-def get_back_to_back():
+def get_back_to_back(yest_date_string):
     b2b_list = set()
-    yest = (datetime.utcnow() - timedelta(days=1, hours=5)).strftime('%Y%m%d')
-    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={yest}"
+    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={yest_date_string}"
     try:
         data = requests.get(url, timeout=5).json()
         for event in data.get('events', []):
@@ -198,7 +202,6 @@ def get_back_to_back():
                 b2b_list.add(norm(c['team']['abbreviation']))
     except: pass
     return b2b_list
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. WNBA PREDICTION ENGINE (40-Minute Recalibration)
@@ -325,24 +328,26 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. USER INTERFACE
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🏀 WNBA Quant AI v1.0")
-current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
-st.markdown(f"**Market Date:** {current_market_date}")
+st.title("🏀 WNBA Quant AI v1.1")
+st.markdown(f"**Market Date:** {display_date_str}")
 st.divider()
 
-slate, standings, injuries, b2b = get_daily_slate(), get_standings(), get_injuries(), get_back_to_back()
+slate = get_daily_slate(target_date_str)
+standings = get_standings()
+injuries = get_injuries()
+b2b = get_back_to_back(yest_date_str)
 
 st.sidebar.subheader("📊 Fatigue Status")
 if b2b:
     st.sidebar.write(f"**Teams on B2B:** {', '.join(sorted(b2b))}")
 else:
-    st.sidebar.info("No teams on back-to-backs today.")
+    st.sidebar.info("No teams on back-to-backs for this date.")
 
 tab1, tab2 = st.tabs(["📊 Standard Model", "🔥 L10 Enhanced Model"])
 
 with tab1:
     if not slate:
-        st.info("No games scheduled for today in the WNBA.")
+        st.info(f"No games scheduled for {display_date_str} in the WNBA.")
     else:
         for game in slate:
             h, a = game['h'], game['a']
@@ -365,7 +370,7 @@ with tab1:
 
 with tab2:
     if not slate:
-        st.info("No games scheduled for today in the WNBA.")
+        st.info(f"No games scheduled for {display_date_str} in the WNBA.")
     else:
         for game in slate:
             h, a = game['h'], game['a']
