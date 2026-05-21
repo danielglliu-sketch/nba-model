@@ -8,6 +8,8 @@ st.set_page_config(page_title="WNBA Quant AI 2026", page_icon="🏀", layout="wi
 
 st.sidebar.title("⚙️ System Tools")
 
+debug_mode = st.sidebar.checkbox("🐞 Enable API Debugger")
+
 # --- DATE SELECTOR ---
 selected_date = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
 target_date_str = selected_date.strftime('%Y%m%d')
@@ -90,13 +92,13 @@ TEAM_DATA = {
     'WAS': {'off_rtg': 97.5, 'def_rtg': 108.4}
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. DATA FETCHERS (Brute-Force Fix)
+# ─────────────────────────────────────────────────────────────────────────────
 def norm(abbr):
     mapping = {'LVA': 'LV', 'NYL': 'NY', 'CON': 'CONN', 'PHX': 'PHO', 'LAS': 'LA', 'MINN': 'MIN', 'WSH': 'WAS'}
-    return mapping.get(abbr, abbr)
+    return mapping.get(str(abbr).upper(), str(abbr).upper())
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. DATA FETCHERS (WNBA Endpoints - Robust Fix)
-# ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_daily_slate(date_string):
     url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={date_string}"
@@ -117,49 +119,57 @@ def get_daily_slate(date_string):
 def get_standings():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/standings"
     try:
-        data = requests.get(url, timeout=5).json()
+        data = requests.get(url, timeout=8).json()
         result = {}
         
-        entries = []
-        if 'children' in data:
-            for conf in data['children']:
-                if 'standings' in conf and 'entries' in conf['standings']:
-                    entries.extend(conf['standings']['entries'])
-        if not entries and 'standings' in data and 'entries' in data['standings']:
-            entries.extend(data['standings']['entries'])
-        if not entries and 'entries' in data:
-            entries.extend(data['entries'])
-            
+        # BRUTE FORCE JSON SEARCH
+        def extract_entries(node):
+            found = []
+            if isinstance(node, dict):
+                if 'team' in node and 'stats' in node:
+                    found.append(node)
+                for key, val in node.items():
+                    found.extend(extract_entries(val))
+            elif isinstance(node, list):
+                for item in node:
+                    found.extend(extract_entries(item))
+            return found
+
+        entries = extract_entries(data)
+        
         for entry in entries:
             abbr = norm(entry['team']['abbreviation'])
-            stats = {s.get('name', '').lower(): s for s in entry.get('stats', [])}
+            stats = {str(s.get('name', '')).lower(): s for s in entry.get('stats', []) if isinstance(s, dict)}
+            
             wins = int(stats.get('wins', {}).get('value', 0))
             losses = int(stats.get('losses', {}).get('value', 0))
-            win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.5
+            win_pct = wins / (wins + losses) if (wins + losses) > 0 else 0.500
             
-            l10_pct = win_pct
             l10_record = "0-0"
             for key in ['lasttengames', 'lastten', 'last10', 'l10', 'last10games']:
                 if key in stats:
                     l10_record = stats[key].get('displayValue', '0-0')
                     break
-            
+                    
             if l10_record == "0-0" and 'records' in entry:
                 for rec in entry['records']:
-                    if rec.get('name') == 'lastTen':
+                    if isinstance(rec, dict) and rec.get('name') == 'lastTen':
                         l10_record = rec.get('summary', '0-0')
                         break
+                        
             try:
                 l10_w, l10_l = map(int, l10_record.split('-'))
                 l10_pct = l10_w / (l10_w + l10_l) if (l10_w + l10_l) > 0 else win_pct
-            except: pass
+            except: 
+                l10_pct = win_pct
             
             result[abbr] = {
                 'wins': wins, 'losses': losses, 'record': f"{wins}-{losses}", 
                 'win_pct': win_pct, 'l10_pct': l10_pct, 'l10_record': l10_record
             }
         return result if len(result) > 5 else BACKUP_STANDINGS
-    except: return BACKUP_STANDINGS
+    except Exception as e: 
+        return BACKUP_STANDINGS
 
 @st.cache_data(ttl=600)
 def get_injuries():
@@ -167,41 +177,48 @@ def get_injuries():
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         from bs4 import BeautifulSoup
-        html = requests.get(url, headers=headers, timeout=5).text
+        html = requests.get(url, headers=headers, timeout=8).text
         soup = BeautifulSoup(html, 'html.parser')
         news = {}
+        
         TEAM_MAP = {
-            'Atlanta': 'ATL', 'Chicago': 'CHI', 'Connecticut': 'CONN', 'Dallas': 'DAL',
-            'Indiana': 'IND', 'Las Vegas': 'LV', 'Los Angeles': 'LA', 'Minnesota': 'MIN',
-            'New York': 'NY', 'Phoenix': 'PHO', 'Seattle': 'SEA', 'Washington': 'WAS'
+            'atlanta': 'ATL', 'chicago': 'CHI', 'connecticut': 'CONN', 'dallas': 'DAL',
+            'indiana': 'IND', 'las vegas': 'LV', 'los angeles': 'LA', 'minnesota': 'MIN',
+            'new york': 'NY', 'phoenix': 'PHO', 'seattle': 'SEA', 'washington': 'WAS'
         }
-        for table in soup.find_all('div', class_='TableBase'):
-            team_raw = table.find('span', class_='TeamName')
-            if not team_raw: team_raw = table.find(class_='TeamLogoNameLockup-name')
-            if not team_raw: team_raw = table.find('a', class_='TeamName')
-            
-            abbr = None
-            if team_raw:
-                team_text = team_raw.get_text(strip=True)
-                for key, val in TEAM_MAP.items():
-                    if key.lower() in team_text.lower():
-                        abbr = val
-                        break
-            
-            if not abbr: continue
+        
+        # BRUTE FORCE HTML TABLE SEARCH
+        for table in soup.find_all('table'):
+            # Try to figure out what team this table belongs to by looking at the previous headers
+            team_abbr = None
+            prev_tag = table.find_previous(['h2', 'h3', 'div'])
+            for _ in range(5): # Look back a few tags
+                if prev_tag and prev_tag.text:
+                    text_lower = prev_tag.text.lower()
+                    for city, abbr in TEAM_MAP.items():
+                        if city in text_lower:
+                            team_abbr = abbr
+                            break
+                if team_abbr: break
+                prev_tag = prev_tag.find_previous(['h2', 'h3', 'div']) if prev_tag else None
+
+            if not team_abbr: continue
             
             players = []
-            for row in table.find_all('tr', class_='TableBase-bodyTr'):
+            for row in table.find_all('tr'):
                 cols = row.find_all('td')
-                if len(cols) >= 5:
-                    p_name_elem = cols[0].find('span', class_='CellPlayerName--long')
-                    if not p_name_elem: p_name_elem = cols[0].find('a')
-                    p_text = p_name_elem.get_text(strip=True) if p_name_elem else cols[0].get_text(strip=True)
-                    injury, status = cols[3].get_text(strip=True), cols[4].get_text(strip=True)
+                if len(cols) >= 4: # Player | Pos | Date | Injury | Status
+                    p_text = cols[0].get_text(strip=True)
+                    injury = cols[len(cols)-2].get_text(strip=True)
+                    status = cols[len(cols)-1].get_text(strip=True)
                     
-                    if status.lower() not in ['expected to play', 'probable', 'active', 'day-to-day']:
+                    # Ignore players who are probable or cleared
+                    if status.lower() not in ['expected to play', 'probable', 'active']:
                         players.append(f"{p_text} ({injury})")
-            if players: news[abbr] = players 
+                        
+            if players: 
+                news[team_abbr] = players 
+                
         return news
     except: return {}
 
@@ -356,6 +373,12 @@ if b2b:
     st.sidebar.write(f"**Teams on B2B:** {', '.join(sorted(b2b))}")
 else:
     st.sidebar.info("No teams on back-to-backs for this date.")
+
+if debug_mode:
+    st.error("DEBUGGER ACTIVE:")
+    st.write("Fetched Standings Teams:", list(standings.keys()))
+    st.write("Fetched Injury Teams:", list(injuries.keys()))
+    st.write("Raw Injury Data:", injuries)
 
 tab1, tab2 = st.tabs(["📊 Standard Model", "🔥 L10 Enhanced Model"])
 
