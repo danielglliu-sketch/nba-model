@@ -2,14 +2,15 @@ import streamlit as st
 import requests
 import numpy as np
 from datetime import datetime, timedelta, date
+from bs4 import BeautifulSoup
 
-# --- PAGE SETUP ---
+# ─── PAGE SETUP ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="WNBA Quant AI 2026", page_icon="🏀", layout="wide")
 st.sidebar.title("⚙️ System Tools")
 
-selected_date = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
-target_date_str = selected_date.strftime('%Y%m%d')
-yest_date_str   = (selected_date - timedelta(days=1)).strftime('%Y%m%d')
+selected_date    = st.sidebar.date_input("📅 Select Slate Date", datetime.now().date())
+target_date_str  = selected_date.strftime('%Y%m%d')
+yest_date_str    = (selected_date - timedelta(days=1)).strftime('%Y%m%d')
 display_date_str = selected_date.strftime('%B %d, %Y')
 
 if st.sidebar.button("🔄 Force Data Refresh"):
@@ -17,39 +18,31 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.sidebar.success("Cache cleared!")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("WNBA v1.2 | 2026 Season | 15 Teams")
+st.sidebar.caption("WNBA v1.3 | 2026 Season | 15 Teams")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PLAYER TIERS
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── PLAYER TIERS ─────────────────────────────────────────────────────────────
 SUPERSTARS = [
-    "A'ja Wilson", "Breanna Stewart", "Caitlin Clark", "Napheesa Collier",
-    "Alyssa Thomas", "Jewell Loyd", "Sabrina Ionescu"
+    "A'ja Wilson","Breanna Stewart","Caitlin Clark","Napheesa Collier",
+    "Alyssa Thomas","Jewell Loyd","Sabrina Ionescu","Paige Bueckers",
 ]
 ALL_STARS = [
-    "Kelsey Plum", "Jackie Young", "Jonquel Jones", "Nneka Ogwumike",
-    "Ariel Atkins", "Kahleah Copper", "Chelsea Gray", "Arike Ogunbowale",
-    "Satou Sabally", "DeWanna Bonner", "Cameron Brink", "Aliyah Boston",
-    "Diana Taurasi", "Skylar Diggins-Smith", "Ezi Magbegor", "Azzi Fudd"
+    "Kelsey Plum","Jackie Young","Jonquel Jones","Nneka Ogwumike",
+    "Ariel Atkins","Kahleah Copper","Chelsea Gray","Arike Ogunbowale",
+    "Satou Sabally","DeWanna Bonner","Cameron Brink","Aliyah Boston",
+    "Diana Taurasi","Skylar Diggins-Smith","Ezi Magbegor","Azzi Fudd",
+    "Rickea Jackson",
 ]
 HIGH_IMPACT = [
-    "Natasha Howard", "Marina Mabrey", "Courtney Vandersloot", "Betnijah Laney-Hamilton",
-    "Brionna Jones", "Dearica Hamby", "Allisha Gray", "Rhyne Howard", "Kayla McBride",
-    "Natasha Cloud", "Kelsey Mitchell", "NaLyssa Smith", "Brittney Griner",
-    "Cheyenne Parker-Tyus", "Courtney Williams", "Alanna Smith", "Sophie Cunningham",
-    "Kia Nurse", "Lexie Hull"
+    "Natasha Howard","Marina Mabrey","Courtney Vandersloot","Betnijah Laney-Hamilton",
+    "Brionna Jones","Dearica Hamby","Allisha Gray","Rhyne Howard","Kayla McBride",
+    "Natasha Cloud","Kelsey Mitchell","NaLyssa Smith","Brittney Griner",
+    "Cheyenne Parker-Tyus","Courtney Williams","Alanna Smith","Sophie Cunningham",
+    "Kia Nurse","Lexie Hull","Dorka Juhasz",
 ]
-DEFENSIVE_LIABILITIES = [
-    "Caitlin Clark", "Arike Ogunbowale", "Kelsey Mitchell", "Marina Mabrey", "Diana Taurasi"
-]
-OFFENSIVE_LIABILITIES = [
-    "Alyssa Thomas", "Ezi Magbegor", "Brianna Turner", "Kiah Stokes"
-]
+DEFENSIVE_LIABILITIES = ["Caitlin Clark","Arike Ogunbowale","Kelsey Mitchell","Marina Mabrey","Diana Taurasi"]
+OFFENSIVE_LIABILITIES = ["Alyssa Thomas","Ezi Magbegor","Brianna Turner","Kiah Stokes"]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TEAM DATA — Updated for 15-team 2026 season
-# Abbreviation normalization covers ESPN's various abbreviations
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── TEAM DATA (15 teams, 2026) ────────────────────────────────────────────────
 TEAM_DATA = {
     'LV':   {'off_rtg': 110.5, 'def_rtg': 99.8},
     'NY':   {'off_rtg': 109.2, 'def_rtg': 100.5},
@@ -63,40 +56,67 @@ TEAM_DATA = {
     'CHI':  {'off_rtg': 98.2,  'def_rtg': 103.5},
     'LA':   {'off_rtg': 96.8,  'def_rtg': 105.2},
     'WAS':  {'off_rtg': 97.5,  'def_rtg': 108.4},
-    'GS':   {'off_rtg': 101.0, 'def_rtg': 103.0},   # Golden State Valkyries
-    'POR':  {'off_rtg': 98.0,  'def_rtg': 104.5},   # Portland Fire (expansion)
-    'TOR':  {'off_rtg': 99.0,  'def_rtg': 104.0},   # Toronto Tempo (expansion)
+    'GS':   {'off_rtg': 101.0, 'def_rtg': 103.0},
+    'POR':  {'off_rtg': 98.0,  'def_rtg': 104.5},
+    'TOR':  {'off_rtg': 99.0,  'def_rtg': 104.0},
 }
 
-BLANK_STD = {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5, 'l10_pct': 0.5, 'l10_record': 'N/A'}
+BLANK_STD = {'wins':0,'losses':0,'record':'0-0','win_pct':0.5,'l10_pct':0.5,'l10_record':'N/A'}
+
+# ESPN uses different abbreviations — map everything to our internal keys
+ESPN_NORM = {
+    'LVA':'LV','NYL':'NY','CON':'CONN','PHX':'PHO','LAS':'LA',
+    'MINN':'MIN','GSV':'GS','GST':'GS','GOLST':'GS',
+    'PORT':'POR','TORP':'TOR','TORW':'TOR',
+}
+# ESPN team URL slugs → our abbreviation
+ESPN_SLUG_MAP = {
+    'lv':'LV','ny':'NY','conn':'CONN','sea':'SEA','min':'MIN',
+    'ind':'IND','dal':'DAL','atl':'ATL','phx':'PHO','chi':'CHI',
+    'la':'LA','was':'WAS','gs':'GS','por':'POR','tor':'TOR',
+}
 
 def norm(abbr):
-    """Normalize ESPN's varying abbreviations to our internal keys."""
-    mapping = {
-        'LVA': 'LV',  'NYL': 'NY',  'CON': 'CONN', 'PHX': 'PHO',
-        'LAS': 'LA',  'MINN': 'MIN','GSV': 'GS',   'GST': 'GS',
-        'GOLST': 'GS','PORT': 'POR','TOR': 'TOR',
-    }
-    return mapping.get(abbr, abbr)
+    return ESPN_NORM.get(abbr, abbr)
+
+# ─── BROWSER SESSION (used for ALL requests to mimic a real browser) ───────────
+def make_session():
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/124.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+    })
+    return s
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCOREBOARD — used for both today's slate AND building standings
+# SCOREBOARD — used for slate AND standings
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_scoreboard(date_string):
     url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={date_string}"
     try:
-        r = requests.get(url, timeout=6)
+        r = make_session().get(url, timeout=6)
         r.raise_for_status()
         return r.json()
-    except Exception as e:
+    except:
         return {}
 
 @st.cache_data(ttl=300)
 def get_daily_slate(date_string):
-    data = get_scoreboard(date_string)
     games = []
-    for event in data.get('events', []):
+    for event in get_scoreboard(date_string).get('events', []):
         comp = event['competitions'][0]
         home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
         away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
@@ -110,142 +130,145 @@ def get_daily_slate(date_string):
     return games
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STANDINGS — extracted from scoreboard competitor records
-#
-# FIX: ESPN's /standings endpoint returns almost nothing in 2026.
-# Instead we scan the last 14 days of scoreboards; each competitor
-# has a "records" array with {"type": "total", "summary": "W-L"}.
-# We take the most recent appearance of each team.
+# STANDINGS — built from scoreboard competitor records (no broken /standings API)
 # ─────────────────────────────────────────────────────────────────────────────
-def _parse_record_from_competitor(comp):
-    """Pull overall W-L from an ESPN competitor block."""
-    for rec in comp.get('records', []):
-        rtype = rec.get('type', '')
-        rname = rec.get('name', '').lower()
-        if rtype == 'total' or rname in ('overall', 'total'):
-            summary = rec.get('summary', '')
-            if '-' in summary:
-                try:
-                    w, l = map(int, summary.split('-'))
-                    return w, l, summary
-                except:
-                    pass
-    return None
-
 @st.cache_data(ttl=600)
 def get_standings():
     standings = {}
     today = date.today()
-    errors = []
-
-    # Scan up to 14 days back to find each team's most recent record
     for days_back in range(0, 15):
         if len(standings) >= len(TEAM_DATA):
             break
-        check_date = (today - timedelta(days=days_back)).strftime('%Y%m%d')
-        data = get_scoreboard(check_date)
-        if not data.get('events'):
-            continue
-        for event in data['events']:
+        data = get_scoreboard((today - timedelta(days=days_back)).strftime('%Y%m%d'))
+        for event in data.get('events', []):
             for comp in event['competitions'][0]['competitors']:
                 abbr = norm(comp['team']['abbreviation'])
                 if abbr in standings:
-                    continue  # already have a more recent entry
-                result = _parse_record_from_competitor(comp)
-                if result:
-                    w, l, summary = result
-                    win_pct = w / (w + l) if (w + l) > 0 else 0.5
-                    standings[abbr] = {
-                        'wins': w, 'losses': l, 'record': summary,
-                        'win_pct': win_pct, 'l10_pct': win_pct, 'l10_record': 'N/A',
-                    }
-
-    if standings:
-        return standings
-    # Hard fallback — neutral 0-0 so at least records show something real
-    return {k: dict(BLANK_STD) for k in TEAM_DATA}
+                    continue
+                for rec in comp.get('records', []):
+                    if rec.get('type') in ('total','overall') or rec.get('name','').lower() in ('overall','total'):
+                        summary = rec.get('summary', '')
+                        if '-' in summary:
+                            try:
+                                w, l = map(int, summary.split('-'))
+                                pct = w / (w + l) if (w + l) > 0 else 0.5
+                                standings[abbr] = {
+                                    'wins': w, 'losses': l, 'record': summary,
+                                    'win_pct': pct, 'l10_pct': pct, 'l10_record': 'N/A',
+                                }
+                            except:
+                                pass
+                            break
+    return standings if standings else {k: dict(BLANK_STD) for k in TEAM_DATA}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INJURIES
+# INJURIES — 3 sources, first success wins
 #
-# FIX: CBS scraper was silently failing (bot block / changed HTML).
-# Strategy:
-#   1. Try ESPN /wnba/injuries HTML (primary — structured tables)
-#   2. Try CBS Sports /wnba/injuries/ HTML (fallback)
-#   3. Return {} with a visible warning if both fail
+# Source 1: ESPN JSON roster API — no HTML, no JS rendering, just JSON
+#   GET https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster
+#   Each athlete has a "status" object with type/name ("Injured", "Out", etc.)
+#
+# Source 2: CBS Sports HTML — full browser session with cookie warmup to beat bot detection
+#
+# Source 3: ESPN core injuries API — follows $ref links to get player+status
 # ─────────────────────────────────────────────────────────────────────────────
-INJURY_SKIP = {'active', 'probable', 'expected to play'}
-TEAM_NAME_MAP = {
-    'atlanta': 'ATL', 'chicago': 'CHI', 'connecticut': 'CONN', 'dallas': 'DAL',
-    'indiana': 'IND', 'las vegas': 'LV', 'los angeles': 'LA', 'minnesota': 'MIN',
-    'new york': 'NY', 'phoenix': 'PHO', 'seattle': 'SEA', 'washington': 'WAS',
-    'golden state': 'GS', 'portland': 'POR', 'toronto': 'TOR',
+SKIP_STATUSES = {
+    'active', 'probable', 'expected to play', 'day-to-day',
+    'not injury related', 'not on roster',
 }
 
-def _match_team(text):
-    t = text.lower()
-    for key, abbr in TEAM_NAME_MAP.items():
-        if key in t:
-            return abbr
-    return None
-
-def _scrape_espn_injuries():
-    """Scrape https://www.espn.com/wnba/injuries"""
-    from bs4 import BeautifulSoup
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    r = requests.get("https://www.espn.com/wnba/injuries", headers=headers, timeout=8)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, 'html.parser')
+def _injuries_from_espn_rosters():
+    """
+    Pull injury status from ESPN's WNBA team roster JSON endpoint.
+    Returns {} if every team request fails.
+    """
     result = {}
+    session = make_session()
+    # Accept JSON for API calls
+    session.headers.update({'Accept': 'application/json, */*'})
 
-    # ESPN injuries page: each team block has an <h2>/<h3> with team name
-    # followed by a <table> of players
-    # Structure varies — try multiple patterns
-    for section in soup.select('section.injuries-table, div.ResponsiveTable'):
-        # Team name: look for a headline sibling or parent heading
-        heading = section.find_previous(['h2', 'h3', 'h4'])
-        abbr = _match_team(heading.get_text() if heading else '') if heading else None
-
-        if not abbr:
-            cap = section.find(class_=lambda c: c and 'Caption' in c)
-            if cap:
-                abbr = _match_team(cap.get_text())
-
-        if not abbr:
+    for slug, abbr in ESPN_SLUG_MAP.items():
+        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster"
+        try:
+            data = session.get(url, timeout=5).json()
+        except Exception:
             continue
 
-        players = []
-        for row in section.select('tr'):
-            cells = row.find_all('td')
-            if len(cells) < 3:
-                continue
-            name = cells[0].get_text(strip=True)
-            # status is typically last or second-to-last column
-            status = cells[-1].get_text(strip=True)
-            injury_type = cells[-2].get_text(strip=True) if len(cells) >= 2 else 'Injury'
-            if not name or status.lower() in INJURY_SKIP:
-                continue
-            players.append(f"{name} ({injury_type} — {status})")
-        if players:
-            result[abbr] = players
+        injured = []
+        # Athletes come back as a list of position groups
+        for group in data.get('athletes', []):
+            players = group if isinstance(group, list) else group.get('items', [])
+            for player in players:
+                status_obj = player.get('status', {})
+                status_name = (
+                    status_obj.get('name') or
+                    status_obj.get('type', {}).get('name') or
+                    status_obj.get('type', {}).get('description') or
+                    'active'
+                ).lower()
+
+                # Only flag genuinely unavailable players
+                if status_name in SKIP_STATUSES or status_name == 'active':
+                    continue
+
+                full_name = player.get('fullName', player.get('displayName', 'Unknown'))
+                # injury reason sometimes lives in injuryStatus or injuries list
+                reason = ''
+                for inj in player.get('injuries', []):
+                    reason = inj.get('type', {}).get('description', '') or inj.get('detail', '')
+                    if reason:
+                        break
+                if not reason:
+                    reason = player.get('injuryStatus', 'Injury')
+
+                label = status_obj.get('name', 'Out').title()
+                injured.append(f"{full_name} ({reason} — {label})")
+
+        if injured:
+            result[abbr] = injured
 
     return result
 
-def _scrape_cbs_injuries():
-    """Scrape https://www.cbssports.com/wnba/injuries/ as fallback."""
-    from bs4 import BeautifulSoup
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    r = requests.get("https://www.cbssports.com/wnba/injuries/", headers=headers, timeout=8)
+
+def _injuries_from_cbs():
+    """
+    Scrape CBS Sports WNBA injury page with a full browser session + cookie warmup
+    to bypass their basic bot detection.
+    """
+    session = make_session()
+
+    # Step 1: hit the homepage first to get cookies (bypasses some bot checks)
+    try:
+        session.get('https://www.cbssports.com/', timeout=5)
+    except Exception:
+        pass
+
+    # Step 2: fetch the actual injury page
+    r = session.get('https://www.cbssports.com/wnba/injuries/', timeout=10)
     r.raise_for_status()
+
+    if len(r.text) < 500:
+        raise ValueError("CBS returned a near-empty page — likely still blocked")
+
     soup = BeautifulSoup(r.text, 'html.parser')
     result = {}
 
+    TEAM_NAME_MAP = {
+        'atlanta':'ATL','chicago':'CHI','connecticut':'CONN','dallas':'DAL',
+        'indiana':'IND','las vegas':'LV','los angeles':'LA','minnesota':'MIN',
+        'new york':'NY','phoenix':'PHO','seattle':'SEA','washington':'WAS',
+        'golden state':'GS','portland':'POR','toronto':'TOR',
+    }
+
     for table in soup.find_all('div', class_='TableBase'):
-        # Team name
-        team_el = (table.find('span', class_='TeamName') or
-                   table.find(class_='TeamLogoNameLockup-name') or
-                   table.find(class_='TeamName'))
-        abbr = _match_team(team_el.get_text() if team_el else '')
+        # Team name detection (CBS uses a few different class names)
+        name_el = (
+            table.find('span', class_='TeamName') or
+            table.find(class_='TeamLogoNameLockup-name') or
+            table.find(class_='TableBase-title')
+        )
+        raw_name = name_el.get_text(strip=True).lower() if name_el else ''
+        abbr = next((v for k, v in TEAM_NAME_MAP.items() if k in raw_name), None)
         if not abbr:
             continue
 
@@ -254,39 +277,99 @@ def _scrape_cbs_injuries():
             cols = row.find_all('td')
             if len(cols) < 5:
                 continue
-            name_el = (cols[0].find('span', class_='CellPlayerName--long') or
-                       cols[0].find('a') or cols[0])
-            name   = name_el.get_text(strip=True)
+            name_cell = (
+                cols[0].find('span', class_='CellPlayerName--long') or
+                cols[0].find('a') or cols[0]
+            )
+            name   = name_cell.get_text(strip=True)
             injury = cols[3].get_text(strip=True)
             status = cols[4].get_text(strip=True)
-            if status.lower() in INJURY_SKIP:
+            if status.lower() in SKIP_STATUSES:
                 continue
             players.append(f"{name} ({injury} — {status})")
+
         if players:
             result[abbr] = players
 
     return result
 
+
+def _injuries_from_espn_core_api():
+    """
+    ESPN sports.core API — returns injury records as $ref links.
+    We batch-fetch them to avoid too many round-trips.
+    Falls back gracefully if rate-limited.
+    """
+    result = {}
+    session = make_session()
+    session.headers.update({'Accept': 'application/json, */*'})
+
+    try:
+        r = session.get(
+            'https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba/injuries?limit=300',
+            timeout=8
+        )
+        r.raise_for_status()
+        items = r.json().get('items', [])
+    except Exception:
+        return result
+
+    for item in items[:100]:   # cap to avoid too many requests
+        ref = item.get('$ref', '')
+        if not ref:
+            continue
+        try:
+            detail = session.get(ref, timeout=4).json()
+        except Exception:
+            continue
+
+        status_txt = (
+            detail.get('status', {}).get('type', {}).get('description', '') or
+            detail.get('type', {}).get('description', 'Unknown')
+        )
+        if status_txt.lower() in SKIP_STATUSES:
+            continue
+
+        athlete_ref = detail.get('athlete', {}).get('$ref', '')
+        if not athlete_ref:
+            continue
+        try:
+            ath = session.get(athlete_ref, timeout=4).json()
+        except Exception:
+            continue
+
+        name     = ath.get('displayName', 'Unknown')
+        team_abbr = norm(ath.get('team', {}).get('abbreviation', ''))
+        injury   = detail.get('type', {}).get('description', 'Injury')
+
+        if team_abbr:
+            result.setdefault(team_abbr, []).append(f"{name} ({injury} — {status_txt})")
+
+    return result
+
+
 @st.cache_data(ttl=600)
 def get_injuries():
     sources = [
-        ("ESPN", _scrape_espn_injuries),
-        ("CBS Sports", _scrape_cbs_injuries),
+        ("ESPN Roster API",   _injuries_from_espn_rosters),
+        ("CBS Sports",        _injuries_from_cbs),
+        ("ESPN Core API",     _injuries_from_espn_core_api),
     ]
-    for name, fn in sources:
+    for source_name, fn in sources:
         try:
             data = fn()
-            if data:   # non-empty = success
-                return data, f"✅ Injuries loaded from {name}"
+            if data:
+                return data, f"✅ Injuries from {source_name} ({sum(len(v) for v in data.values())} players)"
         except Exception as e:
-            continue
-    return {}, "⚠️ Injury data unavailable (both ESPN and CBS blocked or changed structure)"
+            continue   # try next source silently
+
+    return {}, "⚠️ All injury sources failed. Check your internet connection or try refreshing."
+
 
 @st.cache_data(ttl=600)
 def get_back_to_back(yest_date_string):
     b2b = set()
-    data = get_scoreboard(yest_date_string)
-    for event in data.get('events', []):
+    for event in get_scoreboard(yest_date_string).get('events', []):
         for c in event['competitions'][0]['competitors']:
             b2b.add(norm(c['team']['abbreviation']))
     return b2b
@@ -303,39 +386,41 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     factors, total = [], 0.0
 
     # 1. Win % Edge
-    h_pct = h_std['win_pct']
-    a_pct = a_std['win_pct']
+    hp = h_std['win_pct']
+    ap = a_std['win_pct']
     if use_l10:
-        h_pct = h_pct * 0.7 + h_std.get('l10_pct', h_pct) * 0.3
-        a_pct = a_pct * 0.7 + a_std.get('l10_pct', a_pct) * 0.3
-    base_adj = (h_pct - a_pct) * 20.0
+        hp = hp * 0.7 + h_std.get('l10_pct', hp) * 0.3
+        ap = ap * 0.7 + a_std.get('l10_pct', ap) * 0.3
+    base_adj = (hp - ap) * 20.0
     total += base_adj
-    factors.append({"icon": "📊", "name": "Blended Win% Edge (L10)" if use_l10 else "Win % Edge",
-                    "adj": base_adj, "why": f"{h} {h_std['record']} vs {a} {a_std['record']}"})
+    factors.append({
+        "icon": "📊",
+        "name": "Blended Win% Edge (L10)" if use_l10 else "Win % Edge",
+        "adj": base_adj,
+        "why": f"{h} ({h_std['record']}) vs {a} ({a_std['record']})",
+    })
 
     # 2. Home Court
     total += 2.5
     factors.append({"icon": "🏠", "name": "Home Court", "adj": 2.5, "why": f"Advantage for {h}"})
 
-    # 3. Injury penalties
+    # 3. Injury Penalties
     h_inj = injuries.get(h, [])
     a_inj = injuries.get(a, [])
 
     def player_impact(s):
         raw = s.lower().split(" (")[0].replace(".", "").replace("'", "").strip()
-        val, tier = 1.0, "Role"
         for p in SUPERSTARS:
             if p.lower().replace(".", "").replace("'", "") in raw:
-                return 8.0, "Superstar", next(
-                    ("Def_Liability" if p in DEFENSIVE_LIABILITIES else
-                     "Off_Liability" if p in OFFENSIVE_LIABILITIES else "Balanced"), "Balanced")
+                arch = ("Def_Liability" if p in DEFENSIVE_LIABILITIES else
+                        "Off_Liability" if p in OFFENSIVE_LIABILITIES else "Balanced")
+                return 8.0, "Superstar", arch
         for p in ALL_STARS:
             if p.lower().replace(".", "").replace("'", "") in raw:
-                val, tier = 4.5, "All-Star"; break
-        if tier == "Role":
-            for p in HIGH_IMPACT:
-                if p.lower().replace(".", "").replace("'", "") in raw:
-                    val, tier = 2.5, "High-Impact"; break
+                return 4.5, "All-Star", "Balanced"
+        for p in HIGH_IMPACT:
+            if p.lower().replace(".", "").replace("'", "") in raw:
+                return 2.5, "High-Impact", "Balanced"
         arch = "Balanced"
         for p in DEFENSIVE_LIABILITIES:
             if p.lower().replace(".", "").replace("'", "") in raw:
@@ -343,28 +428,24 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
         for p in OFFENSIVE_LIABILITIES:
             if p.lower().replace(".", "").replace("'", "") in raw:
                 arch = "Off_Liability"; break
-        return val, tier, arch
+        return 1.0, "Role", arch
 
     def injury_penalty(inj_list):
-        o, d, details, core = 0.0, 0.0, [], 0
+        op, dp, details, core = 0.0, 0.0, [], 0
         for p in inj_list:
             val, tier, arch = player_impact(p)
             if tier != "Role":
                 core += 1
-            if arch == "Def_Liability":
-                o += val * 1.3; d += val * -0.3
-            elif arch == "Off_Liability":
-                o += val * -0.3; d += val * 1.3
-            else:
-                o += val * 0.6; d += val * 0.4
+            op += val * (1.3 if arch == "Def_Liability" else -0.3 if arch == "Off_Liability" else 0.6)
+            dp += val * (-0.3 if arch == "Def_Liability" else 1.3 if arch == "Off_Liability" else 0.4)
             details.append(f"{p.split(' (')[0]} ({tier})")
-        mult = 1.35 if core == 2 else 1.75 if core >= 3 else 1.0
-        return o * mult, d * mult, details, mult
+        mult = 1.75 if core >= 3 else 1.35 if core == 2 else 1.0
+        return op * mult, dp * mult, details, mult
 
     h_op, h_dp, h_det, h_mult = injury_penalty(h_inj)
     a_op, a_dp, a_det, a_mult = injury_penalty(a_inj)
 
-    # 4. Net Rating Edge
+    # 4. Net Rating
     h_net = (h_td['off_rtg'] - h_op) - (h_td['def_rtg'] + h_dp)
     a_net = (a_td['off_rtg'] - a_op) - (a_td['def_rtg'] + a_dp)
     net_edge = ((h_net - a_net) / 100.0) * 82.0 * 0.6
@@ -372,16 +453,13 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     factors.append({"icon": "⚖️", "name": "Adj. Net Rating Edge", "adj": net_edge,
                     "why": "Adjusted for 40-minute WNBA pacing"})
 
-    if h_inj:
-        why = f"Missing: {', '.join(h_det)}"
-        if h_mult > 1: why += f" 🚨 Depth collapse ×{h_mult}"
-        factors.append({"icon": "🤕", "name": f"{h} Injuries", "adj": 0.0, "why": why})
-    if a_inj:
-        why = f"Missing: {', '.join(a_det)}"
-        if a_mult > 1: why += f" 🚨 Depth collapse ×{a_mult}"
-        factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": why})
+    for team, inj_list, det, mult in [(h, h_inj, h_det, h_mult), (a, a_inj, a_det, a_mult)]:
+        if inj_list:
+            why = f"Missing: {', '.join(det)}"
+            if mult > 1: why += f" 🚨 Depth collapse ×{mult}"
+            factors.append({"icon": "🤕", "name": f"{team} Injuries", "adj": 0.0, "why": why})
 
-    # 5. Back-to-back fatigue
+    # 5. B2B Fatigue
     if h in b2b_set:
         total -= 5.0
         factors.append({"icon": "😴", "name": f"{h} B2B Fatigue", "adj": -5.0, "why": "Played yesterday"})
@@ -401,32 +479,32 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
 # ─────────────────────────────────────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🏀 WNBA Quant AI v1.2")
+st.title("🏀 WNBA Quant AI v1.3")
 st.markdown(f"**Market Date:** {display_date_str}")
 st.divider()
 
 with st.spinner("Fetching slate, standings, and injuries…"):
-    slate      = get_daily_slate(target_date_str)
-    standings  = get_standings()
+    slate     = get_daily_slate(target_date_str)
+    standings = get_standings()
     injuries, inj_status = get_injuries()
-    b2b        = get_back_to_back(yest_date_str)
+    b2b       = get_back_to_back(yest_date_str)
 
-# Sidebar diagnostics
+# ── Sidebar diagnostics ──
 st.sidebar.subheader("📡 Data Status")
-st.sidebar.write(f"**Teams with records:** {len(standings)}/15")
+st.sidebar.write(f"**Teams with records:** {len(standings)}/{len(TEAM_DATA)}")
 st.sidebar.write(inj_status)
 
-st.sidebar.subheader("📊 Fatigue Status")
+st.sidebar.subheader("😴 B2B Fatigue")
 if b2b:
-    st.sidebar.write(f"**Teams on B2B:** {', '.join(sorted(b2b))}")
+    st.sidebar.write(f"**On B2B:** {', '.join(sorted(b2b))}")
 else:
-    st.sidebar.info("No teams on back-to-backs.")
+    st.sidebar.info("No back-to-backs today.")
 
-st.sidebar.subheader("🤕 Injury Report")
+st.sidebar.subheader("🤕 Full Injury Report")
 if injuries:
-    for team, players in sorted(injuries.items()):
+    for team in sorted(injuries):
         st.sidebar.markdown(f"**{team}**")
-        for p in players:
+        for p in injuries[team]:
             st.sidebar.warning(p)
 else:
     st.sidebar.info("No active injuries found.")
@@ -437,9 +515,11 @@ def render_games(use_l10):
         return
     for game in slate:
         h, a = game['h'], game['a']
-        pred = predict_game(h, a, standings, injuries, b2b, use_l10=use_l10)
-        label = f"{game['h_name']} vs {game['a_name']}  |  Winner: **{pred['winner']}** ({pred['conf']:.1f}%)"
-        with st.expander(label):
+        pred  = predict_game(h, a, standings, injuries, b2b, use_l10=use_l10)
+        with st.expander(
+            f"{game['h_name']} vs {game['a_name']}  |  "
+            f"Winner: **{pred['winner']}** ({pred['conf']:.1f}%)"
+        ):
             st.markdown(f"### 🏆 {pred['winner']} Wins")
             for f in pred['factors']:
                 color = "#28a745" if f['adj'] > 0 else "#dc3545" if f['adj'] < 0 else "#888"
@@ -450,21 +530,18 @@ def render_games(use_l10):
                     unsafe_allow_html=True,
                 )
             st.divider()
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"#### 🏠 {game['h_name']}")
-                rec = pred['h_std']['record']
-                l10 = pred['h_std'].get('l10_record', 'N/A')
-                st.write(f"**Record:** {rec}" + (f"  *(L10: {l10})*" if use_l10 else ""))
-                for inj in pred['h_inj']:
-                    st.warning(f"🤕 {inj}")
-            with col2:
-                st.markdown(f"#### ✈️ {game['a_name']}")
-                rec = pred['a_std']['record']
-                l10 = pred['a_std'].get('l10_record', 'N/A')
-                st.write(f"**Record:** {rec}" + (f"  *(L10: {l10})*" if use_l10 else ""))
-                for inj in pred['a_inj']:
-                    st.warning(f"🤕 {inj}")
+            c1, c2 = st.columns(2)
+            for col, side, name_key, std_key, inj_key in [
+                (c1, "🏠", 'h_name', 'h_std', 'h_inj'),
+                (c2, "✈️",  'a_name', 'a_std', 'a_inj'),
+            ]:
+                with col:
+                    st.markdown(f"#### {side} {game[name_key]}")
+                    rec = pred[std_key]['record']
+                    l10 = pred[std_key].get('l10_record', 'N/A')
+                    st.write(f"**Record:** {rec}" + (f"  *(L10: {l10})*" if use_l10 else ""))
+                    for inj in pred[inj_key]:
+                        st.warning(f"🤕 {inj}")
 
 tab1, tab2 = st.tabs(["📊 Standard Model", "🔥 L10 Enhanced Model"])
 with tab1:
