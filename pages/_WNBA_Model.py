@@ -2,8 +2,16 @@ import streamlit as st
 import requests
 import numpy as np
 import json
+import os
 from datetime import datetime, timedelta, date
 from bs4 import BeautifulSoup
+
+# ── API Key — reads from st.secrets first, then environment variable ──────────
+def _get_api_key():
+    try:
+        return st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        return os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ─── PAGE SETUP ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="WNBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -235,9 +243,20 @@ Return ONLY a valid JSON object in this exact format, nothing else:
 Use these exact team abbreviations. Only include teams that have injured players (non-empty arrays).
 Return raw JSON only — no markdown, no explanation, no backticks."""
 
+    api_key = _get_api_key()
+    if not api_key:
+        raise ValueError(
+            "No ANTHROPIC_API_KEY found. Add it to Streamlit secrets: "
+            "Settings > Secrets, then add: ANTHROPIC_API_KEY = 'sk-ant-...'"
+        )
+
     response = requests.post(
         "https://api.anthropic.com/v1/messages",
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
         json={
             "model": "claude-sonnet-4-20250514",
             "max_tokens": 1000,
@@ -569,6 +588,15 @@ with st.spinner("Loading slate, standings, and injuries…"):
     standings = get_standings()
     injuries, inj_status = get_injuries()
     b2b       = get_back_to_back()
+
+# ── Show API key setup instructions if missing ───────────────────────────────
+if not _get_api_key():
+    st.sidebar.error(
+        "🔑 API Key Required for Injuries. "
+        "Go to share.streamlit.io → Settings → Secrets and add: "
+        "ANTHROPIC_API_KEY = 'sk-ant-...' "
+        "(get a key at console.anthropic.com)"
+    )
 
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
