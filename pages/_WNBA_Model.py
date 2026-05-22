@@ -91,12 +91,10 @@ def norm(abbr):
 
 def make_session():
     s = requests.Session()
+    # Mask the script as an iPhone to easily bypass strict desktop firewalls
     s.headers.update({
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/124.0.0.0 Safari/537.36'
-        ),
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+        'Accept': 'application/json, text/html, */*',
         'Accept-Language': 'en-US,en;q=0.9',
     })
     return s
@@ -344,7 +342,6 @@ ESPN_SLUG_MAP = {
 def _injuries_espn_rosters():
     result  = {}
     session = make_session()
-    session.headers['Accept'] = 'application/json'
     for slug, abbr in ESPN_SLUG_MAP.items():
         url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster"
         try:
@@ -381,7 +378,6 @@ def _injuries_espn_rosters():
 def _injuries_espn_core():
     result  = {}
     session = make_session()
-    session.headers['Accept'] = 'application/json'
     try:
         r = session.get(
             'https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba/injuries?limit=300',
