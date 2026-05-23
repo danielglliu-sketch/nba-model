@@ -266,20 +266,15 @@ def _injuries_rotowire():
     return result
 
 
-# ── Source 2: ESPN team injuries endpoint (cleaner than roster chain) ────────
-ESPN_TEAM_IDS = {
-    'ATL': 3, 'CHI': 4, 'CONN': 5, 'DAL': 6, 'IND': 8,
-    'LV': 14, 'LA': 10, 'MIN': 11, 'NY': 12, 'PHO': 13,
-    'SEA': 16, 'WAS': 19, 'GS': 20, 'POR': 21, 'TOR': 22,
-}
-
+# ── Source 2: ESPN team injuries endpoint (slug-based, same pattern as roster) ─
 def _injuries_espn_team():
     result  = {}
     session = make_session()
-    for abbr, tid in ESPN_TEAM_IDS.items():
+    # Use same slugs as the working roster API — avoids guessing numeric IDs
+    for slug, abbr in ESPN_SLUG_MAP.items():
         url = (
             f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba"
-            f"/teams/{tid}/injuries"
+            f"/teams/{slug}/injuries"
         )
         try:
             data = session.get(url, timeout=5).json()
@@ -684,15 +679,6 @@ with st.spinner("Loading slate, standings, and injuries…"):
     standings = get_standings()
     injuries, inj_status = get_injuries()
     b2b       = get_back_to_back()
-
-# ── Show API key setup instructions if missing ───────────────────────────────
-if not _get_api_key():
-    st.sidebar.error(
-        "🔑 API Key Required for Injuries. "
-        "Go to share.streamlit.io → Settings → Secrets and add: "
-        "ANTHROPIC_API_KEY = 'sk-ant-...' "
-        "(get a key at console.anthropic.com)"
-    )
 
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
