@@ -208,7 +208,49 @@ def _match_team(text):
             return abbr
     return None
 
-# ── Source 1: Rotowire (primary — no key needed) ───────────────────────────
+# ── Source 1: ESPN injuries HTML page (same domain as working scoreboard API) ──
+def _injuries_espn_html():
+    r = make_session().get('https://www.espn.com/wnba/injuries', timeout=10)
+    r.raise_for_status()
+    if len(r.text) < 2000:
+        raise ValueError("ESPN injuries page near-empty")
+    soup   = BeautifulSoup(r.text, 'html.parser')
+    result = {}
+    for block in soup.find_all('div', class_='ResponsiveTable'):
+        title = block.find(class_='Table__Title') or block.find(class_=lambda c: c and 'title' in (c or '').lower())
+        abbr  = _match_team(title.get_text(strip=True) if title else '')
+        if not abbr:
+            continue
+        players = []
+        for row in block.find_all('tr', class_=lambda c: c and 'Table__TR' in (c or '')):
+            cols = row.find_all('td')
+            if len(cols) < 3:
+                continue
+            name   = cols[0].get_text(strip=True)
+            injury = cols[2].get_text(strip=True) if len(cols) > 2 else ''
+            status = cols[-1].get_text(strip=True)
+            if not name or status.lower() in SKIP_STATUSES:
+                continue
+            players.append(f"{name} ({injury} — {status})" if injury else f"{name} ({status})")
+        if players:
+            result[abbr] = players
+    if not result:
+        for row in soup.select('table tr'):
+            cols = row.find_all('td')
+            if len(cols) < 4:
+                continue
+            name    = cols[0].get_text(strip=True)
+            team_td = cols[1].get_text(strip=True).lower()
+            injury  = cols[2].get_text(strip=True)
+            status  = cols[3].get_text(strip=True)
+            abbr    = _match_team(team_td)
+            if not abbr or not name or status.lower() in SKIP_STATUSES:
+                continue
+            result.setdefault(abbr, []).append(f"{name} ({injury} — {status})")
+    return result
+
+
+# ── (Rotowire kept as secondary attempt) ──────────────────────────────────
 ROTOWIRE_TEAM_MAP = {
     'ATL': 'atlanta', 'CHI': 'chicago', 'CONN': 'connecticut', 'DAL': 'dallas',
     'IND': 'indiana', 'LV': 'las-vegas', 'LA': 'los-angeles', 'MIN': 'minnesota',
@@ -364,11 +406,16 @@ def _injuries_espn_rosters():
                     status_obj.get('type', {}).get('name') or
                     status_obj.get('type', {}).get('description') or 'active'
                 ).lower()
-                if status_name in SKIP_STATUSES or status_name == 'active':
+                inj_list = player.get('injuries', [])
+                # ESPN sometimes marks status=Active even for injured players;
+                # include any player with a non-empty injuries array regardless
+                has_injury_entry = bool(inj_list)
+                is_active_or_skip = (status_name in SKIP_STATUSES or status_name == 'active')
+                if is_active_or_skip and not has_injury_entry:
                     continue
                 full_name = player.get('fullName', player.get('displayName', 'Unknown'))
                 reason    = ''
-                for inj in player.get('injuries', []):
+                for inj in inj_list:
                     reason = inj.get('type', {}).get('description', '') or inj.get('detail', '')
                     if reason: break
                 if not reason:
@@ -380,41 +427,34 @@ def _injuries_espn_rosters():
     return result
 
 
-# ── Source 5: ESPN sports.core API ────────────────────────────────────────
+# ── Source 5: ESPN sports.core API (inline data only — no $ref chain) ────────
 def _injuries_espn_core():
     result  = {}
     session = make_session()
     try:
         r = session.get(
             'https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba/injuries?limit=300',
-            timeout=8,
+            timeout=10,
         )
         r.raise_for_status()
         items = r.json().get('items', [])
     except:
         return result
-    for item in items[:120]:
-        ref = item.get('$ref', '')
-        if not ref: continue
-        try:
-            detail = session.get(ref, timeout=4).json()
-        except:
-            continue
+    for item in items:
+        # Use inline fields only — following $ref chains makes 120+ requests and times out
+        athlete   = item.get('athlete', {})
+        name      = athlete.get('displayName', '')
+        team_abbr = norm(athlete.get('team', {}).get('abbreviation', ''))
+        status_obj = item.get('status', {})
         status_txt = (
-            detail.get('status', {}).get('type', {}).get('description', '') or
-            detail.get('type', {}).get('description', 'Unknown')
+            status_obj.get('type', {}).get('description', '') or
+            status_obj.get('description', '') or
+            item.get('type', {}).get('description', 'Unknown')
         )
-        if status_txt.lower() in SKIP_STATUSES: continue
-        athlete_ref = detail.get('athlete', {}).get('$ref', '')
-        if not athlete_ref: continue
-        try:
-            ath = session.get(athlete_ref, timeout=4).json()
-        except:
+        if not status_txt or status_txt.lower() in SKIP_STATUSES:
             continue
-        name      = ath.get('displayName', 'Unknown')
-        team_abbr = norm(ath.get('team', {}).get('abbreviation', ''))
-        injury    = detail.get('type', {}).get('description', 'Injury')
-        if team_abbr:
+        injury = item.get('type', {}).get('description', 'Injury')
+        if name and team_abbr:
             result.setdefault(team_abbr, []).append(f"{name} ({injury} — {status_txt})")
     return result
 
@@ -507,26 +547,30 @@ Return raw JSON only — no markdown, no explanation, no backticks."""
 def get_injuries():
     # Build source list — only include Claude if a key exists
     sources = [
-        ("Rotowire",        _injuries_rotowire),
-        ("ESPN Team API",   _injuries_espn_team),
-        ("CBS Sports",      _injuries_cbs),
-        ("ESPN Roster API", _injuries_espn_rosters),
-        ("ESPN Core API",   _injuries_espn_core),
+        ("ESPN HTML Page",   _injuries_espn_html),
+        ("ESPN Team API",    _injuries_espn_team),
+        ("ESPN Roster API",  _injuries_espn_rosters),
+        ("ESPN Core API",    _injuries_espn_core),
+        ("Rotowire",         _injuries_rotowire),
+        ("CBS Sports",       _injuries_cbs),
     ]
     if _get_api_key():
         sources.append(("Claude AI Web Search", _injuries_via_claude))
 
-    errors = []
+    errors, empties = [], []
     for source_name, fn in sources:
         try:
             data = fn()
             if data:
                 total = sum(len(v) for v in data.values())
                 return data, f"✅ Injuries from {source_name} ({total} players flagged)"
+            else:
+                empties.append(f"{source_name}: empty")
         except Exception as e:
             errors.append(f"{source_name}: {type(e).__name__}")
             continue
-    return {}, f"⚠️ All injury sources failed. ({' | '.join(errors)})"
+    diag = " | ".join(errors + empties)
+    return {}, f"⚠️ All injury sources failed. ({diag})"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
