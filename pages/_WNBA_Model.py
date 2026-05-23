@@ -208,45 +208,67 @@ def _match_team(text):
             return abbr
     return None
 
-# ── Source 1: ESPN injuries HTML page (same domain as working scoreboard API) ──
-def _injuries_espn_html():
-    r = make_session().get('https://www.espn.com/wnba/injuries', timeout=10)
+# ── Source 1: ESPN site API flat injuries endpoint (same subdomain as standings) ─
+def _injuries_espn_site_api():
+    """
+    Hits the same site.api.espn.com subdomain that powers standings (proven to work).
+    Returns a flat list of all current WNBA injuries.
+    """
+    session = make_session()
+    r = session.get(
+        'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/injuries',
+        timeout=8,
+    )
     r.raise_for_status()
-    if len(r.text) < 2000:
-        raise ValueError("ESPN injuries page near-empty")
-    soup   = BeautifulSoup(r.text, 'html.parser')
+    data   = r.json()
     result = {}
-    for block in soup.find_all('div', class_='ResponsiveTable'):
-        title = block.find(class_='Table__Title') or block.find(class_=lambda c: c and 'title' in (c or '').lower())
-        abbr  = _match_team(title.get_text(strip=True) if title else '')
-        if not abbr:
+    for item in data.get('injuries', data.get('items', [])):
+        athlete    = item.get('athlete', {})
+        name       = athlete.get('displayName', athlete.get('fullName', ''))
+        team_abbr  = norm(athlete.get('team', {}).get('abbreviation', ''))
+        status_obj = item.get('status', {})
+        status_txt = (
+            status_obj.get('type', {}).get('description', '') or
+            status_obj.get('name', '') or
+            item.get('type', {}).get('description', 'Unknown')
+        )
+        if not name or not team_abbr or status_txt.lower() in SKIP_STATUSES:
             continue
-        players = []
-        for row in block.find_all('tr', class_=lambda c: c and 'Table__TR' in (c or '')):
-            cols = row.find_all('td')
-            if len(cols) < 3:
-                continue
-            name   = cols[0].get_text(strip=True)
-            injury = cols[2].get_text(strip=True) if len(cols) > 2 else ''
-            status = cols[-1].get_text(strip=True)
-            if not name or status.lower() in SKIP_STATUSES:
-                continue
-            players.append(f"{name} ({injury} — {status})" if injury else f"{name} ({status})")
-        if players:
-            result[abbr] = players
-    if not result:
-        for row in soup.select('table tr'):
-            cols = row.find_all('td')
-            if len(cols) < 4:
-                continue
-            name    = cols[0].get_text(strip=True)
-            team_td = cols[1].get_text(strip=True).lower()
-            injury  = cols[2].get_text(strip=True)
-            status  = cols[3].get_text(strip=True)
-            abbr    = _match_team(team_td)
-            if not abbr or not name or status.lower() in SKIP_STATUSES:
-                continue
-            result.setdefault(abbr, []).append(f"{name} ({injury} — {status})")
+        injury = item.get('type', {}).get('description', 'Injury')
+        result.setdefault(team_abbr, []).append(f"{name} ({injury} — {status_txt})")
+    return result
+
+
+# ── Source 2: WNBA official CDN injury report JSON ────────────────────────────
+WNBA_TEAM_TRICODE = {
+    'ATL':'ATL','CHI':'CHI','CON':'CONN','DAL':'DAL','IND':'IND',
+    'LVA':'LV','LAS':'LA','MIN':'MIN','NYL':'NY','PHX':'PHO',
+    'SEA':'SEA','WAS':'WAS','GSV':'GS','POR':'POR','TOR':'TOR',
+}
+
+def _injuries_wnba_cdn():
+    """
+    WNBA's own CDN injury report — same infrastructure as NBA's well-known
+    cdn.nba.com/static/json/liveData/injuryreport/injuryreport.json
+    """
+    r = make_session().get(
+        'https://cdn.wnba.com/static/json/liveData/injuryreport/injuryreport.json',
+        timeout=8,
+    )
+    r.raise_for_status()
+    data   = r.json()
+    result = {}
+    for entry in data.get('injuryReport', data.get('InjuryReport', [])):
+        team_raw  = entry.get('teamTricode', entry.get('teamAbbreviation', ''))
+        team_abbr = WNBA_TEAM_TRICODE.get(team_raw, norm(team_raw))
+        if not team_abbr:
+            continue
+        name   = entry.get('playerName', entry.get('name', ''))
+        status = entry.get('playerStatus', entry.get('status', 'Unknown'))
+        injury = entry.get('injuryArea',  entry.get('comment', 'Injury'))
+        if not name or status.lower() in SKIP_STATUSES:
+            continue
+        result.setdefault(team_abbr, []).append(f"{name} ({injury} — {status})")
     return result
 
 
@@ -547,7 +569,8 @@ Return raw JSON only — no markdown, no explanation, no backticks."""
 def get_injuries():
     # Build source list — only include Claude if a key exists
     sources = [
-        ("ESPN HTML Page",   _injuries_espn_html),
+        ("ESPN Site API",    _injuries_espn_site_api),
+        ("WNBA CDN",         _injuries_wnba_cdn),
         ("ESPN Team API",    _injuries_espn_team),
         ("ESPN Roster API",  _injuries_espn_rosters),
         ("ESPN Core API",    _injuries_espn_core),
