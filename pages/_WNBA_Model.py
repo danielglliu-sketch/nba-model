@@ -12,6 +12,16 @@ if st.sidebar.button("🔄 Force Data Refresh"):
     st.cache_data.clear()
     st.sidebar.success("Cache cleared! Pulling fresh data.")
 
+st.sidebar.subheader("📅 View Date")
+selected_date = st.sidebar.date_input(
+    "Select game date",
+    value=date.today(),
+    min_value=date(2026, 5, 1),
+    max_value=date.today() + timedelta(days=3),
+    label_visibility="collapsed",
+)
+selected_date_str = selected_date.strftime('%Y%m%d')
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PLAYER TIERS — 2026 WNBA
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,11 +222,12 @@ def _get_scoreboard(date_string):
         return {}
 
 @st.cache_data(ttl=300)
-def get_daily_slate():
-    today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
+def get_daily_slate(date_str=None):
+    if date_str is None:
+        date_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
     games = []
     try:
-        for event in _get_scoreboard(today_str).get('events', []):
+        for event in _get_scoreboard(date_str).get('events', []):
             comp = event['competitions'][0]
             home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
             away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
@@ -482,12 +493,12 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings
 # UI
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🏀 WNBA Master AI Predictor 2026")
-current_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
+current_date = selected_date.strftime('%B %d, %Y')
 st.markdown(f"**Market Date:** {current_date}")
 st.divider()
 
 with st.spinner("Loading slate and standings…"):
-    slate                    = get_daily_slate()
+    slate                    = get_daily_slate(selected_date_str)
     standings                = get_standings()
     b2b                      = get_back_to_back()
     live_ratings, live_count = get_live_team_ratings()
