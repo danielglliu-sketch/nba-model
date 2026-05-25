@@ -140,44 +140,60 @@ def _build_player_lookup():
 
 PLAYER_LOOKUP, DEF_LIABILITY_SET, OFF_LIABILITY_SET = _build_player_lookup()
 
-# ESPN numeric IDs needed for the team statistics endpoint
-ESPN_TEAM_IDS = {
-    'ATL': 1,  'CHI': 3,  'CONN': 16, 'DAL': 14, 'GS':  20,
-    'IND': 12, 'LA':  8,  'LV':   17, 'MIN':  6, 'NY':   5,
-    'PHO': 9,  'POR': 21, 'SEA':  10, 'TOR': 22, 'WAS': 19,
-}
-
 # ─────────────────────────────────────────────────────────────────────────────
-# FIX 6: Live net ratings — ESPN team stats endpoint, per-team fallback
-# NOTE: No st.* calls inside @st.cache_data (Streamlit prohibits side effects)
+# FIX 6: Live net ratings — derived from the same scoreboard endpoint the app
+# already uses for standings and B2B. Walks back up to 45 days of completed
+# games, averages points scored/allowed, and converts to the same ~100-point
+# rating scale used in TEAM_DATA. Falls back to TEAM_DATA for any team with
+# fewer than 5 games found (e.g. very early in the season).
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=1800)
 def get_live_team_ratings():
+    scored_list  = {k: [] for k in TEAM_DATA}
+    allowed_list = {k: [] for k in TEAM_DATA}
+
+    today = date.today()
+    for days_back in range(1, 46):
+        if all(len(scored_list[k]) >= 15 for k in TEAM_DATA):
+            break
+        for event in _get_scoreboard((today - timedelta(days=days_back)).strftime('%Y%m%d')).get('events', []):
+            try:
+                comp = event.get('competitions', [{}])[0]
+                if not comp.get('status', {}).get('type', {}).get('completed', False):
+                    continue
+                home = next((c for c in comp.get('competitors', []) if c.get('homeAway') == 'home'), None)
+                away = next((c for c in comp.get('competitors', []) if c.get('homeAway') == 'away'), None)
+                if not home or not away:
+                    continue
+                h_abbr  = norm(home.get('team', {}).get('abbreviation', ''))
+                a_abbr  = norm(away.get('team', {}).get('abbreviation', ''))
+                h_score = float(home.get('score') or 0)
+                a_score = float(away.get('score') or 0)
+                if h_score == 0 and a_score == 0:
+                    continue
+                if h_abbr in scored_list:
+                    scored_list[h_abbr].append(h_score)
+                    allowed_list[h_abbr].append(a_score)
+                if a_abbr in scored_list:
+                    scored_list[a_abbr].append(a_score)
+                    allowed_list[a_abbr].append(h_score)
+            except Exception:
+                pass
+
+    # Scale: WNBA league avg ~83 PPG maps to ~101 rating (matches TEAM_DATA baseline)
+    LEAGUE_AVG_PPG = 83.0
+    LEAGUE_AVG_RTG = 101.0
     ratings = {}
-    for abbr, team_id in ESPN_TEAM_IDS.items():
-        try:
-            url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_id}/statistics"
-            r = get_session().get(url, timeout=6)
-            r.raise_for_status()
-            data = r.json()
-            stats_map = {}
-            for cat in data.get('splits', {}).get('categories', []):
-                for s in cat.get('stats', []):
-                    if isinstance(s, dict):
-                        stats_map[s.get('name', '')] = s.get('value')
-            off_rtg = (stats_map.get('adjOffensiveRating')
-                       or stats_map.get('offensiveRating')
-                       or stats_map.get('pointsPerGame'))
-            def_rtg = (stats_map.get('adjDefensiveRating')
-                       or stats_map.get('defensiveRating')
-                       or stats_map.get('opponentPointsPerGame'))
-            if off_rtg is not None and def_rtg is not None:
-                ratings[abbr] = {'off_rtg': float(off_rtg), 'def_rtg': float(def_rtg)}
-        except Exception:
-            pass  # silently fall back per team; reported in sidebar diagnostics
-    live_count = len(ratings)
+    live_count = 0
     for abbr in TEAM_DATA:
-        if abbr not in ratings:
+        scored  = scored_list[abbr]
+        allowed = allowed_list[abbr]
+        if len(scored) >= 5:
+            off_rtg = round(LEAGUE_AVG_RTG + (sum(scored)  / len(scored)  - LEAGUE_AVG_PPG), 1)
+            def_rtg = round(LEAGUE_AVG_RTG + (sum(allowed) / len(allowed) - LEAGUE_AVG_PPG), 1)
+            ratings[abbr] = {'off_rtg': off_rtg, 'def_rtg': def_rtg}
+            live_count += 1
+        else:
             ratings[abbr] = TEAM_DATA[abbr]
     return ratings, live_count
 
