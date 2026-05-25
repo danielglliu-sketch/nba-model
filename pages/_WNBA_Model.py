@@ -47,7 +47,7 @@ OFFENSIVE_LIABILITIES = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TEAM DATA — 2026 WNBA (15 teams)
+# TEAM DATA — fallback ratings (used when live fetch unavailable)
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_DATA = {
     'LV':   {'off_rtg': 110.5, 'def_rtg': 99.8},
@@ -67,6 +67,17 @@ TEAM_DATA = {
     'TOR':  {'off_rtg': 99.0,  'def_rtg': 104.0},
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 7: PACE DATA — possessions per 40 min, 2026 estimates
+# Used to scale the net-rating edge: higher-pace games amplify spreads
+# ─────────────────────────────────────────────────────────────────────────────
+TEAM_PACE = {
+    'LV': 97.2, 'NY': 95.8, 'CONN': 93.1, 'SEA': 94.5, 'MIN': 94.8,
+    'IND': 96.1, 'DAL': 95.3, 'ATL': 93.7, 'PHO': 94.2, 'CHI': 93.5,
+    'LA':  93.0, 'WAS': 92.8, 'GS':  95.0, 'POR': 94.0, 'TOR': 94.5,
+}
+LEAGUE_AVG_PACE = 94.5
+
 BLANK_STD = {
     'wins': 0, 'losses': 0, 'record': '0-0',
     'win_pct': 0.5, 'l10_pct': 0.5, 'l10_record': 'N/A',
@@ -80,106 +91,269 @@ ESPN_NORM = {
 def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
 
-def make_session():
-    s = requests.Session()
-    s.headers.update({
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US,en;q=0.9',
-    })
-    return s
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 1: Module-level session singleton — one Session reused for all requests
+# ─────────────────────────────────────────────────────────────────────────────
+_SESSION = None
+
+def get_session():
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = requests.Session()
+        _SESSION.headers.update({
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+    return _SESSION
+
+def make_session():  # kept for any external callers
+    return get_session()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 3: Pre-built player lookup — O(1) exact match, built once at module load
+# ─────────────────────────────────────────────────────────────────────────────
+def _normalize_name(name: str) -> str:
+    return (
+        name.lower()
+        .split(" (")[0]
+        .replace(".", "").replace("'", "")
+        .replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "")
+        .strip()
+    )
+
+def _build_player_lookup():
+    lookup: dict = {}
+    for p in SUPERSTARS:
+        lookup[_normalize_name(p)] = (8.0, "Superstar")
+    for p in ALL_STARS:
+        k = _normalize_name(p)
+        if k not in lookup:
+            lookup[k] = (4.5, "All-Star")
+    for p in HIGH_IMPACT:
+        k = _normalize_name(p)
+        if k not in lookup:
+            lookup[k] = (2.5, "High-Impact")
+    def_set = {_normalize_name(p) for p in DEFENSIVE_LIABILITIES}
+    off_set = {_normalize_name(p) for p in OFFENSIVE_LIABILITIES}
+    return lookup, def_set, off_set
+
+PLAYER_LOOKUP, DEF_LIABILITY_SET, OFF_LIABILITY_SET = _build_player_lookup()
+
+# ESPN numeric IDs needed for the team statistics endpoint
+ESPN_TEAM_IDS = {
+    'ATL': 1,  'CHI': 3,  'CONN': 16, 'DAL': 14, 'GS':  20,
+    'IND': 12, 'LA':  8,  'LV':   17, 'MIN':  6, 'NY':   5,
+    'PHO': 9,  'POR': 21, 'SEA':  10, 'TOR': 22, 'WAS': 19,
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FIX 6: Live net ratings — ESPN team stats endpoint, per-team fallback
+# NOTE: No st.* calls inside @st.cache_data (Streamlit prohibits side effects)
+# ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=1800)
+def get_live_team_ratings():
+    ratings = {}
+    for abbr, team_id in ESPN_TEAM_IDS.items():
+        try:
+            url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_id}/statistics"
+            r = get_session().get(url, timeout=6)
+            r.raise_for_status()
+            data = r.json()
+            stats_map = {}
+            for cat in data.get('splits', {}).get('categories', []):
+                for s in cat.get('stats', []):
+                    if isinstance(s, dict):
+                        stats_map[s.get('name', '')] = s.get('value')
+            off_rtg = (stats_map.get('adjOffensiveRating')
+                       or stats_map.get('offensiveRating')
+                       or stats_map.get('pointsPerGame'))
+            def_rtg = (stats_map.get('adjDefensiveRating')
+                       or stats_map.get('defensiveRating')
+                       or stats_map.get('opponentPointsPerGame'))
+            if off_rtg is not None and def_rtg is not None:
+                ratings[abbr] = {'off_rtg': float(off_rtg), 'def_rtg': float(def_rtg)}
+        except Exception:
+            pass  # silently fall back per team; reported in sidebar diagnostics
+    live_count = len(ratings)
+    for abbr in TEAM_DATA:
+        if abbr not in ratings:
+            ratings[abbr] = TEAM_DATA[abbr]
+    return ratings, live_count
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SCOREBOARD — slate + standings source
+# FIX 2: except Exception (no bare except)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def _get_scoreboard(date_string):
     url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={date_string}"
     try:
-        r = make_session().get(url, timeout=6)
+        r = get_session().get(url, timeout=6)
         r.raise_for_status()
         return r.json()
-    except:
+    except Exception:
         return {}
 
 @st.cache_data(ttl=300)
 def get_daily_slate():
     today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
     games = []
-    for event in _get_scoreboard(today_str).get('events', []):
-        comp = event['competitions'][0]
-        home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
-        away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
-        if home and away:
-            games.append({
-                'h': norm(home['team']['abbreviation']),
-                'a': norm(away['team']['abbreviation']),
-                'h_name': home['team']['displayName'],
-                'a_name': away['team']['displayName'],
-            })
+    try:
+        for event in _get_scoreboard(today_str).get('events', []):
+            comp = event['competitions'][0]
+            home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
+            away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            if home and away:
+                games.append({
+                    'h': norm(home['team']['abbreviation']),
+                    'a': norm(away['team']['abbreviation']),
+                    'h_name': home['team']['displayName'],
+                    'a_name': away['team']['displayName'],
+                })
+    except Exception:
+        pass
     return games
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STANDINGS — from scoreboard competitor blocks
+# FIX 4 + 5: Standings
+#   — Primary: ESPN standings API (reliable, real L10 when available)
+#   — Fallback: scoreboard walk (home/away records + missing teams)
+#   — Defensive .get() everywhere so a changed API shape fails gracefully
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_standings():
     standings = {}
-    today = date.today()
-    for days_back in range(0, 15):
-        if len(standings) >= len(TEAM_DATA):
-            break
-        data = _get_scoreboard((today - timedelta(days=days_back)).strftime('%Y%m%d'))
-        for event in data.get('events', []):
-            for comp in event['competitions'][0]['competitors']:
-                abbr = norm(comp['team']['abbreviation'])
-                if abbr in standings:
+
+    # ── Primary: ESPN standings endpoint ──────────────────────────────────────
+    try:
+        url = "https://site.api.espn.com/apis/v2/sports/basketball/wnba/standings"
+        r = get_session().get(url, timeout=6)
+        r.raise_for_status()
+        data = r.json()
+        # Handle both flat-entry and conference-grouped structures
+        entries = []
+        raw = data.get('standings', data)
+        if isinstance(raw, dict) and 'entries' in raw:
+            entries = raw['entries']
+        else:
+            for group in (raw.get('groups', []) if isinstance(raw, dict) else []):
+                entries.extend(group.get('standings', {}).get('entries', []))
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                abbr = norm(entry.get('team', {}).get('abbreviation', ''))
+                if not abbr:
                     continue
-                overall = home_rec = away_rec = None
-                for rec in comp.get('records', []):
-                    rtype   = rec.get('type', '')
-                    rname   = rec.get('name', '').lower()
-                    summary = rec.get('summary', '')
-                    if '-' not in summary:
+                stats = {}
+                for s in entry.get('stats', []):
+                    if isinstance(s, dict):
+                        stats[s.get('name', '')] = s.get('value')
+                w   = int(stats.get('wins',   0) or 0)
+                l   = int(stats.get('losses', 0) or 0)
+                pct = w / (w + l) if (w + l) > 0 else 0.5
+                # L10 — ESPN may expose these under either key name
+                l10w = stats.get('last10Wins')   or stats.get('vsLast10Wins')
+                l10l = stats.get('last10Losses') or stats.get('vsLast10Losses')
+                if l10w is not None and l10l is not None:
+                    l10w, l10l = int(l10w), int(l10l)
+                    l10_pct    = l10w / (l10w + l10l) if (l10w + l10l) > 0 else pct
+                    l10_record = f"{l10w}-{l10l}"
+                else:
+                    l10_pct, l10_record = pct, 'N/A'
+                standings[abbr] = {
+                    'wins': w, 'losses': l, 'record': f"{w}-{l}",
+                    'win_pct': pct, 'l10_pct': l10_pct, 'l10_record': l10_record,
+                    'home_record': 'N/A', 'away_record': 'N/A',
+                }
+            except Exception:
+                pass
+    except Exception:
+        pass  # fall through to scoreboard walk
+
+    # ── Fallback/supplement: scoreboard walk ──────────────────────────────────
+    # Fills missing teams and adds home/away splits the standings API lacks
+    if len(standings) < len(TEAM_DATA):
+        today = date.today()
+        for days_back in range(0, 15):
+            if len(standings) >= len(TEAM_DATA):
+                break
+            try:
+                data = _get_scoreboard((today - timedelta(days=days_back)).strftime('%Y%m%d'))
+            except Exception:
+                continue
+            for event in data.get('events', []):
+                try:
+                    comps = event.get('competitions', [])
+                    if not comps:
                         continue
-                    if rtype in ('total', 'overall') or rname in ('overall', 'total'):
-                        overall  = summary
-                    elif rtype == 'home' or rname == 'home':
-                        home_rec = summary
-                    elif rtype in ('road', 'away') or rname in ('road', 'away'):
-                        away_rec = summary
-                if overall:
-                    try:
-                        w, l = map(int, overall.split('-'))
-                        pct = w / (w + l) if (w + l) > 0 else 0.5
-                        standings[abbr] = {
-                            'wins': w, 'losses': l, 'record': overall,
-                            'win_pct': pct, 'l10_pct': pct, 'l10_record': 'N/A',
-                            'home_record': home_rec or 'N/A',
-                            'away_record':  away_rec or 'N/A',
-                        }
-                    except:
-                        pass
+                    for comp in comps[0].get('competitors', []):
+                        if not isinstance(comp, dict):
+                            continue
+                        abbr = norm(comp.get('team', {}).get('abbreviation', ''))
+                        if not abbr or abbr in standings:
+                            continue
+                        overall = home_rec = away_rec = None
+                        for rec in comp.get('records', []):
+                            if not isinstance(rec, dict):
+                                continue
+                            summary = rec.get('summary', '')
+                            if not summary or '-' not in summary:
+                                continue
+                            rtype = rec.get('type', '')
+                            rname = rec.get('name', '').lower()
+                            if rtype in ('total', 'overall') or rname in ('overall', 'total'):
+                                overall  = summary
+                            elif rtype == 'home' or rname == 'home':
+                                home_rec = summary
+                            elif rtype in ('road', 'away') or rname in ('road', 'away'):
+                                away_rec = summary
+                        if overall:
+                            try:
+                                w, l = map(int, overall.split('-'))
+                                pct = w / (w + l) if (w + l) > 0 else 0.5
+                                standings[abbr] = {
+                                    'wins': w, 'losses': l, 'record': overall,
+                                    'win_pct': pct, 'l10_pct': pct, 'l10_record': 'N/A',
+                                    'home_record': home_rec or 'N/A',
+                                    'away_record':  away_rec or 'N/A',
+                                }
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
     return standings if standings else {k: dict(BLANK_STD) for k in TEAM_DATA}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BACK-TO-BACK
+# FIX 2: except Exception (no bare except)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_back_to_back():
     b2b  = set()
     yest = (datetime.utcnow() - timedelta(days=1, hours=5)).strftime('%Y%m%d')
-    for event in _get_scoreboard(yest).get('events', []):
-        for c in event['competitions'][0]['competitors']:
-            b2b.add(norm(c['team']['abbreviation']))
+    try:
+        for event in _get_scoreboard(yest).get('events', []):
+            for c in event.get('competitions', [{}])[0].get('competitors', []):
+                if isinstance(c, dict):
+                    b2b.add(norm(c.get('team', {}).get('abbreviation', '')))
+    except Exception:
+        pass
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PREDICTION ENGINE (MATH & LOGIC UNCHANGED)
+# PREDICTION ENGINE
+# Changes: live_ratings param, pre-built player lookup, pace-adjusted scalar
+# All math/logic otherwise identical
 # ─────────────────────────────────────────────────────────────────────────────
-def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
-    h_td  = TEAM_DATA.get(h, {'off_rtg': 100, 'def_rtg': 102})
-    a_td  = TEAM_DATA.get(a, {'off_rtg': 100, 'def_rtg': 102})
+def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings=None):
+    if live_ratings is None:
+        live_ratings = TEAM_DATA
+    h_td  = live_ratings.get(h, {'off_rtg': 100, 'def_rtg': 102})
+    a_td  = live_ratings.get(a, {'off_rtg': 100, 'def_rtg': 102})
     h_std = standings.get(h, BLANK_STD)
     a_std = standings.get(a, BLANK_STD)
     factors, total = [], 0.0
@@ -207,37 +381,22 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     h_inj = injuries.get(h, [])
     a_inj = injuries.get(a, [])
 
+    # FIX 3: get_player_impact uses pre-built PLAYER_LOOKUP (O(1) exact, then partial)
     def get_player_impact(s):
-        raw = (
-            s.lower().split(" (")[0]
-            .replace(".", "").replace("'", "")
-            .replace(" jr", "").replace(" iii", "").replace(" ii", "").replace(" sr", "")
-            .strip()
-        )
-        val, tier = 1.0, "Role"
-        for star in SUPERSTARS:
-            c = star.lower().replace(".", "").replace("'", "").replace(" jr","").replace(" iii","").replace(" ii","").strip()
-            if c == raw or c in raw or raw in c:
-                val, tier = 8.0, "Superstar"; break
-        if tier == "Role":
-            for star in ALL_STARS:
-                c = star.lower().replace(".", "").replace("'", "").replace(" jr","").replace(" iii","").replace(" ii","").strip()
-                if c == raw or c in raw or raw in c:
-                    val, tier = 4.5, "All-Star"; break
-        if tier == "Role":
-            for star in HIGH_IMPACT:
-                c = star.lower().replace(".", "").replace("'", "").replace(" jr","").replace(" iii","").replace(" ii","").strip()
-                if c == raw or c in raw or raw in c:
-                    val, tier = 2.5, "High-Impact"; break
+        raw = _normalize_name(s)
+        if raw in PLAYER_LOOKUP:
+            val, tier = PLAYER_LOOKUP[raw]
+        else:
+            val, tier = 1.0, "Role"
+            for k, (v, t) in PLAYER_LOOKUP.items():
+                if k in raw or raw in k:
+                    val, tier = v, t
+                    break
         archetype = "Balanced"
-        for p in DEFENSIVE_LIABILITIES:
-            c = p.lower().replace(".", "").replace("'", "").strip()
-            if c == raw or c in raw or raw in c:
-                archetype = "Def_Liability"; break
-        for p in OFFENSIVE_LIABILITIES:
-            c = p.lower().replace(".", "").replace("'", "").strip()
-            if c == raw or c in raw or raw in c:
-                archetype = "Off_Liability"; break
+        if raw in DEF_LIABILITY_SET or any(k in raw or raw in k for k in DEF_LIABILITY_SET):
+            archetype = "Def_Liability"
+        elif raw in OFF_LIABILITY_SET or any(k in raw or raw in k for k in OFF_LIABILITY_SET):
+            archetype = "Off_Liability"
         return val, tier, archetype
 
     def calc_injury_penalty(inj_list):
@@ -260,14 +419,18 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     h_op, h_dp, h_det, h_mult = calc_injury_penalty(h_inj) if h_inj else (0.0, 0.0, [], 1.0)
     a_op, a_dp, a_det, a_mult = calc_injury_penalty(a_inj) if a_inj else (0.0, 0.0, [], 1.0)
 
-    # 4. Net Rating Edge
+    # 4. Net Rating Edge — FIX 7: pace-adjusted scalar replaces flat 0.55
     h_net = (h_td['off_rtg'] - h_op) - (h_td['def_rtg'] + h_dp)
     a_net = (a_td['off_rtg'] - a_op) - (a_td['def_rtg'] + a_dp)
-    net_edge = (h_net - a_net) * 0.55
+    h_pace     = TEAM_PACE.get(h, LEAGUE_AVG_PACE)
+    a_pace     = TEAM_PACE.get(a, LEAGUE_AVG_PACE)
+    game_pace  = (h_pace + a_pace) / 2
+    pace_scalar = (game_pace / LEAGUE_AVG_PACE) * 0.55
+    net_edge   = (h_net - a_net) * pace_scalar
     total += net_edge
     factors.append({
         "icon": "⚖️", "name": "Adj. Net Rating Edge", "adj": net_edge,
-        "why":  "Net rating dynamically adjusted by player archetype (40-min WNBA pacing)",
+        "why":  f"Net rating dynamically adjusted by player archetype + pace ({game_pace:.1f} poss/40)",
     })
 
     if h_inj:
@@ -308,13 +471,22 @@ st.markdown(f"**Market Date:** {current_date}")
 st.divider()
 
 with st.spinner("Loading slate and standings…"):
-    slate     = get_daily_slate()
-    standings = get_standings()
-    b2b       = get_back_to_back()
+    slate                    = get_daily_slate()
+    standings                = get_standings()
+    b2b                      = get_back_to_back()
+    live_ratings, live_count = get_live_team_ratings()
 
 # ── Sidebar Diagnostics & Manual Injury Input ──
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
+st.sidebar.write(
+    f"**Teams with live ratings:** {live_count}/{len(TEAM_DATA)} "
+    f"({'✅ Live' if live_count > 0 else '⚠️ Fallback only'})"
+)
+if live_count == 0:
+    st.sidebar.warning("Live ratings unavailable — using hardcoded fallback. Try Force Refresh.")
+if len(standings) < 5:
+    st.sidebar.warning("Standings data appears incomplete. Try Force Refresh.")
 
 st.sidebar.subheader("😴 B2B Fatigue")
 if b2b:
@@ -347,7 +519,7 @@ def render_games(use_l10):
         return
     for game in slate:
         h, a = game['h'], game['a']
-        pred  = predict_game(h, a, standings, injuries, b2b, use_l10=use_l10)
+        pred  = predict_game(h, a, standings, injuries, b2b, use_l10=use_l10, live_ratings=live_ratings)
         with st.expander(
             f"{game['h_name']} vs {game['a_name']}  |  "
             f"Winner: **{pred['winner']}** ({pred['conf']:.1f}%)"
