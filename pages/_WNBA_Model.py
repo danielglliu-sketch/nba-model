@@ -1,17 +1,8 @@
 import streamlit as st
 import requests
 import numpy as np
-import json
 import os
 from datetime import datetime, timedelta, date
-from bs4 import BeautifulSoup
-
-# ── API Key — reads from st.secrets first, then environment variable ──────────
-def _get_api_key():
-    try:
-        return st.secrets["ANTHROPIC_API_KEY"]
-    except Exception:
-        return os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ─── PAGE SETUP ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="WNBA Master AI 2026", page_icon="🏀", layout="wide")
@@ -89,14 +80,10 @@ ESPN_NORM = {
 def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
 
-# ─── BROWSER SESSION (Configured for Mobile API Auth) ──────────────────────────
 def make_session():
     s = requests.Session()
     s.headers.update({
-        'User-Agent': (
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) '
-            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
-        ),
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
         'Accept': 'application/json',
         'Accept-Language': 'en-US,en;q=0.9',
     })
@@ -133,7 +120,7 @@ def get_daily_slate():
     return games
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STANDINGS — from scoreboard competitor blocks (ESPN /standings is broken)
+# STANDINGS — from scoreboard competitor blocks
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_standings():
@@ -176,74 +163,6 @@ def get_standings():
     return standings if standings else {k: dict(BLANK_STD) for k in TEAM_DATA}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INJURIES — Direct ESPN Mobile CDN Fetch (Anti-Block Bypass)
-# ─────────────────────────────────────────────────────────────────────────────
-SKIP_STATUSES = {
-    'active', 'probable', 'expected to play', 'day-to-day', 'not injury related',
-}
-
-@st.cache_data(ttl=600)
-def get_injuries():
-    """
-    Pulls live WNBA injuries directly via ESPN's open API data feed.
-    Bypasses standard web-scraping blocks because it avoids parsing raw HTML.
-    """
-    result = {}
-    session = make_session()
-    
-    # Direct CDN link containing the league-wide roster injury states
-    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams?limit=30"
-    
-    try:
-        r = session.get(url, timeout=8)
-        r.raise_for_status()
-        teams_data = r.json().get('sports', [{}])[0].get('leagues', [{}])[0].get('teams', [])
-        
-        for team_box in teams_data:
-            team_info = team_box.get('team', {})
-            raw_abbr = team_info.get('abbreviation', '')
-            abbr = norm(raw_abbr) # Uses your model's native normalization mapping
-            
-            # Request specific team roster details which include player injury objects
-            roster_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_info.get('id')}/roster"
-            roster_res = session.get(roster_url, timeout=5).json()
-            
-            injured_players = []
-            for group in roster_res.get('athletes', []):
-                players = group if isinstance(group, list) else group.get('items', [])
-                for player in players:
-                    status_obj = player.get('status', {})
-                    status_name = status_obj.get('name', 'active').lower()
-                    
-                    # Filter out non-injured or probable athletes
-                    if status_name in SKIP_STATUSES or status_name == 'active':
-                        continue
-                        
-                    full_name = player.get('fullName', player.get('displayName', 'Unknown'))
-                    
-                    # Extract descriptive injury detail
-                    reason = ''
-                    for inj in player.get('injuries', []):
-                        reason = inj.get('type', {}).get('description', '') or inj.get('detail', '')
-                        if reason: 
-                            break
-                            
-                    if not reason:
-                        reason = player.get('injuryStatus', 'Injury')
-                        
-                    display_status = status_obj.get('name', 'Out').title()
-                    injured_players.append(f"{full_name} ({reason} — {display_status})")
-            
-            if injured_players:
-                result[abbr] = injured_players
-                
-        return result, f"✅ Live Injuries populated via ESPN Data Feed ({sum(len(v) for v in result.values())} players flagged)"
-        
-    except Exception as e:
-        # Fallback if the endpoint changes structural keys mid-season
-        return {}, f"⚠️ Connection stable, but feed parsing paused. Error: {type(e).__name__}"
-
-# ─────────────────────────────────────────────────────────────────────────────
 # BACK-TO-BACK
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
@@ -256,7 +175,7 @@ def get_back_to_back():
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PREDICTION ENGINE
+# PREDICTION ENGINE (MATH & LOGIC UNCHANGED)
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     h_td  = TEAM_DATA.get(h, {'off_rtg': 100, 'def_rtg': 102})
@@ -360,7 +279,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
         if a_mult > 1.0: why += f" (🚨 Depth Collapse: {a_mult}x)"
         factors.append({"icon": "🤕", "name": f"{a} Injuries", "adj": 0.0, "why": why})
 
-    # 5. B2B Fatigue (5pts — WNBA commercial flights, tighter budgets)
+    # 5. B2B Fatigue
     if h in b2b_set:
         total -= 5.0
         factors.append({"icon": "😴", "name": f"{h} B2B Fatigue", "adj": -5.0,
@@ -370,7 +289,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
         factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 5.0,
                         "why": f"{a} played yesterday. Commercial flight grind."})
 
-    # Logistic win probability (k=0.17 → 10pt spread ≈ 82%)
+    # Logistic win probability
     prob = max(5.0, min(95.0, 1 / (1 + np.exp(-0.17 * total)) * 100))
     return {
         'winner':  h if prob >= 50.0 else a,
@@ -388,15 +307,14 @@ current_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, %Y')
 st.markdown(f"**Market Date:** {current_date}")
 st.divider()
 
-with st.spinner("Loading slate, standings, and injuries…"):
+with st.spinner("Loading slate and standings…"):
     slate     = get_daily_slate()
     standings = get_standings()
-    injuries, inj_status = get_injuries()
     b2b       = get_back_to_back()
 
+# ── Sidebar Diagnostics & Manual Injury Input ──
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
-st.sidebar.write(inj_status)
 
 st.sidebar.subheader("😴 B2B Fatigue")
 if b2b:
@@ -404,14 +322,24 @@ if b2b:
 else:
     st.sidebar.info("No teams on back-to-backs today.")
 
-st.sidebar.subheader("🤕 Full Injury Report")
-if injuries:
-    for team in sorted(injuries):
-        st.sidebar.markdown(f"**{team}**")
-        for p in injuries[team]:
-            st.sidebar.warning(p)
+st.sidebar.subheader("🤕 Manual Injury Input")
+st.sidebar.caption("Type missing players separated by commas (e.g. `Caitlin Clark, Kelsey Mitchell`). The model will automatically read the names, find their tier, and penalize the math.")
+
+injuries = {}
+if slate:
+    teams_playing = set()
+    for game in slate:
+        teams_playing.add(game['h'])
+        teams_playing.add(game['a'])
+        
+    for team in sorted(teams_playing):
+        # Generate a text box for every team playing today
+        inj_input = st.sidebar.text_input(f"{team} Injuries", key=f"inj_{team}")
+        if inj_input.strip():
+            # Clean up the input string into a proper list
+            injuries[team] = [p.strip() for p in inj_input.split(',') if p.strip()]
 else:
-    st.sidebar.info("No active injuries found.")
+    st.sidebar.info("No games scheduled today. Input fields will appear on game days.")
 
 def render_games(use_l10):
     if not slate:
