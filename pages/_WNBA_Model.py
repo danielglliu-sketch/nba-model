@@ -79,7 +79,6 @@ TEAM_DATA = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PACE DATA — possessions per 40 min, 2026 estimates
-# Used to scale the net-rating edge: higher-pace games amplify spreads
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_PACE = {
     'LV': 97.2, 'NY': 95.8, 'CONN': 93.1, 'SEA': 94.5, 'MIN': 94.8,
@@ -102,7 +101,7 @@ def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module-level session singleton — one Session reused for all requests
+# Module-level session singleton
 # ─────────────────────────────────────────────────────────────────────────────
 _SESSION = None
 
@@ -237,33 +236,92 @@ def get_daily_slate(date_str=None):
     return games
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROSTERS (For Dropdown Menus)
+# ROSTERS — multi-attempt with fallback to known player tier lists
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def get_team_roster(team_abbr):
-    """Fetches the official active roster for a team to populate the multiselect dropdown."""
+    """Fetches the active roster for a team to populate the injury multiselect dropdown.
+    Tries three ESPN endpoints in sequence; falls back to known tier lists if all fail."""
+
     slug_map = {
         'LV': 'lva', 'NY': 'nyl', 'CONN': 'con', 'SEA': 'sea', 'MIN': 'min',
         'IND': 'ind', 'DAL': 'dal', 'ATL': 'atl', 'PHO': 'phx', 'CHI': 'chi',
-        'LA': 'las', 'WAS': 'was', 'GS': 'gs', 'POR': 'por', 'TOR': 'tor'
+        'LA': 'las', 'WAS': 'was', 'GS': 'gsv', 'POR': 'por', 'TOR': 'tor'
     }
-    slug = slug_map.get(team_abbr, team_abbr.lower())
-    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster"
-    
-    try:
-        r = get_session().get(url, timeout=5)
-        r.raise_for_status()
-        data = r.json()
-        players = []
+    id_map = {
+        'LV': '18', 'NY': '5',  'CONN': '16', 'SEA': '6',  'MIN': '9',
+        'IND': '19', 'DAL': '8', 'ATL': '1',  'PHO': '14', 'CHI': '3',
+        'LA':  '2',  'WAS': '15', 'GS': '17',  'POR': '20', 'TOR': '21'
+    }
+
+    players = []
+
+    def _parse_athletes(data):
+        names = []
         for group in data.get('athletes', []):
             items = group if isinstance(group, list) else group.get('items', [])
             for p in items:
-                name = p.get('fullName', p.get('displayName', ''))
+                name = p.get('fullName') or p.get('displayName', '')
                 if name:
-                    players.append(name)
-        return sorted(players)
+                    names.append(name)
+        return names
+
+    # --- Attempt 1: Slug-based roster endpoint ---
+    slug = slug_map.get(team_abbr, team_abbr.lower())
+    try:
+        r = get_session().get(
+            f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster",
+            timeout=6,
+        )
+        if r.status_code == 200:
+            players = _parse_athletes(r.json())
     except Exception:
-        return []
+        pass
+
+    # --- Attempt 2: Numeric ID roster endpoint ---
+    if not players:
+        team_id = id_map.get(team_abbr)
+        if team_id:
+            try:
+                r = get_session().get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_id}/roster",
+                    timeout=6,
+                )
+                if r.status_code == 200:
+                    players = _parse_athletes(r.json())
+            except Exception:
+                pass
+
+    # --- Attempt 3: Core API with numeric ID (dereferences each athlete $ref) ---
+    if not players:
+        team_id = id_map.get(team_abbr)
+        if team_id:
+            try:
+                r = get_session().get(
+                    f"https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba/teams/{team_id}/athletes?limit=30",
+                    timeout=6,
+                )
+                if r.status_code == 200:
+                    for item in r.json().get('items', []):
+                        ref = item.get('$ref', '')
+                        if ref:
+                            try:
+                                pr = get_session().get(ref, timeout=4)
+                                if pr.status_code == 200:
+                                    pd2 = pr.json()
+                                    name = pd2.get('fullName') or pd2.get('displayName', '')
+                                    if name:
+                                        players.append(name)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+    # --- Fallback: full known-tier player list so dropdown always renders ---
+    if not players:
+        players = sorted(set(SUPERSTARS + ALL_STARS + HIGH_IMPACT))
+
+    return sorted(set(players))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STANDINGS
@@ -514,7 +572,7 @@ with st.spinner("Loading slate and standings…"):
     b2b                      = get_back_to_back()
     live_ratings, live_count = get_live_team_ratings()
 
-# ── Sidebar Diagnostics & Injury Input ──
+# ── Sidebar Diagnostics ──
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
 st.sidebar.write(
@@ -532,6 +590,7 @@ if b2b:
 else:
     st.sidebar.info("No teams on back-to-backs today.")
 
+# ── Sidebar Injury Input ──
 st.sidebar.subheader("🤕 Injury Input")
 st.sidebar.caption("Select missing players from the dropdown. The model will automatically apply their tier penalty.")
 
@@ -541,27 +600,21 @@ if slate:
     for game in slate:
         teams_playing.add(game['h'])
         teams_playing.add(game['a'])
-        
+
     for team in sorted(teams_playing):
         roster = get_team_roster(team)
-        
-        if roster:
-            # Roster successfully fetched, display multiselect dropdown
-            selected_injuries = st.sidebar.multiselect(
-                f"{team} Injuries",
-                options=roster,
-                key=f"inj_{team}"
-            )
-            if selected_injuries:
-                injuries[team] = selected_injuries
-        else:
-            # Fallback text input just in case the ESPN API is down
-            inj_input = st.sidebar.text_input(f"{team} Injuries (Manual Entry)", key=f"inj_{team}")
-            if inj_input.strip():
-                injuries[team] = [p.strip() for p in inj_input.split(',') if p.strip()]
+        # roster always returns something (live or fallback), so always show multiselect
+        selected_injuries = st.sidebar.multiselect(
+            f"{team} Injuries",
+            options=roster,
+            key=f"inj_{team}",
+        )
+        if selected_injuries:
+            injuries[team] = selected_injuries
 else:
     st.sidebar.info("No games scheduled today. Input fields will appear on game days.")
 
+# ── Game Renderer ──
 def render_games(use_l10):
     if not slate:
         st.info(f"No WNBA games scheduled for {current_date}.")
