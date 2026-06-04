@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import numpy as np
-import os
 from datetime import datetime, timedelta, date
 
 # ─── PAGE SETUP ───────────────────────────────────────────────────────────────
@@ -33,7 +32,7 @@ ALL_STARS = [
     "Kelsey Plum", "Jackie Young", "Jonquel Jones", "Nneka Ogwumike",
     "Ariel Atkins", "Kahleah Copper", "Chelsea Gray", "Arike Ogunbowale",
     "Satou Sabally", "DeWanna Bonner", "Cameron Brink", "Aliyah Boston",
-    "Diana Taurasi", "Skylar Diggins-Smith", "Ezi Magbegor", "Azzi Fudd",
+    "Diana Taurasi", "Skylar Diggins", "Ezi Magbegor", "Azzi Fudd",
     "Rickea Jackson", "Dearica Hamby", "Temi Fagbenle",
 ]
 HIGH_IMPACT = [
@@ -49,12 +48,108 @@ HIGH_IMPACT = [
 DEFENSIVE_LIABILITIES = [
     "Caitlin Clark", "Arike Ogunbowale", "Kelsey Mitchell", "Marina Mabrey",
     "Diana Taurasi", "Sabrina Ionescu", "Kelsey Plum", "Azzi Fudd",
-    "Skylar Diggins-Smith", "Tyasha Harris",
+    "Skylar Diggins", "Tyasha Harris",
 ]
 OFFENSIVE_LIABILITIES = [
     "Alyssa Thomas", "Ezi Magbegor", "Brianna Turner", "Kiah Stokes",
     "Natasha Howard", "Brittney Griner", "Alanna Smith",
 ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2026 HARDCODED ROSTERS — full opening-day rosters from CBS Sports
+# ESPN API is blocked in Streamlit's server environment (returns 403),
+# so we bake the rosters in directly. Update as trades/waivers happen.
+# ─────────────────────────────────────────────────────────────────────────────
+ROSTERS_2026 = {
+    'ATL': sorted([
+        "Jordin Canada", "Allisha Gray", "Naz Hillmon", "Rhyne Howard", "Brionna Jones",
+        "Isobel Borlase", "Te-Hina Paopao", "Angel Reese", "Taylor Thierry", "Madina Okot",
+        "Indya Nivar", "Maite Cazorla", "Stephanie Jones", "Sika Koné", "Holly Winterburn",
+    ]),
+    'CHI': sorted([
+        "Rachel Banham", "DiJonai Carrington", "Skylar Diggins", "Azurá Stevens",
+        "Courtney Vandersloot", "Elizabeth Williams", "Gabriela Jaquez", "Kamilla Cardoso",
+        "Natasha Cloud", "Rickea Jackson", "Jacy Sheldon", "Sydney Taylor",
+    ]),
+    'CONN': sorted([
+        "Kennedy Burke", "Brittney Griner", "Olivia Nelson-Ododa", "Diamond Miller",
+        "Aaliyah Edwards", "Leïla Lacan", "Aneesah Morrow", "Saniya Rivers",
+        "Nell Angloma", "Gianna Kneepkens", "Charlisse Leger-Walker", "Raegan Beers",
+        "Shey Peddy",
+    ]),
+    'DAL': sorted([
+        "Awak Kuier", "Arike Ogunbowale", "Jessica Shepard", "Alanna Smith",
+        "Azzi Fudd", "Maddy Siegrist", "Paige Bueckers", "Aziaha James",
+        "JJ Quinerly", "Alysha Clark", "Odyssey Sims", "Li Yueru",
+    ]),
+    'GS': sorted([
+        "Veronica Burton", "Kaila Charles", "Tiffany Hayes", "Kiah Stokes",
+        "Kayla Thornton", "Gabby Williams", "Kate Martin", "Iliana Rupert",
+        "Janelle Salaün", "Cecilia Zandalasini", "Justė Jocytė", "Miela Sowah",
+        "Laeticia Amihere", "Kaitlyn Chen",
+    ]),
+    'IND': sorted([
+        "Monique Billings", "Sophie Cunningham", "Myisha Hines-Allen", "Lexie Hull",
+        "Kelsey Mitchell", "Aliyah Boston", "Caitlin Clark", "Damiris Dantas",
+        "Tyasha Harris", "Makayla Timpson", "Raven Johnson", "Justine Pissot",
+        "Shatori Walker-Kimbrough",
+    ]),
+    'LV': sorted([
+        "Dana Evans", "Chelsea Gray", "Jewell Loyd", "NaLyssa Smith",
+        "Stephanie Talbot", "A'ja Wilson", "Jackie Young", "Janiah Barker",
+        "Kierstan Bell", "Chennedy Carter", "Cheyenne Parker-Tyus", "Brianna Turner",
+    ]),
+    'LA': sorted([
+        "Ariel Atkins", "Dearica Hamby", "Nneka Ogwumike", "Kelsey Plum",
+        "Erica Wheeler", "Cameron Brink", "Sania Feigin", "Chance Gray",
+        "Ta'Niya Latson", "Laura Ziegler", "Rae Burrell", "Emma Cannon",
+        "Jihyun Park",
+    ]),
+    'MIN': sorted([
+        "Napheesa Collier", "Nia Coffey", "Natasha Howard", "Kayla McBride",
+        "Courtney Williams", "Dorka Juhász", "Olivia Miles", "Anastasiia Olairi Kosu",
+        "Maya Caldwell", "Emma Cechova", "Antonia Delaere", "Eliska Hamzova",
+        "Liatu King", "Saylor Poffenbarger", "Jaylyn Sherrod",
+    ]),
+    'NY': sorted([
+        "Sabrina Ionescu", "Jonquel Jones", "Betnijah Laney-Hamilton", "Satou Sabally",
+        "Breanna Stewart", "Rebecca Allen", "Leonie Feibeich", "Pauline Astier",
+        "Raquel Carrera", "Derin Erdogan", "Marine Fauthoux", "Alex Fowler",
+        "Rebekah Gardner", "Marine Johannès", "Anneli Maley", "Ugonne Onyiah",
+        "DiDi Richards", "Seehia Ridard", "Annika Soltau", "Han Xu",
+    ]),
+    'PHO': sorted([
+        "Valériane Ayayi", "Kahleah Copper", "Alyssa Thomas", "Sami Whitcomb",
+        "Monique Akoa Makani", "DeWanna Bonner", "Natasha Mack", "Chloe Bibby",
+        "Noemie Brochant", "Quionche Carter", "Kyara Linskens", "Jovana Nogic",
+        "Kiana Williams", "Peyton Williams",
+    ]),
+    'POR': sorted([
+        "Bridget Carleton", "Megan Gustafson", "Haley Jones", "Karlie Samuelson",
+        "Sarah Ashlee Barker", "Luisa Geiselsöder", "Carla Leite", "Nyiadiew Puoch",
+        "Sug Sutton", "Frieda Bühner", "Serah Williams", "Emily Engstler",
+        "Jordan Harrison", "Teja Oblak", "Kamiah Smalls",
+    ]),
+    'SEA': sorted([
+        "Lexie Brown", "Stefanie Dolson", "Natisha Hiedeman", "Ezi Magbegor",
+        "Jade Melbourne", "Katie Lou Samuelson", "Awa Fam", "Jordan Horston",
+        "Dominique Malonga", "Flau'jae Johnson", "Grace VanSlooten", "Taina Mair",
+        "Jaelyn Brown", "Zia Cooke", "Rennia Davis", "Mackenzie Holmes",
+    ]),
+    'TOR': sorted([
+        "Julie Allemand", "Temi Fágbénlé", "Marina Mabrey", "Brittney Sykes",
+        "Kia Nurse", "Nyara Sabally", "Isabelle Harrison", "Aaliyah Nye",
+        "Teonni Key", "Kiki Rice", "Mariella Fasoula", "Maria Conde",
+        "Yvonne Ejim", "Lexi Held", "Laura Juškaitė", "Kitija Laksa",
+        "Nikolina Milić",
+    ]),
+    'WAS': sorted([
+        "Shakira Austin", "Michaela Onyenwere", "Lauren Betts", "Georgia Amoore",
+        "Sonia Citron", "Kiki Iriafen", "Lucy Olsen", "Angela Dugalić",
+        "Rori Harmon", "Darianna Littlepage-Buggs", "Cotie McMahon",
+        "Cassandre Prosper", "Alex Wilson",
+    ]),
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEAM DATA — fallback ratings (used when live fetch unavailable)
@@ -77,9 +172,6 @@ TEAM_DATA = {
     'TOR':  {'off_rtg': 99.0,  'def_rtg': 104.0},
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PACE DATA — possessions per 40 min, 2026 estimates
-# ─────────────────────────────────────────────────────────────────────────────
 TEAM_PACE = {
     'LV': 97.2, 'NY': 95.8, 'CONN': 93.1, 'SEA': 94.5, 'MIN': 94.8,
     'IND': 96.1, 'DAL': 95.3, 'ATL': 93.7, 'PHO': 94.2, 'CHI': 93.5,
@@ -101,7 +193,7 @@ def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module-level session singleton
+# Session singleton
 # ─────────────────────────────────────────────────────────────────────────────
 _SESSION = None
 
@@ -116,11 +208,8 @@ def get_session():
         })
     return _SESSION
 
-def make_session():
-    return get_session()
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Pre-built player lookup — O(1) exact match, built once at module load
+# Player lookup
 # ─────────────────────────────────────────────────────────────────────────────
 def _normalize_name(name: str) -> str:
     return (
@@ -148,6 +237,15 @@ def _build_player_lookup():
     return lookup, def_set, off_set
 
 PLAYER_LOOKUP, DEF_LIABILITY_SET, OFF_LIABILITY_SET = _build_player_lookup()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Roster lookup — instant, no API call needed
+# ─────────────────────────────────────────────────────────────────────────────
+def get_team_roster(team_abbr):
+    """Returns the 2026 opening-day roster for a team.
+    Hardcoded because ESPN's API is blocked in Streamlit Cloud (403).
+    Falls back to the full known-tier list if team not found."""
+    return ROSTERS_2026.get(team_abbr, sorted(set(SUPERSTARS + ALL_STARS + HIGH_IMPACT)))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Live net ratings
@@ -202,7 +300,7 @@ def get_live_team_ratings():
     return ratings, live_count
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCOREBOARD
+# Scoreboard
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def _get_scoreboard(date_string):
@@ -236,95 +334,7 @@ def get_daily_slate(date_str=None):
     return games
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ROSTERS — multi-attempt with fallback to known player tier lists
-# ─────────────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600)
-def get_team_roster(team_abbr):
-    """Fetches the active roster for a team to populate the injury multiselect dropdown.
-    Tries three ESPN endpoints in sequence; falls back to known tier lists if all fail."""
-
-    slug_map = {
-        'LV': 'lva', 'NY': 'nyl', 'CONN': 'con', 'SEA': 'sea', 'MIN': 'min',
-        'IND': 'ind', 'DAL': 'dal', 'ATL': 'atl', 'PHO': 'phx', 'CHI': 'chi',
-        'LA': 'las', 'WAS': 'was', 'GS': 'gsv', 'POR': 'por', 'TOR': 'tor'
-    }
-    id_map = {
-        'LV': '18', 'NY': '5',  'CONN': '16', 'SEA': '6',  'MIN': '9',
-        'IND': '19', 'DAL': '8', 'ATL': '1',  'PHO': '14', 'CHI': '3',
-        'LA':  '2',  'WAS': '15', 'GS': '17',  'POR': '20', 'TOR': '21'
-    }
-
-    players = []
-
-    def _parse_athletes(data):
-        names = []
-        for group in data.get('athletes', []):
-            items = group if isinstance(group, list) else group.get('items', [])
-            for p in items:
-                name = p.get('fullName') or p.get('displayName', '')
-                if name:
-                    names.append(name)
-        return names
-
-    # --- Attempt 1: Slug-based roster endpoint ---
-    slug = slug_map.get(team_abbr, team_abbr.lower())
-    try:
-        r = get_session().get(
-            f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster",
-            timeout=6,
-        )
-        if r.status_code == 200:
-            players = _parse_athletes(r.json())
-    except Exception:
-        pass
-
-    # --- Attempt 2: Numeric ID roster endpoint ---
-    if not players:
-        team_id = id_map.get(team_abbr)
-        if team_id:
-            try:
-                r = get_session().get(
-                    f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_id}/roster",
-                    timeout=6,
-                )
-                if r.status_code == 200:
-                    players = _parse_athletes(r.json())
-            except Exception:
-                pass
-
-    # --- Attempt 3: Core API with numeric ID (dereferences each athlete $ref) ---
-    if not players:
-        team_id = id_map.get(team_abbr)
-        if team_id:
-            try:
-                r = get_session().get(
-                    f"https://sports.core.api.espn.com/v2/sports/basketball/leagues/wnba/teams/{team_id}/athletes?limit=30",
-                    timeout=6,
-                )
-                if r.status_code == 200:
-                    for item in r.json().get('items', []):
-                        ref = item.get('$ref', '')
-                        if ref:
-                            try:
-                                pr = get_session().get(ref, timeout=4)
-                                if pr.status_code == 200:
-                                    pd2 = pr.json()
-                                    name = pd2.get('fullName') or pd2.get('displayName', '')
-                                    if name:
-                                        players.append(name)
-                            except Exception:
-                                pass
-            except Exception:
-                pass
-
-    # --- Fallback: full known-tier player list so dropdown always renders ---
-    if not players:
-        players = sorted(set(SUPERSTARS + ALL_STARS + HIGH_IMPACT))
-
-    return sorted(set(players))
-
-# ─────────────────────────────────────────────────────────────────────────────
-# STANDINGS
+# Standings
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_standings():
@@ -428,7 +438,7 @@ def get_standings():
     return standings if standings else {k: dict(BLANK_STD) for k in TEAM_DATA}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BACK-TO-BACK
+# Back-to-back
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_back_to_back():
@@ -444,7 +454,7 @@ def get_back_to_back():
     return b2b
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PREDICTION ENGINE
+# Prediction engine
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings=None):
     if live_ratings is None:
@@ -548,7 +558,6 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings
         factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 5.0,
                         "why": f"{a} played yesterday. Commercial flight grind."})
 
-    # Logistic win probability
     prob = max(5.0, min(95.0, 1 / (1 + np.exp(-0.17 * total)) * 100))
     return {
         'winner':  h if prob >= 50.0 else a,
@@ -603,7 +612,6 @@ if slate:
 
     for team in sorted(teams_playing):
         roster = get_team_roster(team)
-        # roster always returns something (live or fallback), so always show multiselect
         selected_injuries = st.sidebar.multiselect(
             f"{team} Injuries",
             options=roster,
