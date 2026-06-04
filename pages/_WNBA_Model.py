@@ -78,7 +78,7 @@ TEAM_DATA = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIX 7: PACE DATA — possessions per 40 min, 2026 estimates
+# PACE DATA — possessions per 40 min, 2026 estimates
 # Used to scale the net-rating edge: higher-pace games amplify spreads
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_PACE = {
@@ -102,7 +102,7 @@ def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIX 1: Module-level session singleton — one Session reused for all requests
+# Module-level session singleton — one Session reused for all requests
 # ─────────────────────────────────────────────────────────────────────────────
 _SESSION = None
 
@@ -117,11 +117,11 @@ def get_session():
         })
     return _SESSION
 
-def make_session():  # kept for any external callers
+def make_session():
     return get_session()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIX 3: Pre-built player lookup — O(1) exact match, built once at module load
+# Pre-built player lookup — O(1) exact match, built once at module load
 # ─────────────────────────────────────────────────────────────────────────────
 def _normalize_name(name: str) -> str:
     return (
@@ -151,11 +151,7 @@ def _build_player_lookup():
 PLAYER_LOOKUP, DEF_LIABILITY_SET, OFF_LIABILITY_SET = _build_player_lookup()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIX 6: Live net ratings — derived from the same scoreboard endpoint the app
-# already uses for standings and B2B. Walks back up to 45 days of completed
-# games, averages points scored/allowed, and converts to the same ~100-point
-# rating scale used in TEAM_DATA. Falls back to TEAM_DATA for any team with
-# fewer than 5 games found (e.g. very early in the season).
+# Live net ratings
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=1800)
 def get_live_team_ratings():
@@ -190,7 +186,6 @@ def get_live_team_ratings():
             except Exception:
                 pass
 
-    # Scale: WNBA league avg ~83 PPG maps to ~101 rating (matches TEAM_DATA baseline)
     LEAGUE_AVG_PPG = 83.0
     LEAGUE_AVG_RTG = 101.0
     ratings = {}
@@ -208,8 +203,7 @@ def get_live_team_ratings():
     return ratings, live_count
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCOREBOARD — slate + standings source
-# FIX 2: except Exception (no bare except)
+# SCOREBOARD
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def _get_scoreboard(date_string):
@@ -243,22 +237,46 @@ def get_daily_slate(date_str=None):
     return games
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIX 4 + 5: Standings
-#   — Primary: ESPN standings API (reliable, real L10 when available)
-#   — Fallback: scoreboard walk (home/away records + missing teams)
-#   — Defensive .get() everywhere so a changed API shape fails gracefully
+# ROSTERS (For Dropdown Menus)
+# ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def get_team_roster(team_abbr):
+    """Fetches the official active roster for a team to populate the multiselect dropdown."""
+    slug_map = {
+        'LV': 'lva', 'NY': 'nyl', 'CONN': 'con', 'SEA': 'sea', 'MIN': 'min',
+        'IND': 'ind', 'DAL': 'dal', 'ATL': 'atl', 'PHO': 'phx', 'CHI': 'chi',
+        'LA': 'las', 'WAS': 'was', 'GS': 'gs', 'POR': 'por', 'TOR': 'tor'
+    }
+    slug = slug_map.get(team_abbr, team_abbr.lower())
+    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{slug}/roster"
+    
+    try:
+        r = get_session().get(url, timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        players = []
+        for group in data.get('athletes', []):
+            items = group if isinstance(group, list) else group.get('items', [])
+            for p in items:
+                name = p.get('fullName', p.get('displayName', ''))
+                if name:
+                    players.append(name)
+        return sorted(players)
+    except Exception:
+        return []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STANDINGS
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_standings():
     standings = {}
 
-    # ── Primary: ESPN standings endpoint ──────────────────────────────────────
     try:
         url = "https://site.api.espn.com/apis/v2/sports/basketball/wnba/standings"
         r = get_session().get(url, timeout=6)
         r.raise_for_status()
         data = r.json()
-        # Handle both flat-entry and conference-grouped structures
         entries = []
         raw = data.get('standings', data)
         if isinstance(raw, dict) and 'entries' in raw:
@@ -281,7 +299,6 @@ def get_standings():
                 w   = int(stats.get('wins',   0) or 0)
                 l   = int(stats.get('losses', 0) or 0)
                 pct = w / (w + l) if (w + l) > 0 else 0.5
-                # L10 — ESPN may expose these under either key name
                 l10w = stats.get('last10Wins')   or stats.get('vsLast10Wins')
                 l10l = stats.get('last10Losses') or stats.get('vsLast10Losses')
                 if l10w is not None and l10l is not None:
@@ -298,10 +315,8 @@ def get_standings():
             except Exception:
                 pass
     except Exception:
-        pass  # fall through to scoreboard walk
+        pass
 
-    # ── Fallback/supplement: scoreboard walk ──────────────────────────────────
-    # Fills missing teams and adds home/away splits the standings API lacks
     if len(standings) < len(TEAM_DATA):
         today = date.today()
         for days_back in range(0, 15):
@@ -356,7 +371,6 @@ def get_standings():
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BACK-TO-BACK
-# FIX 2: except Exception (no bare except)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=600)
 def get_back_to_back():
@@ -373,8 +387,6 @@ def get_back_to_back():
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PREDICTION ENGINE
-# Changes: live_ratings param, pre-built player lookup, pace-adjusted scalar
-# All math/logic otherwise identical
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings=None):
     if live_ratings is None:
@@ -408,7 +420,6 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings
     h_inj = injuries.get(h, [])
     a_inj = injuries.get(a, [])
 
-    # FIX 3: get_player_impact uses pre-built PLAYER_LOOKUP (O(1) exact, then partial)
     def get_player_impact(s):
         raw = _normalize_name(s)
         if raw in PLAYER_LOOKUP:
@@ -446,7 +457,7 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False, live_ratings
     h_op, h_dp, h_det, h_mult = calc_injury_penalty(h_inj) if h_inj else (0.0, 0.0, [], 1.0)
     a_op, a_dp, a_det, a_mult = calc_injury_penalty(a_inj) if a_inj else (0.0, 0.0, [], 1.0)
 
-    # 4. Net Rating Edge — FIX 7: pace-adjusted scalar replaces flat 0.55
+    # 4. Net Rating Edge
     h_net = (h_td['off_rtg'] - h_op) - (h_td['def_rtg'] + h_dp)
     a_net = (a_td['off_rtg'] - a_op) - (a_td['def_rtg'] + a_dp)
     h_pace     = TEAM_PACE.get(h, LEAGUE_AVG_PACE)
@@ -503,7 +514,7 @@ with st.spinner("Loading slate and standings…"):
     b2b                      = get_back_to_back()
     live_ratings, live_count = get_live_team_ratings()
 
-# ── Sidebar Diagnostics & Manual Injury Input ──
+# ── Sidebar Diagnostics & Injury Input ──
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
 st.sidebar.write(
@@ -521,8 +532,8 @@ if b2b:
 else:
     st.sidebar.info("No teams on back-to-backs today.")
 
-st.sidebar.subheader("🤕 Manual Injury Input")
-st.sidebar.caption("Type missing players separated by commas (e.g. `Caitlin Clark, Kelsey Mitchell`). The model will automatically read the names, find their tier, and penalize the math.")
+st.sidebar.subheader("🤕 Injury Input")
+st.sidebar.caption("Select missing players from the dropdown. The model will automatically apply their tier penalty.")
 
 injuries = {}
 if slate:
@@ -532,17 +543,28 @@ if slate:
         teams_playing.add(game['a'])
         
     for team in sorted(teams_playing):
-        # Generate a text box for every team playing today
-        inj_input = st.sidebar.text_input(f"{team} Injuries", key=f"inj_{team}")
-        if inj_input.strip():
-            # Clean up the input string into a proper list
-            injuries[team] = [p.strip() for p in inj_input.split(',') if p.strip()]
+        roster = get_team_roster(team)
+        
+        if roster:
+            # Roster successfully fetched, display multiselect dropdown
+            selected_injuries = st.sidebar.multiselect(
+                f"{team} Injuries",
+                options=roster,
+                key=f"inj_{team}"
+            )
+            if selected_injuries:
+                injuries[team] = selected_injuries
+        else:
+            # Fallback text input just in case the ESPN API is down
+            inj_input = st.sidebar.text_input(f"{team} Injuries (Manual Entry)", key=f"inj_{team}")
+            if inj_input.strip():
+                injuries[team] = [p.strip() for p in inj_input.split(',') if p.strip()]
 else:
     st.sidebar.info("No games scheduled today. Input fields will appear on game days.")
 
 def render_games(use_l10):
     if not slate:
-        st.info("No WNBA games scheduled for today.")
+        st.info(f"No WNBA games scheduled for {current_date}.")
         return
     for game in slate:
         h, a = game['h'], game['a']
