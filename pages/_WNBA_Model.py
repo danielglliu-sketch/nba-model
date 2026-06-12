@@ -187,7 +187,8 @@ BLANK_STD = {
 ESPN_NORM = {
     'LVA':'LV','NYL':'NY','CON':'CONN','PHX':'PHO','LAS':'LA',
     'MINN':'MIN','GSV':'GS','GST':'GS','PORT':'POR','TORP':'TOR','TORW':'TOR',
-    'TRN':'TOR', 'PTLD':'POR', 'GSW':'GS', 'VAL':'GS', 'TORO':'TOR', 'PRT':'POR'
+    'TRN':'TOR', 'PTLD':'POR', 'GSW':'GS', 'VAL':'GS', 'TORO':'TOR', 'PRT':'POR',
+    'WSH':'WAS',
 }
 def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
