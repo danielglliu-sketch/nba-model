@@ -56,9 +56,7 @@ OFFENSIVE_LIABILITIES = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2026 HARDCODED ROSTERS — full opening-day rosters from CBS Sports
-# ESPN API is blocked in Streamlit's server environment (returns 403),
-# so we bake the rosters in directly. Update as trades/waivers happen.
+# 2026 HARDCODED ROSTERS
 # ─────────────────────────────────────────────────────────────────────────────
 ROSTERS_2026 = {
     'ATL': sorted([
@@ -152,7 +150,7 @@ ROSTERS_2026 = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TEAM DATA — fallback ratings (used when live fetch unavailable)
+# TEAM DATA
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_DATA = {
     'LV':   {'off_rtg': 110.5, 'def_rtg': 99.8},
@@ -185,7 +183,6 @@ BLANK_STD = {
     'home_record': 'N/A', 'away_record': 'N/A',
 }
 
-# Added the alternate expansion team abbreviations here
 ESPN_NORM = {
     'LVA':'LV','NYL':'NY','CON':'CONN','PHX':'PHO','LAS':'LA',
     'MINN':'MIN','GSV':'GS','GST':'GS','PORT':'POR','TORP':'TOR','TORW':'TOR',
@@ -240,22 +237,17 @@ def _build_player_lookup():
 
 PLAYER_LOOKUP, DEF_LIABILITY_SET, OFF_LIABILITY_SET = _build_player_lookup()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Roster lookup — instant, no API call needed
-# ─────────────────────────────────────────────────────────────────────────────
 def get_team_roster(team_abbr):
-    """Returns the 2026 opening-day roster for a team.
-    Hardcoded because ESPN's API is blocked in Streamlit Cloud (403).
-    Falls back to the full known-tier list if team not found."""
     return ROSTERS_2026.get(team_abbr, sorted(set(SUPERSTARS + ALL_STARS + HIGH_IMPACT)))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Live net ratings
+# Live net ratings (NOW WITH DIAGNOSTICS)
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=1800)
 def get_live_team_ratings():
     scored_list  = {k: [] for k in TEAM_DATA}
     allowed_list = {k: [] for k in TEAM_DATA}
+    unknown_abbrs = set() # Automatically logs API abnormalities
 
     today = date.today()
     for days_back in range(1, 46):
@@ -270,8 +262,16 @@ def get_live_team_ratings():
                 away = next((c for c in comp.get('competitors', []) if c.get('homeAway') == 'away'), None)
                 if not home or not away:
                     continue
-                h_abbr  = norm(home.get('team', {}).get('abbreviation', ''))
-                a_abbr  = norm(away.get('team', {}).get('abbreviation', ''))
+                
+                h_raw = home.get('team', {}).get('abbreviation', '')
+                a_raw = away.get('team', {}).get('abbreviation', '')
+                h_abbr = norm(h_raw)
+                a_abbr = norm(a_raw)
+                
+                # DIAGNOSTIC: Log any abbreviation we don't recognize
+                if h_abbr not in scored_list and h_raw: unknown_abbrs.add(h_raw)
+                if a_abbr not in scored_list and a_raw: unknown_abbrs.add(a_raw)
+
                 h_score = float(home.get('score') or 0)
                 a_score = float(away.get('score') or 0)
                 if h_score == 0 and a_score == 0:
@@ -289,6 +289,8 @@ def get_live_team_ratings():
     LEAGUE_AVG_RTG = 101.0
     ratings = {}
     live_count = 0
+    fallback_info = {} # Stores data specifically for the missing teams
+    
     for abbr in TEAM_DATA:
         scored  = scored_list[abbr]
         allowed = allowed_list[abbr]
@@ -299,7 +301,9 @@ def get_live_team_ratings():
             live_count += 1
         else:
             ratings[abbr] = TEAM_DATA[abbr]
-    return ratings, live_count
+            fallback_info[abbr] = len(scored) # Log exactly how many games were found
+
+    return ratings, live_count, fallback_info, list(unknown_abbrs)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scoreboard
@@ -578,20 +582,29 @@ st.markdown(f"**Market Date:** {current_date}")
 st.divider()
 
 with st.spinner("Loading slate and standings…"):
-    slate                    = get_daily_slate(selected_date_str)
-    standings                = get_standings()
-    b2b                      = get_back_to_back()
-    live_ratings, live_count = get_live_team_ratings()
+    slate = get_daily_slate(selected_date_str)
+    standings = get_standings()
+    b2b = get_back_to_back()
+    # Unpack the new diagnostic variables here:
+    live_ratings, live_count, fallback_info, unknown_abbrs = get_live_team_ratings()
 
 # ── Sidebar Diagnostics ──
 st.sidebar.subheader("📡 Data Status")
 st.sidebar.write(f"**Teams with live records:** {len(standings)}/{len(TEAM_DATA)}")
 st.sidebar.write(
     f"**Teams with live ratings:** {live_count}/{len(TEAM_DATA)} "
-    f"({'✅ Live' if live_count > 0 else '⚠️ Fallback only'})"
+    f"({'✅ Live' if live_count == len(TEAM_DATA) else '⚠️ Fallback only'})"
 )
-if live_count == 0:
-    st.sidebar.warning("Live ratings unavailable — using hardcoded fallback. Try Force Refresh.")
+
+# 🚨 THE NEW DIAGNOSTIC READOUT 🚨
+if fallback_info:
+    with st.sidebar.expander("⚠️ View Missing Teams", expanded=True):
+        for team, count in fallback_info.items():
+            st.write(f"- **{team}:** Only {count}/5 games found")
+        if unknown_abbrs:
+            st.caption(f"**Unrecognized API Codes:** {', '.join(unknown_abbrs)}")
+            st.caption("Add these to ESPN_NORM to fix!")
+
 if len(standings) < 5:
     st.sidebar.warning("Standings data appears incomplete. Try Force Refresh.")
 
