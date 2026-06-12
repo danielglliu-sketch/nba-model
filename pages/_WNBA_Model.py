@@ -185,9 +185,11 @@ BLANK_STD = {
     'home_record': 'N/A', 'away_record': 'N/A',
 }
 
+# Added the alternate expansion team abbreviations here
 ESPN_NORM = {
     'LVA':'LV','NYL':'NY','CON':'CONN','PHX':'PHO','LAS':'LA',
     'MINN':'MIN','GSV':'GS','GST':'GS','PORT':'POR','TORP':'TOR','TORW':'TOR',
+    'TRN':'TOR', 'PRT':'POR', 'VAL':'GS', 'GSW':'GS', 'TORO':'TOR'
 }
 def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
