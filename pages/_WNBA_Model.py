@@ -183,10 +183,11 @@ BLANK_STD = {
     'home_record': 'N/A', 'away_record': 'N/A',
 }
 
+# 🚨 UPDATED: Exact API Codes from your diagnostic readout mapped correctly
 ESPN_NORM = {
     'LVA':'LV','NYL':'NY','CON':'CONN','PHX':'PHO','LAS':'LA',
     'MINN':'MIN','GSV':'GS','GST':'GS','PORT':'POR','TORP':'TOR','TORW':'TOR',
-    'TRN':'TOR', 'PRT':'POR', 'VAL':'GS', 'GSW':'GS', 'TORO':'TOR'
+    'TRN':'TOR', 'PTLD':'POR', 'GSW':'GS', 'VAL':'GS', 'TORO':'TOR', 'PRT':'POR'
 }
 def norm(abbr):
     return ESPN_NORM.get(abbr, abbr)
@@ -241,13 +242,13 @@ def get_team_roster(team_abbr):
     return ROSTERS_2026.get(team_abbr, sorted(set(SUPERSTARS + ALL_STARS + HIGH_IMPACT)))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Live net ratings (NOW WITH DIAGNOSTICS)
+# Live net ratings
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=1800)
 def get_live_team_ratings():
     scored_list  = {k: [] for k in TEAM_DATA}
     allowed_list = {k: [] for k in TEAM_DATA}
-    unknown_abbrs = set() # Automatically logs API abnormalities
+    unknown_abbrs = set()
 
     today = date.today()
     for days_back in range(1, 46):
@@ -268,7 +269,6 @@ def get_live_team_ratings():
                 h_abbr = norm(h_raw)
                 a_abbr = norm(a_raw)
                 
-                # DIAGNOSTIC: Log any abbreviation we don't recognize
                 if h_abbr not in scored_list and h_raw: unknown_abbrs.add(h_raw)
                 if a_abbr not in scored_list and a_raw: unknown_abbrs.add(a_raw)
 
@@ -289,7 +289,7 @@ def get_live_team_ratings():
     LEAGUE_AVG_RTG = 101.0
     ratings = {}
     live_count = 0
-    fallback_info = {} # Stores data specifically for the missing teams
+    fallback_info = {}
     
     for abbr in TEAM_DATA:
         scored  = scored_list[abbr]
@@ -301,7 +301,7 @@ def get_live_team_ratings():
             live_count += 1
         else:
             ratings[abbr] = TEAM_DATA[abbr]
-            fallback_info[abbr] = len(scored) # Log exactly how many games were found
+            fallback_info[abbr] = len(scored)
 
     return ratings, live_count, fallback_info, list(unknown_abbrs)
 
@@ -585,7 +585,6 @@ with st.spinner("Loading slate and standings…"):
     slate = get_daily_slate(selected_date_str)
     standings = get_standings()
     b2b = get_back_to_back()
-    # Unpack the new diagnostic variables here:
     live_ratings, live_count, fallback_info, unknown_abbrs = get_live_team_ratings()
 
 # ── Sidebar Diagnostics ──
@@ -596,7 +595,6 @@ st.sidebar.write(
     f"({'✅ Live' if live_count == len(TEAM_DATA) else '⚠️ Fallback only'})"
 )
 
-# 🚨 THE NEW DIAGNOSTIC READOUT 🚨
 if fallback_info:
     with st.sidebar.expander("⚠️ View Missing Teams", expanded=True):
         for team, count in fallback_info.items():
