@@ -50,10 +50,12 @@ GOOD_QBS = ["Jalen Hurts", "Dak Prescott", "Jordan Love", "Matthew Stafford", "J
             "Tua Tagovailoa", "Trevor Lawrence", "Kyler Murray", "Caleb Williams"]
 AVG_QBS = ["Baker Mayfield", "Geno Smith", "Aaron Rodgers", "Kirk Cousins", "Deshaun Watson",
            "Jayden Daniels", "Anthony Richardson", "Will Levis"]
+# NOTE: Sam Darnold added below after his 2026 Pro Bowl season in Seattle.
+GOOD_QBS.append("Sam Darnold")
 ELITE_NON_QBS = [
     "Justin Jefferson", "Tyreek Hill", "Christian McCaffrey", "Ja'Marr Chase", "CeeDee Lamb", "Amon-Ra St. Brown",
     "Micah Parsons", "T.J. Watt", "Myles Garrett", "Nick Bosa", "Chris Jones", "Maxx Crosby",
-    "Trent Williams", "Fred Warner", "Sauce Gardner", "Patrick Surtain II", "Roquan Smith",
+    "Trent Williams", "Fred Warner", "Sauce Gardner", "Patrick Surtain II", "Roquan Smith", "A.J. Brown",
 ]
 
 
@@ -96,36 +98,78 @@ TEAM_DATA = {
 DEFAULT_TEAM = {'off_pwr': 21.0, 'def_pwr': 21.0}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SAMPLE WEEKLY SLATES, keyed by the Tuesday each NFL week starts.
-# This is what actually makes the date picker do something: pick a different
-# date and you land in a different week's slate with different records.
-# Replace with a real schedule/odds fetch for production use.
+# REAL 2026 SCHEDULE DATA, keyed by the Tuesday each NFL week starts.
+# Week 1 (Sep 8 start) and Week 2 (Sep 15 start) are actual matchups with
+# records verified against ESPN / NFL.com / nflschedules.com as of Sep 16,
+# 2026. Week 3 (Sep 22 start) matchups are the real published schedule;
+# its entering records are shown as 'TBD' because Week 2 hasn't been played
+# yet as of this writing — plug in real records once those games finish.
+# This is what makes the date picker do something real: pick a different
+# date and you land in a different week's actual slate.
+# For ongoing use, replace this dict with a real schedule/results API call.
 # ─────────────────────────────────────────────────────────────────────────────
+FULL_NAMES = {
+    'ARI': 'Arizona Cardinals', 'ATL': 'Atlanta Falcons', 'BAL': 'Baltimore Ravens', 'BUF': 'Buffalo Bills',
+    'CAR': 'Carolina Panthers', 'CHI': 'Chicago Bears', 'CIN': 'Cincinnati Bengals', 'CLE': 'Cleveland Browns',
+    'DAL': 'Dallas Cowboys', 'DEN': 'Denver Broncos', 'DET': 'Detroit Lions', 'GB': 'Green Bay Packers',
+    'HOU': 'Houston Texans', 'IND': 'Indianapolis Colts', 'JAX': 'Jacksonville Jaguars', 'KC': 'Kansas City Chiefs',
+    'LV': 'Las Vegas Raiders', 'LAC': 'Los Angeles Chargers', 'LAR': 'Los Angeles Rams', 'MIA': 'Miami Dolphins',
+    'MIN': 'Minnesota Vikings', 'NE': 'New England Patriots', 'NO': 'New Orleans Saints', 'NYG': 'New York Giants',
+    'NYJ': 'New York Jets', 'PHI': 'Philadelphia Eagles', 'PIT': 'Pittsburgh Steelers', 'SF': 'San Francisco 49ers',
+    'SEA': 'Seattle Seahawks', 'TB': 'Tampa Bay Buccaneers', 'TEN': 'Tennessee Titans', 'WAS': 'Washington Commanders',
+}
+
+
+def _g(h: str, a: str, h_rec: str, a_rec: str) -> dict:
+    return {'h': h, 'a': a, 'h_name': FULL_NAMES[h], 'a_name': FULL_NAMES[a], 'h_record': h_rec, 'a_record': a_rec}
+
+
 WEEKLY_SLATES: dict[date, list[dict]] = {
+    # Week 1, Sep 9-14, 2026 — season openers, every team enters 0-0.
     date(2026, 9, 8): [
-        {'h': 'KC', 'a': 'BAL', 'h_name': 'Kansas City Chiefs', 'a_name': 'Baltimore Ravens', 'h_record': '1-0', 'a_record': '0-1'},
-        {'h': 'SF', 'a': 'DAL', 'h_name': 'San Francisco 49ers', 'a_name': 'Dallas Cowboys', 'h_record': '0-1', 'a_record': '1-0'},
-        {'h': 'BUF', 'a': 'MIA', 'h_name': 'Buffalo Bills', 'a_name': 'Miami Dolphins', 'h_record': '1-0', 'a_record': '0-1'},
-        {'h': 'PHI', 'a': 'GB', 'h_name': 'Philadelphia Eagles', 'a_name': 'Green Bay Packers', 'h_record': '1-0', 'a_record': '0-1'},
+        _g('SEA', 'NE', '0-0', '0-0'), _g('SF', 'LAR', '0-0', '0-0'), _g('CAR', 'CHI', '0-0', '0-0'),
+        _g('PIT', 'ATL', '0-0', '0-0'), _g('IND', 'BAL', '0-0', '0-0'), _g('HOU', 'BUF', '0-0', '0-0'),
+        _g('JAX', 'CLE', '0-0', '0-0'), _g('MIN', 'GB', '0-0', '0-0'), _g('NYG', 'DAL', '0-0', '0-0'),
+        _g('NYJ', 'TEN', '0-0', '0-0'), _g('PHI', 'WAS', '0-0', '0-0'), _g('KC', 'DEN', '0-0', '0-0'),
+        _g('CIN', 'TB', '0-0', '0-0'), _g('DET', 'NO', '0-0', '0-0'), _g('LV', 'MIA', '0-0', '0-0'),
+        _g('ARI', 'LAC', '0-0', '0-0'),
     ],
+    # Week 2, Sep 17-21, 2026 — entering records reflect real Week 1 results
+    # (e.g. SEA beat NE 13-10, CHI beat CAR 59-37, KC beat DEN 31-10, etc.).
     date(2026, 9, 15): [
-        {'h': 'KC', 'a': 'BAL', 'h_name': 'Kansas City Chiefs', 'a_name': 'Baltimore Ravens', 'h_record': '2-0', 'a_record': '1-1'},
-        {'h': 'SF', 'a': 'DAL', 'h_name': 'San Francisco 49ers', 'a_name': 'Dallas Cowboys', 'h_record': '1-1', 'a_record': '2-0'},
-        {'h': 'BUF', 'a': 'MIA', 'h_name': 'Buffalo Bills', 'a_name': 'Miami Dolphins', 'h_record': '2-0', 'a_record': '1-1'},
-        {'h': 'PHI', 'a': 'GB', 'h_name': 'Philadelphia Eagles', 'a_name': 'Green Bay Packers', 'h_record': '1-1', 'a_record': '1-1'},
-        {'h': 'DET', 'a': 'LAR', 'h_name': 'Detroit Lions', 'a_name': 'Los Angeles Rams', 'h_record': '2-0', 'a_record': '0-2'},
-        {'h': 'CIN', 'a': 'CLE', 'h_name': 'Cincinnati Bengals', 'a_name': 'Cleveland Browns', 'h_record': '0-2', 'a_record': '1-1'},
-        {'h': 'HOU', 'a': 'IND', 'h_name': 'Houston Texans', 'a_name': 'Indianapolis Colts', 'h_record': '1-1', 'a_record': '1-1'},
-        {'h': 'SEA', 'a': 'ARI', 'h_name': 'Seattle Seahawks', 'a_name': 'Arizona Cardinals', 'h_record': '1-1', 'a_record': '0-2'},
+        _g('BUF', 'DET', '1-0', '1-0'),   # Thu Sep 17
+        _g('ATL', 'CAR', '0-1', '0-1'), _g('BAL', 'NO', '1-0', '0-1'), _g('CHI', 'MIN', '1-0', '1-0'),
+        _g('HOU', 'CIN', '0-1', '1-0'), _g('NE', 'PIT', '0-1', '1-0'), _g('NYJ', 'GB', '1-0', '0-1'),
+        _g('TB', 'CLE', '0-1', '0-1'), _g('TEN', 'PHI', '0-1', '1-0'), _g('DEN', 'JAX', '0-1', '1-0'),
+        _g('LAC', 'LV', '0-1', '1-0'), _g('ARI', 'SEA', '1-0', '1-0'), _g('DAL', 'WAS', '0-1', '0-1'),
+        _g('SF', 'MIA', '1-0', '0-1'), _g('KC', 'IND', '1-0', '0-1'),
+        _g('LAR', 'NYG', '0-1', '1-0'),   # Mon Sep 21
     ],
+    # Week 3, Sep 24-28, 2026 — real published matchups; entering records are
+    # 'TBD' because Week 2 games have not been played as of this writing.
     date(2026, 9, 22): [
-        {'h': 'BAL', 'a': 'KC', 'h_name': 'Baltimore Ravens', 'a_name': 'Kansas City Chiefs', 'h_record': '1-2', 'a_record': '3-0'},
-        {'h': 'DAL', 'a': 'SF', 'h_name': 'Dallas Cowboys', 'a_name': 'San Francisco 49ers', 'h_record': '3-0', 'a_record': '1-2'},
-        {'h': 'MIA', 'a': 'BUF', 'h_name': 'Miami Dolphins', 'a_name': 'Buffalo Bills', 'h_record': '1-2', 'a_record': '3-0'},
-        {'h': 'GB', 'a': 'PHI', 'h_name': 'Green Bay Packers', 'a_name': 'Philadelphia Eagles', 'h_record': '2-1', 'a_record': '2-1'},
+        _g('GB', 'ATL', 'TBD', 'TBD'),    # Thu Sep 24
+        _g('BUF', 'LAC', 'TBD', 'TBD'), _g('MIA', 'KC', 'TBD', 'TBD'), _g('JAX', 'NE', 'TBD', 'TBD'),
+        _g('DET', 'NYJ', 'TBD', 'TBD'), _g('PIT', 'CIN', 'TBD', 'TBD'), _g('CLE', 'CAR', 'TBD', 'TBD'),
+        _g('IND', 'HOU', 'TBD', 'TBD'), _g('NYG', 'TEN', 'TBD', 'TBD'), _g('WAS', 'SEA', 'TBD', 'TBD'),
+        _g('TB', 'MIN', 'TBD', 'TBD'), _g('SF', 'ARI', 'TBD', 'TBD'), _g('DAL', 'BAL', 'TBD', 'TBD'),
+        _g('NO', 'LV', 'TBD', 'TBD'), _g('DEN', 'LAR', 'TBD', 'TBD'),
+        _g('CHI', 'PHI', 'TBD', 'TBD'),   # Mon Sep 28
     ],
 }
 SORTED_WEEK_STARTS = sorted(WEEKLY_SLATES.keys())
+
+# Real, sourced injury notes for the current Week 2 slate (CBS Sports /
+# FantasyPros reports, last checked Sep 15, 2026). Only players CONFIRMED
+# out are pre-filled; day-to-day/questionable cases are left for the user
+# to enter since status can change up to kickoff.
+KNOWN_OUT_BY_WEEK: dict[date, dict[str, list[str]]] = {
+    date(2026, 9, 15): {
+        'CLE': ['Myles Garrett'],   # knee surgery, expected IR
+        'PHI': ['A.J. Brown'],      # on IR, ankle, ~Week 8 return
+        'SEA': ['Sam Darnold'],     # hip/glute injury, Drew Lock starting
+    },
+}
 
 
 def get_week_start_for(d: date) -> date:
@@ -313,6 +357,9 @@ st.sidebar.caption(f"Data last refreshed: {last_fetch.strftime('%H:%M:%S')}")
 
 st.sidebar.subheader("🚑 QB & Key Player Absences")
 st.sidebar.caption("Type missing Elite/Starting QBs or Elite edge rushers/WRs separated by commas (e.g., `Patrick Mahomes, T.J. Watt`).")
+known_out = KNOWN_OUT_BY_WEEK.get(week_start, {})
+if known_out:
+    st.sidebar.caption("🔎 Pre-filled with confirmed-out players from Week 2 injury reports (CBS Sports / FantasyPros, checked Sep 15, 2026). Edit freely — status can change before kickoff.")
 injuries: dict[str, list[str]] = {}
 
 st.sidebar.subheader("⏰ NFL Situational Factors")
@@ -322,7 +369,8 @@ teams_playing = sorted({team for game in slate for team in (game['h'], game['a']
 
 for team in teams_playing:
     with st.sidebar.expander(f"{team} Adjustments"):
-        inj_input = st.text_input("Missing Players", key=f"inj_{team}_{week_start.isoformat()}")
+        default_out = ', '.join(known_out.get(team, []))
+        inj_input = st.text_input("Missing Players", value=default_out, key=f"inj_{team}_{week_start.isoformat()}")
         if inj_input.strip():
             injuries[team] = [p.strip() for p in inj_input.split(',') if p.strip()]
 
