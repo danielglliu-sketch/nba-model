@@ -16,33 +16,59 @@ KALSHI_API_URL = "https://external-api.kalshi.com/trade-api/v2"
 @st.cache_data(ttl=5)
 def fetch_live_kalshi_btc_data():
     """
-    Queries Kalshi's public API specifically filtering for 
-    the KXBTC15M series markets.
+    Queries Kalshi's public API for active KXBTC15M series markets 
+    and handles live orderbook extraction safely.
     """
     try:
         url = f"{KALSHI_API_URL}/markets?series_ticker=KXBTC15M&status=open"
-        response = requests.get(url, timeout=4)
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code != 200:
+            return None
+            
         data = response.json()
         markets = data.get("markets", [])
         
         if not markets:
+            # Fallback search matching general string if series query format alters
+            url_alt = f"{KALSHI_API_URL}/markets?status=open"
+            res_alt = requests.get(url_alt, timeout=5)
+            if res_alt.status_code == 200:
+                all_markets = res_alt.json().get("markets", [])
+                markets = [m for m in all_markets if "KXBTC15M" in m.get("ticker", "") or "BTC" in m.get("ticker", "")]
+                
+        if not markets:
             return None
             
-        # Grab the nearest active market
+        # Select the active target market
         target_market = markets[0]
-        ticker = target_market["ticker"]
+        ticker = target_market.get("ticker")
         
+        # Extract strike price safely from floor_strike or strike_price
+        strike = float(
+            target_market.get("floor_strike") 
+            or target_market.get("strike_price") 
+            or target_market.get("cap_strike") 
+            or 65000.0
+        )
+        
+        # Fetch orderbook for the specific active ticker
         ob_url = f"{KALSHI_API_URL}/markets/{ticker}/orderbook"
-        ob_response = requests.get(ob_url, timeout=4)
-        ob_data = ob_response.json().get("orderbook", {})
+        ob_response = requests.get(ob_url, timeout=5)
         
-        yes_bids = ob_data.get("yes", [])
-        best_bid = yes_bids[0][0] / 100.0 if yes_bids else 0.48
-        best_ask = (yes_bids[0][0] + 2) / 100.0 if yes_bids else 0.52
+        best_bid = 0.48
+        best_ask = 0.52
         
+        if ob_response.status_code == 200:
+            ob_data = ob_response.json().get("orderbook", {})
+            yes_bids = ob_data.get("yes", [])
+            if yes_bids and len(yes_bids) > 0:
+                best_bid = float(yes_bids[0][0]) / 100.0
+                best_ask = min(0.99, best_bid + 0.04) # safe baseline spread if ask level is absent
+                
         return {
             "ticker": ticker,
-            "strike_price": float(target_market.get("floor_strike", 65000.0)),
+            "strike_price": strike,
             "bid_price": best_bid,
             "ask_price": best_ask,
         }
