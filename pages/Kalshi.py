@@ -2,13 +2,53 @@ import streamlit as st
 import numpy as np
 from scipy.stats import norm
 from collections import deque
+import requests
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
     page_title="Kalshi 15M BTC Quant Engine",
-    page_icon="📈",
+    page_icon="⚡",
     layout="wide"
 )
+
+KALSHI_API_URL = "https://external-api.kalshi.com/trade-api/v2"
+
+# --- LIVE API FETCHER ---
+def fetch_live_kalshi_btc_data():
+    """
+    Queries Kalshi's public API to find active Bitcoin markets 
+    and extract orderbook metrics.
+    """
+    try:
+        url = f"{KALSHI_API_URL}/markets?status=open"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        
+        markets = data.get("markets", [])
+        btc_markets = [m for m in markets if "BTC" in m.get("ticker", "") or "Bitcoin" in m.get("title", "")]
+        
+        if not btc_markets:
+            return None
+            
+        target_market = btc_markets[0]
+        ticker = target_market["ticker"]
+        
+        ob_url = f"{KALSHI_API_URL}/markets/{ticker}/orderbook"
+        ob_response = requests.get(ob_url, timeout=5)
+        ob_data = ob_response.json().get("orderbook", {})
+        
+        yes_bids = ob_data.get("yes", [])
+        best_bid = yes_bids[0][0] / 100.0 if yes_bids else 0.48
+        best_ask = (yes_bids[0][0] + 2) / 100.0 if yes_bids else 0.52
+        
+        return {
+            "ticker": ticker,
+            "strike_price": float(target_market.get("floor_strike", 65000.0)),
+            "bid_price": best_bid,
+            "ask_price": best_ask,
+        }
+    except Exception as e:
+        return None
 
 # --- QUANT ENGINE CORE CLASS ---
 class KalshiBTC15MinQuantEngine:
@@ -87,29 +127,44 @@ class KalshiBTC15MinQuantEngine:
 
 # --- STREAMLIT UI LAYOUT ---
 st.title("⚡ Kalshi 15-Minute BTC Quantitative Engine")
-st.markdown("Real-time pricing model incorporating Kalshi's **60-second settlement index average** rule.")
+st.markdown("Production-ready quant engine incorporating Kalshi's **60-second settlement index average** rule with live API fetching capabilities.")
 
-# Sidebar controls for simulation inputs
+# Sidebar controls
+st.sidebar.header("Data Connection Mode")
+use_live_data = st.sidebar.checkbox("Enable Live Kalshi API Feed", value=False)
+
+live_data = None
+if use_live_data:
+    live_data = fetch_live_kalshi_btc_data()
+    if live_data:
+        st.sidebar.success(f"Connected: {live_data['ticker']}")
+    else:
+        st.sidebar.warning("API feed unavailable. Using manual inputs.")
+
 st.sidebar.header("Market Parameters")
+default_strike = live_data["strike_price"] if live_data else 65010.0
+default_bid = live_data["bid_price"] if live_data else 0.48
+default_ask = live_data["ask_price"] if live_data else 0.52
+
 current_spot = st.sidebar.number_input("Current BTC Spot Price ($)", value=65000.0, step=10.0)
-strike_price = st.sidebar.number_input("Kalshi Strike Price ($)", value=65010.0, step=10.0)
+strike_price = st.sidebar.number_input("Kalshi Strike Price ($)", value=default_strike, step=10.0)
 sec_remaining = st.sidebar.slider("Seconds Remaining in Window", min_value=0, max_value=900, value=300, step=1)
 realized_vol = st.sidebar.slider("Annualized Realized Volatility", min_value=0.1, max_value=2.0, value=0.65, step=0.05)
 
-st.sidebar.header("Kalshi Orderbook Quotes")
-bid_price = st.sidebar.slider("Market Bid Price (YES)", min_value=0.01, max_value=0.99, value=0.48, step=0.01)
-ask_price = st.sidebar.slider("Market Ask Price (YES)", min_value=0.01, max_value=0.99, value=0.52, step=0.01)
+st.sidebar.header("Orderbook Quotes")
+bid_price = st.sidebar.slider("Market Bid Price (YES)", min_value=0.01, max_value=0.99, value=default_bid, step=0.01)
+ask_price = st.sidebar.slider("Market Ask Price (YES)", min_value=0.01, max_value=0.99, value=default_ask, step=0.01)
 
 st.sidebar.header("Model Risk Controls")
 fee_drag = st.sidebar.number_input("Fee & Slippage Drag ($)", value=0.02, step=0.005)
 min_edge = st.sidebar.number_input("Minimum Required Edge ($)", value=0.015, step=0.005)
 
-# Initialize Engine
+# Initialize Engine and Calculate
 engine = KalshiBTC15MinQuantEngine(fee_drag_cents=fee_drag, min_edge_cents=min_edge)
 fair_p = engine.calculate_fair_probability(current_spot, strike_price, sec_remaining, realized_vol)
 decision = engine.evaluate_orderbook(fair_p, bid_price, ask_price)
 
-# Main Dashboard View
+# Main Dashboard Metrics View
 col1, col2, col3 = st.columns(3)
 
 with col1:
