@@ -13,6 +13,7 @@ import html
 from datetime import date, datetime, timedelta
 
 import numpy as np
+import requests
 import streamlit as st
 
 # ─── PAGE SETUP ───────────────────────────────────────────────────────────────
@@ -170,6 +171,64 @@ KNOWN_OUT_BY_WEEK: dict[date, dict[str, list[str]]] = {
         'SEA': ['Sam Darnold'],     # hip/glute injury, Drew Lock starting
     },
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL LIVE INJURY FETCH — ESPN's undocumented API.
+# This is real but UNOFFICIAL: no key required, but no uptime guarantee and
+# the response shape can change without notice. It's opt-in (sidebar
+# checkbox) rather than always-on, and every caller falls back to the
+# manual KNOWN_OUT_BY_WEEK snapshot / free-text box if it returns nothing.
+# Verify TEAM_ESPN_ID against https://site.api.espn.com/apis/site/v2/sports/
+# football/nfl/teams if fetches start coming back empty across the board —
+# that's usually a sign ESPN renumbered something.
+# ─────────────────────────────────────────────────────────────────────────────
+TEAM_ESPN_ID = {
+    'ATL': 1, 'BUF': 2, 'CHI': 3, 'CIN': 4, 'CLE': 5, 'DAL': 6, 'DEN': 7, 'DET': 8, 'GB': 9, 'TEN': 10,
+    'IND': 11, 'KC': 12, 'LV': 13, 'LAR': 14, 'MIA': 15, 'MIN': 16, 'NE': 17, 'NO': 18, 'NYG': 19, 'NYJ': 20,
+    'PHI': 21, 'ARI': 22, 'PIT': 23, 'LAC': 24, 'SF': 25, 'SEA': 26, 'TB': 27, 'WAS': 28, 'CAR': 29, 'JAX': 30,
+    'BAL': 33, 'HOU': 34,
+}
+AUTO_FILL_STATUSES = {"Out", "Injured Reserve", "Doubtful"}  # skip "Questionable" — too noisy to auto-apply
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_live_injuries_espn(team_abbr: str) -> list[tuple[str, str]]:
+    """Best-effort live pull from ESPN's injuries endpoint for one team.
+    Returns [(player_name, status), ...] limited to Out/IR/Doubtful. Names
+    are returned BARE (no status suffix) so they still match PLAYER_LOOKUP
+    for point-impact scoring; status is carried separately for display.
+    Returns [] on ANY failure (network, rate limit, shape change) — never
+    raises, so a bad response degrades to 'no live data' rather than
+    crashing the app."""
+    team_id = TEAM_ESPN_ID.get(team_abbr)
+    if team_id is None:
+        return []
+    try:
+        base = f"https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/teams/{team_id}/injuries"
+        resp = requests.get(base, timeout=5)
+        resp.raise_for_status()
+        items = resp.json().get("items", [])[:8]  # cap per-team requests
+
+        results = []
+        for item in items:
+            ref = item.get("$ref")
+            if not ref:
+                continue
+            detail = requests.get(ref, timeout=5).json()
+            status = detail.get("status")
+            status = status.get("name") if isinstance(status, dict) else status
+            if status not in AUTO_FILL_STATUSES:
+                continue
+
+            athlete = detail.get("athlete") or {}
+            name = athlete.get("displayName")
+            if not name and athlete.get("$ref"):
+                name = requests.get(athlete["$ref"], timeout=5).json().get("displayName")
+            if name:
+                results.append((name, status))
+        return results
+    except Exception:
+        return []
 
 
 def get_week_start_for(d: date) -> date:
@@ -358,8 +417,20 @@ st.sidebar.caption(f"Data last refreshed: {last_fetch.strftime('%H:%M:%S')}")
 st.sidebar.subheader("🚑 QB & Key Player Absences")
 st.sidebar.caption("Type missing Elite/Starting QBs or Elite edge rushers/WRs separated by commas (e.g., `Patrick Mahomes, T.J. Watt`).")
 known_out = KNOWN_OUT_BY_WEEK.get(week_start, {})
-if known_out:
-    st.sidebar.caption("🔎 Pre-filled with confirmed-out players from Week 2 injury reports (CBS Sports / FantasyPros, checked Sep 15, 2026). Edit freely — status can change before kickoff.")
+
+auto_fetch = st.sidebar.checkbox(
+    "🔄 Auto-fetch live injuries (ESPN, beta)",
+    value=False,
+    help=(
+        "Calls ESPN's unofficial injuries API at runtime and pre-fills each "
+        "team's box with players listed Out / IR / Doubtful. This is an "
+        "undocumented endpoint with no uptime guarantee — if it returns "
+        "nothing for a team, the box falls back to the manual snapshot "
+        "below (if any) so you can still edit by hand."
+    ),
+)
+if not auto_fetch and known_out:
+    st.sidebar.caption("🔎 Boxes below are pre-filled with confirmed-out players from Week 2 injury reports (CBS Sports / FantasyPros, checked Sep 15, 2026). Edit freely — status can change before kickoff.")
 injuries: dict[str, list[str]] = {}
 
 st.sidebar.subheader("⏰ NFL Situational Factors")
@@ -369,8 +440,19 @@ teams_playing = sorted({team for game in slate for team in (game['h'], game['a']
 
 for team in teams_playing:
     with st.sidebar.expander(f"{team} Adjustments"):
-        default_out = ', '.join(known_out.get(team, []))
-        inj_input = st.text_input("Missing Players", value=default_out, key=f"inj_{team}_{week_start.isoformat()}")
+        live_results: list[tuple[str, str]] = []
+        if auto_fetch:
+            with st.spinner(f"Checking ESPN for {team} injuries…"):
+                live_results = fetch_live_injuries_espn(team)
+            if live_results:
+                statuses = ', '.join(f"{n} — {s}" for n, s in live_results)
+                st.caption(f"✅ Live from ESPN just now: {statuses}")
+            else:
+                st.caption("⚠️ Live fetch returned nothing — showing manual snapshot (edit below).")
+
+        default_names = [n for n, _ in live_results] if live_results else known_out.get(team, [])
+        default_out = ', '.join(default_names)
+        inj_input = st.text_input("Missing Players", value=default_out, key=f"inj_{team}_{week_start.isoformat()}_{auto_fetch}")
         if inj_input.strip():
             injuries[team] = [p.strip() for p in inj_input.split(',') if p.strip()]
 
