@@ -83,6 +83,8 @@ ESPN_NORM = {
     'HST': 'HOU', 'ARZ': 'ARI'
 }
 def norm(abbr):
+    if not abbr: 
+        return ""
     return ESPN_NORM.get(abbr, abbr).upper()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,17 +113,28 @@ def get_nfl_scoreboard(date_string):
         data = r.json()
         games = []
         for event in data.get('events', []):
-            comp = event['competitions'][0]
-            home = next((c for c in comp['competitors'] if c['homeAway'] == 'home'), None)
-            away = next((c for c in comp['competitors'] if c['homeAway'] == 'away'), None)
+            comp = event.get('competitions', [{}])[0]
+            home = next((c for c in comp.get('competitors', []) if c.get('homeAway') == 'home'), None)
+            away = next((c for c in comp.get('competitors', []) if c.get('homeAway') == 'away'), None)
+            
             if home and away:
+                # Safe record parsing (prevents IndexError on empty lists)
+                h_recs = home.get('records')
+                a_recs = away.get('records')
+                h_rec = h_recs[0].get('summary', '0-0') if h_recs and len(h_recs) > 0 else '0-0'
+                a_rec = a_recs[0].get('summary', '0-0') if a_recs and len(a_recs) > 0 else '0-0'
+                
+                # Safe abbreviation parsing
+                h_abbr = home.get('team', {}).get('abbreviation', '')
+                a_abbr = away.get('team', {}).get('abbreviation', '')
+                
                 games.append({
-                    'h': norm(home['team']['abbreviation']),
-                    'a': norm(away['team']['abbreviation']),
-                    'h_name': home['team']['displayName'],
-                    'a_name': away['team']['displayName'],
-                    'h_record': home.get('records', [{'summary': '0-0'}])[0].get('summary', '0-0'),
-                    'a_record': away.get('records', [{'summary': '0-0'}])[0].get('summary', '0-0'),
+                    'h': norm(h_abbr),
+                    'a': norm(a_abbr),
+                    'h_name': home.get('team', {}).get('displayName', 'Home Team'),
+                    'a_name': away.get('team', {}).get('displayName', 'Away Team'),
+                    'h_record': h_rec,
+                    'a_record': a_rec,
                 })
         return games
     except Exception as e:
