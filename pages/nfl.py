@@ -13,7 +13,7 @@ if st.sidebar.button("🔄 Force Data Refresh"):
 st.sidebar.subheader("📅 View Date")
 selected_date = st.sidebar.date_input(
     "Select game date",
-    value=date(2026, 9, 20), # Default to a standard NFL Sunday
+    value=date(2026, 9, 20),
     min_value=date(2026, 8, 1),
     max_value=date.today() + timedelta(days=60),
     label_visibility="collapsed",
@@ -50,7 +50,7 @@ def _build_nfl_player_lookup():
 NFL_PLAYER_LOOKUP = _build_nfl_player_lookup()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NFL TEAM DATA & SAMPLE WEEKLY SLATE (Bypasses API 403 blocks completely)
+# NFL TEAM DATA & SAMPLE WEEKLY SLATE
 # ─────────────────────────────────────────────────────────────────────────────
 TEAM_DATA = {
     'ARI': {'off_pwr': 22.0, 'def_pwr': 25.5}, 'ATL': {'off_pwr': 22.5, 'def_pwr': 21.0},
@@ -75,11 +75,10 @@ BLANK_STD = {
     'wins': 1, 'losses': 1, 'ties': 0, 'record': '1-1', 'win_pct': 0.5, 
 }
 
-# Standard sample matchups for testing the prediction engine live on Streamlit Cloud
 SAMPLE_WEEKLY_SLATE = [
     {'h': 'KC', 'a': 'BAL', 'h_name': 'Kansas City Chiefs', 'a_name': 'Baltimore Ravens', 'h_record': '2-0', 'a_record': '1-1'},
     {'h': 'SF', 'a': 'DAL', 'h_name': 'San Francisco 49ers', 'a_name': 'Dallas Cowboys', 'h_record': '1-1', 'a_record': '2-0'},
-    'h': 'BUF', 'a': 'MIA', 'h_name': 'Buffalo Bills', 'a_name': 'Miami Dolphins', 'h_record': '2-0', 'a_record': '1-1'},
+    {'h': 'BUF', 'a': 'MIA', 'h_name': 'Buffalo Bills', 'a_name': 'Miami Dolphins', 'h_record': '2-0', 'a_record': '1-1'},
     {'h': 'PHI', 'a': 'GB', 'h_name': 'Philadelphia Eagles', 'a_name': 'Green Bay Packers', 'h_record': '1-1', 'a_record': '1-1'},
     {'h': 'DET', 'a': 'LAR', 'h_name': 'Detroit Lions', 'a_name': 'Los Angeles Rams', 'h_record': '2-0', 'a_record': '0-2'},
     {'h': 'CIN', 'a': 'CLE', 'h_name': 'Cincinnati Bengals', 'a_name': 'Cleveland Browns', 'h_record': '0-2', 'a_record': '1-1'},
@@ -94,7 +93,7 @@ def get_nfl_standings():
     return {k: {'wins': 1, 'losses': 1, 'ties': 0, 'record': '1-1', 'win_pct': 0.5} for k in TEAM_DATA}
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Prediction engine (NFL SPECIFIC MATH)
+# Prediction engine
 # ─────────────────────────────────────────────────────────────────────────────
 def predict_nfl_game(h, a, standings, injuries, situational):
     h_td  = TEAM_DATA.get(h, {'off_pwr': 21.0, 'def_pwr': 21.0})
@@ -103,7 +102,6 @@ def predict_nfl_game(h, a, standings, injuries, situational):
     a_std = standings.get(a, BLANK_STD)
     factors, total = [], 0.0
 
-    # 1. Base Roster / EPA Edge
     h_net = h_td['off_pwr'] - h_td['def_pwr']
     a_net = a_td['off_pwr'] - a_td['def_pwr']
     roster_edge = (h_net - a_net) * 0.85 
@@ -113,7 +111,6 @@ def predict_nfl_game(h, a, standings, injuries, situational):
         "why": f"Overall offensive and defensive efficiency disparity."
     })
 
-    # 2. Win % / Momentum Edge
     h_pct = h_std['win_pct']
     a_pct = a_std['win_pct']
     win_edge = (h_pct - a_pct) * 5.0 
@@ -123,11 +120,9 @@ def predict_nfl_game(h, a, standings, injuries, situational):
         "why": f"{h} ({h_std['record']}) vs {a} ({a_std['record']})"
     })
 
-    # 3. NFL Home Field Advantage
     total += 2.5
     factors.append({"icon": "🏟️", "name": "Home Field", "adj": 2.5, "why": f"Standard NFL home-field adjustment for {h}."})
 
-    # 4. Injury / QB Core Subtractions
     h_inj = injuries.get(h, [])
     a_inj = injuries.get(a, [])
 
@@ -156,7 +151,6 @@ def predict_nfl_game(h, a, standings, injuries, situational):
     if h_det: factors.append({"icon": "🚑", "name": f"{h} Absences", "adj": h_pen, "why": f"Missing: {', '.join(h_det)}"})
     if a_det: factors.append({"icon": "🚑", "name": f"{a} Absences", "adj": -a_pen, "why": f"Missing: {', '.join(a_det)}"})
 
-    # 5. Situational NFL Factors
     h_sit = situational.get(h, [])
     a_sit = situational.get(a, [])
     
@@ -180,7 +174,6 @@ def predict_nfl_game(h, a, standings, injuries, situational):
     if h_sit_det: factors.append({"icon": "⏰", "name": f"{h} Situational", "adj": h_sit_val, "why": f"{', '.join(h_sit_det)}"})
     if a_sit_det: factors.append({"icon": "⏰", "name": f"{a} Situational", "adj": -a_sit_val, "why": f"{', '.join(a_sit_det)}"})
 
-    # 6. NFL Logistic Win Probability
     prob = max(1.0, min(99.0, 1 / (1 + np.exp(-0.27 * total)) * 100))
     
     return {
