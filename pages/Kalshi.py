@@ -1,46 +1,21 @@
-import asyncio
-import logging
-import time
-from collections import deque
+import streamlit as st
 import numpy as np
 from scipy.stats import norm
+from collections import deque
 
-# Configure logging for real-time monitoring
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+# --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="Kalshi 15M BTC Quant Engine",
+    page_icon="📈",
+    layout="wide"
 )
-logger = logging.getLogger("Kalshi15MinQuant")
 
+# --- QUANT ENGINE CORE CLASS ---
 class KalshiBTC15MinQuantEngine:
     def __init__(self, fee_drag_cents: float = 0.02, min_edge_cents: float = 0.015):
-        """
-        Initializes the quant engine with built-in Kalshi settlement mechanics.
-        """
         self.fee_drag = fee_drag_cents
         self.min_edge = min_edge_cents
-        
-        # Kalshi rule: 60-second average of the index sampled once per second in the final minute
         self.final_minute_buffer = deque(maxlen=60)
-
-    def estimate_realized_volatility(self, price_series: list[float], window_seconds: int = 60) -> float:
-        """
-        Calculates short-window realized volatility from high-frequency price ticks.
-        """
-        if len(price_series) < 2:
-            return 0.50  
-        
-        recent_prices = np.array(price_series[-window_seconds:])
-        log_returns = np.diff(np.log(recent_prices))
-        
-        if len(log_returns) == 0 or np.all(log_returns == 0):
-            return 0.01
-
-        sec_per_year = 365.25 * 24 * 3600
-        per_second_vol = np.std(log_returns, ddof=1)
-        annualized_vol = per_second_vol * np.sqrt(sec_per_year)
-        
-        return float(annualized_vol)
 
     def calculate_fair_probability(
         self, 
@@ -49,68 +24,42 @@ class KalshiBTC15MinQuantEngine:
         sec_remaining: int, 
         realized_vol: float
     ) -> float:
-        """
-        Calculates the fair probability of BTC expiring above the strike price,
-        accounting for Kalshi's 60-second average settlement mechanism.
-        """
         if sec_remaining <= 0:
-            # If window is closed, calculate using the final locked settlement average if available
             if len(self.final_minute_buffer) > 0:
                 settlement_val = sum(self.final_minute_buffer) / len(self.final_minute_buffer)
                 return 1.0 if settlement_val > strike_price else 0.0
             return 1.0 if current_spot > strike_price else 0.0
 
-        # --- KALSHI RULE INTEGRATION: Final Minute Handling ---
+        # Kalshi 60-second rule integration
         if sec_remaining <= 60:
-            # We actively sample the current price into our rolling 60-second buffer
             self.final_minute_buffer.append(current_spot)
-            
-            # The final settlement value is a blend of what's *already locked in* 
-            # and what is *expected* to happen in the remaining seconds of the minute.
             locked_sum = sum(self.final_minute_buffer)
             locked_count = len(self.final_minute_buffer)
             remaining_count = 60 - locked_count
-            
-            # Expected average projection for the remaining ticks in the final minute
             expected_future_sum = remaining_count * current_spot
             projected_settlement_mean = (locked_sum + expected_future_sum) / 60.0
-            
-            # Use the projected settlement mean as our drift anchor for the final minute
             effective_price_anchor = projected_settlement_mean
         else:
-            # Reset buffer if we are outside the final minute window
             self.final_minute_buffer.clear()
             effective_price_anchor = current_spot
 
-        # Scale annual volatility down to the remaining fraction of the year
         time_fraction = sec_remaining / (365.25 * 24 * 3600)
         std_dev = effective_price_anchor * realized_vol * np.sqrt(time_fraction)
 
         if std_dev == 0:
             return 1.0 if effective_price_anchor > strike_price else 0.0
 
-        # Z-score calculation based on the effective settlement target
         z_score = (strike_price - effective_price_anchor) / std_dev
         prob_above = 1.0 - norm.cdf(z_score)
 
         return float(prob_above)
 
-    def evaluate_orderbook(
-        self, 
-        fair_prob: float, 
-        bid_price: float, 
-        ask_price: float
-    ) -> dict:
-        """
-        Evaluates market prices against the fair probability model,
-        accounting for transaction costs, fees, and spread constraints.
-        """
+    def evaluate_orderbook(self, fair_prob: float, bid_price: float, ask_price: float) -> dict:
         signal = "HOLD"
         target_side = None
         limit_price = 0.0
         edge = 0.0
 
-        # Evaluate Buying YES
         buy_yes_edge = fair_prob - ask_price
         if buy_yes_edge > (self.fee_drag + self.min_edge):
             signal = "EXECUTE"
@@ -118,7 +67,6 @@ class KalshiBTC15MinQuantEngine:
             limit_price = ask_price
             edge = buy_yes_edge
 
-        # Evaluate Buying NO
         no_fair_prob = 1.0 - fair_prob
         no_market_ask = 1.0 - bid_price
         buy_no_edge = no_fair_prob - no_market_ask
@@ -137,44 +85,56 @@ class KalshiBTC15MinQuantEngine:
             "estimated_edge": edge
         }
 
-    async def run_market_loop(self):
-        """
-        Asynchronous simulation loop demonstrating behavior down into the final 60 seconds.
-        """
-        logger.info("Starting Kalshi 15M BTC Quant Loop with Settlement Rules...")
-        
-        mock_price_feed = [65000.0 + np.random.normal(0, 5) for _ in range(100)]
-        strike = 65010.0
-        seconds_left = 75  # Starting just outside the final minute to show transition
-        
-        while seconds_left >= 0:
-            current_spot = mock_price_feed[-1]
-            new_price = current_spot + np.random.normal(0, 2.0)
-            mock_price_feed.append(new_price)
-            
-            # 1. Compute Volatility
-            vol = self.estimate_realized_volatility(mock_price_feed)
-            
-            # 2. Calculate Fair Value Probability (incorporates 60s rule when <= 60s)
-            fair_p = self.calculate_fair_probability(current_spot, strike, seconds_left, vol)
-            
-            # 3. Simulate incoming Kalshi book quotes
-            mock_bid = 0.48
-            mock_ask = 0.52
-            
-            # 4. Evaluate execution logic
-            decision = self.evaluate_orderbook(fair_p, mock_bid, mock_ask)
-            
-            if decision["signal"] == "EXECUTE":
-                logger.info(f">>> EDGE FOUND [Secs Left: {seconds_left}] Side: {decision['target_side']} | Edge: {decision['estimated_edge']:.4f} | Fair Prob: {fair_p:.3f}")
-            
-            seconds_left -= 1
-            await asyncio.sleep(0.1) # Speed up simulation loop for testing
+# --- STREAMLIT UI LAYOUT ---
+st.title("⚡ Kalshi 15-Minute BTC Quantitative Engine")
+st.markdown("Real-time pricing model incorporating Kalshi's **60-second settlement index average** rule.")
 
-# Execution entry point
-if __name__ == "__main__":
-    engine = KalshiBTC15MinQuantEngine()
-    try:
-        asyncio.run(engine.run_market_loop())
-    except KeyboardInterrupt:
-        logger.info("Quant engine manually stopped.")
+# Sidebar controls for simulation inputs
+st.sidebar.header("Market Parameters")
+current_spot = st.sidebar.number_input("Current BTC Spot Price ($)", value=65000.0, step=10.0)
+strike_price = st.sidebar.number_input("Kalshi Strike Price ($)", value=65010.0, step=10.0)
+sec_remaining = st.sidebar.slider("Seconds Remaining in Window", min_value=0, max_value=900, value=300, step=1)
+realized_vol = st.sidebar.slider("Annualized Realized Volatility", min_value=0.1, max_value=2.0, value=0.65, step=0.05)
+
+st.sidebar.header("Kalshi Orderbook Quotes")
+bid_price = st.sidebar.slider("Market Bid Price (YES)", min_value=0.01, max_value=0.99, value=0.48, step=0.01)
+ask_price = st.sidebar.slider("Market Ask Price (YES)", min_value=0.01, max_value=0.99, value=0.52, step=0.01)
+
+st.sidebar.header("Model Risk Controls")
+fee_drag = st.sidebar.number_input("Fee & Slippage Drag ($)", value=0.02, step=0.005)
+min_edge = st.sidebar.number_input("Minimum Required Edge ($)", value=0.015, step=0.005)
+
+# Initialize Engine
+engine = KalshiBTC15MinQuantEngine(fee_drag_cents=fee_drag, min_edge_cents=min_edge)
+fair_p = engine.calculate_fair_probability(current_spot, strike_price, sec_remaining, realized_vol)
+decision = engine.evaluate_orderbook(fair_p, bid_price, ask_price)
+
+# Main Dashboard View
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(label="Model Fair Probability (YES)", value=f"{fair_p * 100:.2f}%")
+
+with col2:
+    mid_market = (bid_price + ask_price) / 2.0
+    st.metric(label="Market Mid Price (YES)", value=f"{mid_market * 100:.2f}¢")
+
+with col3:
+    signal_color = "green" if decision["signal"] == "EXECUTE" else "gray"
+    st.markdown(f"### Trade Signal: :{signal_color}[**{decision['signal']}**]")
+
+st.divider()
+
+# Detailed Breakdown Container
+st.subheader("📊 Execution Analysis & Edge Evaluation")
+if decision["signal"] == "EXECUTE":
+    st.success(f"**Opportunity Detected!** Target Side: **{decision['target_side']}** | Limit Price: **{decision['limit_price']}** | Calculated Edge: **{decision['estimated_edge']*100:.2f}¢**")
+else:
+    st.info("No trading edge found. The market price aligns too closely with fair probability after factoring in fees and spread constraints.")
+
+# Information Box on Kalshi Mechanics
+with st.expander("ℹ️ How the Kalshi 60-Second Rule is Handled Here"):
+    st.markdown("""
+    * **Outside Final Minute (>60s):** The model uses standard short-horizon normal diffusion anchored on the current spot price.
+    * **Inside Final Minute (≤60s):** The model automatically opens a rolling buffer tracking prices second-by-second to dynamically simulate Kalshi's **60-second CF Benchmarks RTI average** settlement vector.
+    """)
