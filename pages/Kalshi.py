@@ -24,32 +24,32 @@ def fetch_live_kalshi_btc_data():
         response = requests.get(url, timeout=5)
         
         if response.status_code != 200:
-            return None
+            return {"error": f"API HTTP Status {response.status_code}"}
             
         data = response.json()
         markets = data.get("markets", [])
         
         if not markets:
-            # Fallback search matching general string if series query format alters
-            url_alt = f"{KALSHI_API_URL}/markets?status=open"
+            # Fallback search matching general string
+            url_alt = f"{KALSHI_API_URL}/markets?status=open&limit=200"
             res_alt = requests.get(url_alt, timeout=5)
             if res_alt.status_code == 200:
                 all_markets = res_alt.json().get("markets", [])
                 markets = [m for m in all_markets if "KXBTC15M" in m.get("ticker", "") or "BTC" in m.get("ticker", "")]
                 
         if not markets:
-            return None
+            return {"error": "No active KXBTC15M markets found via API."}
             
         # Select the active target market
         target_market = markets[0]
         ticker = target_market.get("ticker")
         
-        # Extract strike price safely from floor_strike or strike_price
+        # Extract strike price safely
         strike = float(
             target_market.get("floor_strike") 
             or target_market.get("strike_price") 
             or target_market.get("cap_strike") 
-            or 65000.0
+            or 0.0
         )
         
         # Fetch orderbook for the specific active ticker
@@ -64,16 +64,17 @@ def fetch_live_kalshi_btc_data():
             yes_bids = ob_data.get("yes", [])
             if yes_bids and len(yes_bids) > 0:
                 best_bid = float(yes_bids[0][0]) / 100.0
-                best_ask = min(0.99, best_bid + 0.04) # safe baseline spread if ask level is absent
+                best_ask = min(0.99, best_bid + 0.04)
                 
         return {
             "ticker": ticker,
             "strike_price": strike,
             "bid_price": best_bid,
             "ask_price": best_ask,
+            "error": None
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return {"error": str(e)}
 
 class KalshiDirectionalEngine:
     def __init__(self, fee_drag: float = 0.02, min_edge: float = 0.015):
@@ -86,7 +87,6 @@ class KalshiDirectionalEngine:
             anchor = (sum(self.buffer) / len(self.buffer)) if self.buffer else spot
             return "BET UP" if anchor > strike else "BET DOWN", 1.0
 
-        # Kalshi 60-second settlement rule integration
         if secs <= 60:
             self.buffer.append(spot)
             anchor = (sum(self.buffer) + (60 - len(self.buffer)) * spot) / 60.0
@@ -102,7 +102,6 @@ class KalshiDirectionalEngine:
         else:
             fair_prob = 1.0 - norm.cdf((strike - anchor) / std_dev)
 
-        # Evaluate execution boundaries against fees and spreads
         buy_yes_edge = fair_prob - ask
         buy_no_edge = (1.0 - fair_prob) - (1.0 - bid)
 
@@ -118,21 +117,32 @@ st.title("🎯 KXBTC15M Directional Oracle")
 st.markdown("Automated quantitative engine parsing Kalshi's **KXBTC15M** series with the 60-second index average rule.")
 
 use_live = st.checkbox("Pull Live Kalshi API Data Automatically", value=True)
-live_info = fetch_live_kalshi_btc_data() if use_live else None
 
-if use_live and live_info:
-    st.success(f"Successfully connected to active ticker: **{live_info['ticker']}**")
-elif use_live:
-    st.warning("Live KXBTC15M market currently inactive or endpoint unreachable. Falling back to manual parameters.")
+live_info = None
+if use_live:
+    live_info = fetch_live_kalshi_btc_data()
+    if live_info and not live_info.get("error"):
+        st.success(f"Successfully connected to active ticker: **{live_info['ticker']}**")
+    else:
+        err_msg = live_info.get("error") if live_info else "Unknown API error"
+        st.warning(f"Live API Notice: {err_msg}. You can adjust the strike price manually in the sidebar below.")
+
+# Set sensible dynamic defaults if live API strike is 0 or missing
+default_strike = 65000.0
+if live_info and live_info.get("strike_price", 0) > 0:
+    default_strike = live_info["strike_price"]
+
+default_bid = live_info["bid_price"] if (live_info and not live_info.get("error")) else 0.48
+default_ask = live_info["ask_price"] if (live_info and not live_info.get("error")) else 0.52
 
 with st.sidebar:
     st.header("Model Inputs")
-    spot = st.number_input("Current BTC Spot ($)", value=65000.0, step=10.0)
-    strike = st.number_input("Strike Price ($)", value=live_info["strike_price"] if (use_live and live_info) else 65010.0, step=10.0)
+    spot = st.number_input("Current BTC Spot ($)", value=92000.0, step=10.0) # Updated baseline near current market reality
+    strike = st.number_input("Strike Price ($)", value=default_strike, step=10.0)
     secs = st.slider("Seconds Left in Window", 0, 900, 300)
     vol = st.slider("Realized Volatility", 0.1, 2.0, 0.65)
-    bid = st.slider("Kalshi Bid", 0.01, 0.99, live_info["bid_price"] if (use_live and live_info) else 0.48, 0.01)
-    ask = st.slider("Kalshi Ask", 0.01, 0.99, live_info["ask_price"] if (use_live and live_info) else 0.52, 0.01)
+    bid = st.slider("Kalshi Bid", 0.01, 0.99, default_bid, 0.01)
+    ask = st.slider("Kalshi Ask", 0.01, 0.99, default_ask, 0.01)
 
 engine = KalshiDirectionalEngine()
 action, edge = engine.get_signal(spot, strike, secs, vol, bid, ask)
