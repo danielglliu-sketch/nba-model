@@ -19,7 +19,12 @@ selected_date = st.sidebar.date_input(
     max_value=date.today() + timedelta(days=14),
     label_visibility="collapsed",
 )
-selected_date_str = selected_date.strftime('%Y%m%d')
+
+# 🚨 THE FIX: NFL games are weekly, not daily. 
+# We create an 8-day window centered on your selected date to capture Thurs/Sun/Mon games.
+start_d = selected_date - timedelta(days=3)
+end_d = selected_date + timedelta(days=4)
+selected_date_str = f"{start_d.strftime('%Y%m%d')}-{end_d.strftime('%Y%m%d')}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NFL PLAYER TIERS — The Ultimate Line Movers
@@ -106,7 +111,8 @@ def get_session():
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def get_nfl_scoreboard(date_string):
-    url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={date_string}"
+    # 🚨 THE FIX: Added &limit=100 to ensure date-range queries don't get truncated
+    url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={date_string}&limit=100"
     try:
         r = get_session().get(url, timeout=6)
         r.raise_for_status()
@@ -118,7 +124,7 @@ def get_nfl_scoreboard(date_string):
             away = next((c for c in comp.get('competitors', []) if c.get('homeAway') == 'away'), None)
             
             if home and away:
-                # Safe record parsing (prevents IndexError on empty lists)
+                # Safe record parsing
                 h_recs = home.get('records')
                 a_recs = away.get('records')
                 h_rec = h_recs[0].get('summary', '0-0') if h_recs and len(h_recs) > 0 else '0-0'
@@ -138,6 +144,7 @@ def get_nfl_scoreboard(date_string):
                 })
         return games
     except Exception as e:
+        st.error(f"Diagnostic API Issue: {e}")
         return []
 
 @st.cache_data(ttl=600)
@@ -180,7 +187,7 @@ def predict_nfl_game(h, a, standings, injuries, situational):
     # 1. Base Roster / EPA Edge
     h_net = h_td['off_pwr'] - h_td['def_pwr']
     a_net = a_td['off_pwr'] - a_td['def_pwr']
-    roster_edge = (h_net - a_net) * 0.85 # Scaled slightly to prevent runaway totals
+    roster_edge = (h_net - a_net) * 0.85 
     total += roster_edge
     factors.append({
         "icon": "⚖️", "name": "Base EPA / Roster Edge", "adj": roster_edge,
@@ -190,7 +197,7 @@ def predict_nfl_game(h, a, standings, injuries, situational):
     # 2. Win % / Momentum Edge
     h_pct = h_std['win_pct']
     a_pct = a_std['win_pct']
-    win_edge = (h_pct - a_pct) * 5.0 # Scaled down for football (17 games vs 82/40)
+    win_edge = (h_pct - a_pct) * 5.0 
     total += win_edge
     factors.append({
         "icon": "📊", "name": "Win % Edge", "adj": win_edge,
@@ -213,21 +220,19 @@ def predict_nfl_game(h, a, standings, injuries, situational):
             if clean_name in NFL_PLAYER_LOOKUP:
                 val, tier = NFL_PLAYER_LOOKUP[clean_name]
                 if "QB" in tier:
-                    penalty -= val # QBs penalize directly
+                    penalty -= val 
                     details.append(f"{p.strip()} ({tier}: -{val})")
                 else:
                     non_qb_pen -= val
                     details.append(f"{p.strip()} ({tier}: -{val})")
-        # Cap non-QB defensive/skill absences so the model doesn't overreact
         penalty += max(-3.5, non_qb_pen)
         return penalty, details
 
     h_pen, h_det = calc_injury_penalty(h, h_inj)
     a_pen, a_det = calc_injury_penalty(a, a_inj)
     
-    # Apply to total point differential
-    total += h_pen # Home team loses points
-    total -= a_pen # Away team losing points helps home team
+    total += h_pen 
+    total -= a_pen 
     
     if h_det: factors.append({"icon": "🚑", "name": f"{h} Absences", "adj": h_pen, "why": f"Missing: {', '.join(h_det)}"})
     if a_det: factors.append({"icon": "🚑", "name": f"{a} Absences", "adj": -a_pen, "why": f"Missing: {', '.join(a_det)}"})
@@ -257,7 +262,6 @@ def predict_nfl_game(h, a, standings, injuries, situational):
     if a_sit_det: factors.append({"icon": "⏰", "name": f"{a} Situational", "adj": -a_sit_val, "why": f"{', '.join(a_sit_det)}"})
 
     # 6. NFL Logistic Win Probability
-    # Adjusted multiplier from -0.17 to -0.27 to handle tighter NFL spreads
     prob = max(1.0, min(99.0, 1 / (1 + np.exp(-0.27 * total)) * 100))
     
     return {
@@ -272,7 +276,7 @@ def predict_nfl_game(h, a, standings, injuries, situational):
 # ─────────────────────────────────────────────────────────────────────────────
 st.title("🏈 NFL Master AI Predictor 2026")
 current_date_display = selected_date.strftime('%B %d, %Y')
-st.markdown(f"**Market Date:** {current_date_display}")
+st.markdown(f"**Market Week:** {start_d.strftime('%B %d')} — {end_d.strftime('%B %d')}")
 st.divider()
 
 with st.spinner("Loading NFL slate and standings…"):
@@ -306,10 +310,10 @@ if slate:
             if sits:
                 situational[team] = sits
 else:
-    st.sidebar.info("No NFL games scheduled for this specific date. Try selecting a Sunday!")
+    st.sidebar.info("No NFL games scheduled for this specific date range.")
 
 if not slate:
-    st.info(f"No NFL games found on {current_date_display}.")
+    st.info(f"No NFL games found during the week of {current_date_display}.")
 else:
     for game in slate:
         h, a = game['h'], game['a']
