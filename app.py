@@ -1,3 +1,8 @@
+Here is your final, complete code with the corrected API URL (`apis/v2/` instead of `apis/site/v2/`) so it correctly pulls the live 2026-27 regular season records.
+
+Absolutely nothing else has been changed.
+
+```python
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
@@ -154,8 +159,8 @@ def get_daily_slate():
 
 @st.cache_data(ttl=600)
 def get_standings():
-    # 🚨 URL UPDATED TO FORCE THE 2026-27 REGULAR SEASON 🚨
-    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/standings?season=2027&type=2"
+    # 🚨 URL FIXED: Removed the extra "/site" from the path so it correctly pulls 2026-27 records
+    url = "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?season=2027&type=2"
     try:
         data = requests.get(url, timeout=5).json()
         result = {}
@@ -479,3 +484,5 @@ with tab2:
                     st.markdown(f"#### ✈️ {game['a_name']}")
                     st.write(f"**Record:** {pred['a_std'].get('record', '0-0')} *(L10: {pred['a_std'].get('l10_record', 'N/A')})*")
                     for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
+
+```
