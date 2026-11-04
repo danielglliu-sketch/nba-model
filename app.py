@@ -479,5 +479,3 @@ with tab2:
                     st.markdown(f"#### ✈️ {game['a_name']}")
                     st.write(f"**Record:** {pred['a_std'].get('record', '0-0')} *(L10: {pred['a_std'].get('l10_record', 'N/A')})*")
                     for inj in pred['a_inj']: st.warning(f"🤕 {inj}")
-
-```
