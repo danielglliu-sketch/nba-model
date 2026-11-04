@@ -154,7 +154,8 @@ def get_daily_slate():
 
 @st.cache_data(ttl=600)
 def get_standings():
-    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/standings"
+    # 🚨 URL UPDATED TO FORCE THE 2026-27 REGULAR SEASON 🚨
+    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/standings?season=2027&type=2"
     try:
         data = requests.get(url, timeout=5).json()
         result = {}
