@@ -1,8 +1,3 @@
-Here is your final, complete code with the corrected API URL (`apis/v2/` instead of `apis/site/v2/`) so it correctly pulls the live 2026-27 regular season records.
-
-Absolutely nothing else has been changed.
-
-```python
 import streamlit as st
 import requests
 from datetime import datetime, timedelta
