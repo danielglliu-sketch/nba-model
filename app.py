@@ -154,7 +154,6 @@ def get_daily_slate():
 
 @st.cache_data(ttl=600)
 def get_standings():
-    # 🚨 URL FIXED: Removed the extra "/site" from the path so it correctly pulls 2026-27 records
     url = "https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?season=2027&type=2"
     try:
         data = requests.get(url, timeout=5).json()
@@ -403,14 +402,6 @@ def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
     if a in b2b_set:
         total += 4.0
         factors.append({"icon": "😴", "name": f"{a} B2B Fatigue", "adj": 4.0, "why": f"{a} played yesterday."})
-
-    # 6. TANKING PENALTY
-    if h_std['win_pct'] < 0.350:
-        total -= 7.0
-        factors.append({"icon": "📉", "name": f"{h} Tanking Penalty", "adj": -7.0, "why": "Incentivized lottery prioritization."})
-    if a_std['win_pct'] < 0.350:
-        total += 7.0
-        factors.append({"icon": "📉", "name": f"{a} Tanking Penalty", "adj": 7.0, "why": "Incentivized lottery prioritization."})
 
     prob = max(5.0, min(95.0, 50.0 + total))
     return {'winner': h if prob >= 50.0 else a, 'conf': prob if prob >= 50.0 else 100.0-prob, 'factors': factors, 'h_std': h_std, 'a_std': a_std, 'h_inj': h_inj, 'a_inj': a_inj}
