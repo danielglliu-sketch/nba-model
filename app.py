@@ -110,22 +110,23 @@ BACKUP_STANDINGS = {
     'UTA': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '13-27', 'away_record': '8-30', 'l10_record': '2-8', 'l10_pct': 0.2},
 }
 
+# 🚨 UPDATED TEAM DATA WITH 2026-27 OFF/DEF RATINGS 🚨
 TEAM_DATA = {
-    'ATL': {'off_rtg': 116.4, 'def_rtg': 114.2}, 'BOS': {'off_rtg': 120.4, 'def_rtg': 112.7},
-    'BKN': {'off_rtg': 111.2, 'def_rtg': 115.8}, 'CHA': {'off_rtg': 109.5, 'def_rtg': 119.2},
-    'CHI': {'off_rtg': 114.1, 'def_rtg': 115.4}, 'CLE': {'off_rtg': 115.8, 'def_rtg': 111.2},
-    'DAL': {'off_rtg': 118.9, 'def_rtg': 115.1}, 'DEN': {'off_rtg': 118.2, 'def_rtg': 113.8},
-    'DET': {'off_rtg': 117.5, 'def_rtg': 109.6}, 'GSW': {'off_rtg': 117.1, 'def_rtg': 114.9},
-    'HOU': {'off_rtg': 113.9, 'def_rtg': 112.8}, 'IND': {'off_rtg': 121.2, 'def_rtg': 119.1},
-    'LAC': {'off_rtg': 116.8, 'def_rtg': 113.5}, 'LAL': {'off_rtg': 118.2, 'def_rtg': 116.8},
-    'MEM': {'off_rtg': 110.4, 'def_rtg': 112.1}, 'MIA': {'off_rtg': 113.2, 'def_rtg': 112.5},
-    'MIL': {'off_rtg': 119.4, 'def_rtg': 116.2}, 'MIN': {'off_rtg': 115.1, 'def_rtg': 108.4},
-    'NOP': {'off_rtg': 117.2, 'def_rtg': 113.1}, 'NYK': {'off_rtg': 119.7, 'def_rtg': 113.5},
-    'OKC': {'off_rtg': 118.8, 'def_rtg': 107.5}, 'ORL': {'off_rtg': 112.9, 'def_rtg': 110.8},
-    'PHI': {'off_rtg': 117.5, 'def_rtg': 113.2}, 'PHO': {'off_rtg': 118.5, 'def_rtg': 115.8},
-    'POR': {'off_rtg': 108.8, 'def_rtg': 117.5}, 'SAC': {'off_rtg': 117.8, 'def_rtg': 116.2},
-    'SAS': {'off_rtg': 119.4, 'def_rtg': 111.0}, 'TOR': {'off_rtg': 114.5, 'def_rtg': 117.8},
-    'UTA': {'off_rtg': 115.2, 'def_rtg': 119.5}, 'WAS': {'off_rtg': 110.1, 'def_rtg': 121.4}
+    'ATL': {'off_rtg': 113.6, 'def_rtg': 110.7}, 'BOS': {'off_rtg': 116.8, 'def_rtg': 111.2},
+    'BKN': {'off_rtg': 106.9, 'def_rtg': 113.0}, 'CHA': {'off_rtg': 102.8, 'def_rtg': 114.2},
+    'CHI': {'off_rtg': 106.8, 'def_rtg': 124.1}, 'CLE': {'off_rtg': 116.8, 'def_rtg': 114.7},
+    'DAL': {'off_rtg': 113.2, 'def_rtg': 113.3}, 'DEN': {'off_rtg': 117.4, 'def_rtg': 117.0},
+    'DET': {'off_rtg': 113.0, 'def_rtg': 103.6}, 'GSW': {'off_rtg': 119.4, 'def_rtg': 116.3},
+    'HOU': {'off_rtg': 121.3, 'def_rtg': 110.5}, 'IND': {'off_rtg': 110.1, 'def_rtg': 113.2},
+    'LAC': {'off_rtg': 108.1, 'def_rtg': 114.8}, 'LAL': {'off_rtg': 121.7, 'def_rtg': 113.9},
+    'MEM': {'off_rtg': 118.8, 'def_rtg': 108.3}, 'MIA': {'off_rtg': 113.3, 'def_rtg': 118.0},
+    'MIL': {'off_rtg': 108.4, 'def_rtg': 120.5}, 'MIN': {'off_rtg': 117.0, 'def_rtg': 105.8},
+    'NOP': {'off_rtg': 114.2, 'def_rtg': 112.1}, 'NYK': {'off_rtg': 113.8, 'def_rtg': 108.6},
+    'OKC': {'off_rtg': 111.8, 'def_rtg': 110.8}, 'ORL': {'off_rtg': 108.4, 'def_rtg': 117.4},
+    'PHI': {'off_rtg': 111.3, 'def_rtg': 105.6}, 'PHO': {'off_rtg': 114.3, 'def_rtg': 125.6},
+    'POR': {'off_rtg': 122.4, 'def_rtg': 111.1}, 'SAC': {'off_rtg': 107.6, 'def_rtg': 121.2},
+    'SAS': {'off_rtg': 116.1, 'def_rtg': 107.8}, 'TOR': {'off_rtg': 116.4, 'def_rtg': 112.8},
+    'UTA': {'off_rtg': 105.3, 'def_rtg': 116.3}, 'WAS': {'off_rtg': 110.9, 'def_rtg': 110.9}
 }
 
 def norm(abbr):
