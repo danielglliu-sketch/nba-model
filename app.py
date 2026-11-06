@@ -119,7 +119,7 @@ def norm(abbr):
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def get_team_ratings():
-    # Bulletproof Fallback Data (Uses the 2026-27 update just in case the web scraper fails)
+    # Bulletproof Fallback Data 
     fallback = {
         'ATL': {'off_rtg': 113.6, 'def_rtg': 110.7}, 'BOS': {'off_rtg': 116.8, 'def_rtg': 111.2},
         'BKN': {'off_rtg': 106.9, 'def_rtg': 113.0}, 'CHA': {'off_rtg': 102.8, 'def_rtg': 114.2},
@@ -191,10 +191,14 @@ def get_team_ratings():
         
         # Only return the scraped data if we successfully mapped all 30 teams
         if len(ratings) == 30:
+            st.sidebar.success("✅ Live Ratings Active")
             return ratings
+            
+        st.sidebar.warning("⚠️ Using Fallback Ratings")
         return fallback
         
     except:
+        st.sidebar.warning("⚠️ Using Fallback Ratings")
         return fallback
 
 @st.cache_data(ttl=300)
