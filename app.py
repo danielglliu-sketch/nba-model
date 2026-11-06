@@ -110,25 +110,6 @@ BACKUP_STANDINGS = {
     'UTA': {'wins': 21, 'losses': 57, 'record': '21-57', 'win_pct': 0.269, 'home_record': '13-27', 'away_record': '8-30', 'l10_record': '2-8', 'l10_pct': 0.2},
 }
 
-# 🚨 UPDATED TEAM DATA WITH 2026-27 OFF/DEF RATINGS 🚨
-TEAM_DATA = {
-    'ATL': {'off_rtg': 113.6, 'def_rtg': 110.7}, 'BOS': {'off_rtg': 116.8, 'def_rtg': 111.2},
-    'BKN': {'off_rtg': 106.9, 'def_rtg': 113.0}, 'CHA': {'off_rtg': 102.8, 'def_rtg': 114.2},
-    'CHI': {'off_rtg': 106.8, 'def_rtg': 124.1}, 'CLE': {'off_rtg': 116.8, 'def_rtg': 114.7},
-    'DAL': {'off_rtg': 113.2, 'def_rtg': 113.3}, 'DEN': {'off_rtg': 117.4, 'def_rtg': 117.0},
-    'DET': {'off_rtg': 113.0, 'def_rtg': 103.6}, 'GSW': {'off_rtg': 119.4, 'def_rtg': 116.3},
-    'HOU': {'off_rtg': 121.3, 'def_rtg': 110.5}, 'IND': {'off_rtg': 110.1, 'def_rtg': 113.2},
-    'LAC': {'off_rtg': 108.1, 'def_rtg': 114.8}, 'LAL': {'off_rtg': 121.7, 'def_rtg': 113.9},
-    'MEM': {'off_rtg': 118.8, 'def_rtg': 108.3}, 'MIA': {'off_rtg': 113.3, 'def_rtg': 118.0},
-    'MIL': {'off_rtg': 108.4, 'def_rtg': 120.5}, 'MIN': {'off_rtg': 117.0, 'def_rtg': 105.8},
-    'NOP': {'off_rtg': 114.2, 'def_rtg': 112.1}, 'NYK': {'off_rtg': 113.8, 'def_rtg': 108.6},
-    'OKC': {'off_rtg': 111.8, 'def_rtg': 110.8}, 'ORL': {'off_rtg': 108.4, 'def_rtg': 117.4},
-    'PHI': {'off_rtg': 111.3, 'def_rtg': 105.6}, 'PHO': {'off_rtg': 114.3, 'def_rtg': 125.6},
-    'POR': {'off_rtg': 122.4, 'def_rtg': 111.1}, 'SAC': {'off_rtg': 107.6, 'def_rtg': 121.2},
-    'SAS': {'off_rtg': 116.1, 'def_rtg': 107.8}, 'TOR': {'off_rtg': 116.4, 'def_rtg': 112.8},
-    'UTA': {'off_rtg': 105.3, 'def_rtg': 116.3}, 'WAS': {'off_rtg': 110.9, 'def_rtg': 110.9}
-}
-
 def norm(abbr):
     mapping = {'GS': 'GSW', 'SA': 'SAS', 'NY': 'NYK', 'NO': 'NOP', 'UTAH': 'UTA', 'WSH': 'WAS', 'CHAR': 'CHA', 'BKLN': 'BKN', 'PHX': 'PHO'}
     return mapping.get(abbr, abbr)
@@ -136,6 +117,86 @@ def norm(abbr):
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. DATA FETCHERS
 # ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def get_team_ratings():
+    # Bulletproof Fallback Data (Uses the 2026-27 update just in case the web scraper fails)
+    fallback = {
+        'ATL': {'off_rtg': 113.6, 'def_rtg': 110.7}, 'BOS': {'off_rtg': 116.8, 'def_rtg': 111.2},
+        'BKN': {'off_rtg': 106.9, 'def_rtg': 113.0}, 'CHA': {'off_rtg': 102.8, 'def_rtg': 114.2},
+        'CHI': {'off_rtg': 106.8, 'def_rtg': 124.1}, 'CLE': {'off_rtg': 116.8, 'def_rtg': 114.7},
+        'DAL': {'off_rtg': 113.2, 'def_rtg': 113.3}, 'DEN': {'off_rtg': 117.4, 'def_rtg': 117.0},
+        'DET': {'off_rtg': 113.0, 'def_rtg': 103.6}, 'GSW': {'off_rtg': 119.4, 'def_rtg': 116.3},
+        'HOU': {'off_rtg': 121.3, 'def_rtg': 110.5}, 'IND': {'off_rtg': 110.1, 'def_rtg': 113.2},
+        'LAC': {'off_rtg': 108.1, 'def_rtg': 114.8}, 'LAL': {'off_rtg': 121.7, 'def_rtg': 113.9},
+        'MEM': {'off_rtg': 118.8, 'def_rtg': 108.3}, 'MIA': {'off_rtg': 113.3, 'def_rtg': 118.0},
+        'MIL': {'off_rtg': 108.4, 'def_rtg': 120.5}, 'MIN': {'off_rtg': 117.0, 'def_rtg': 105.8},
+        'NOP': {'off_rtg': 114.2, 'def_rtg': 112.1}, 'NYK': {'off_rtg': 113.8, 'def_rtg': 108.6},
+        'OKC': {'off_rtg': 111.8, 'def_rtg': 110.8}, 'ORL': {'off_rtg': 108.4, 'def_rtg': 117.4},
+        'PHI': {'off_rtg': 111.3, 'def_rtg': 105.6}, 'PHO': {'off_rtg': 114.3, 'def_rtg': 125.6},
+        'POR': {'off_rtg': 122.4, 'def_rtg': 111.1}, 'SAC': {'off_rtg': 107.6, 'def_rtg': 121.2},
+        'SAS': {'off_rtg': 116.1, 'def_rtg': 107.8}, 'TOR': {'off_rtg': 116.4, 'def_rtg': 112.8},
+        'UTA': {'off_rtg': 105.3, 'def_rtg': 116.3}, 'WAS': {'off_rtg': 110.9, 'def_rtg': 110.9}
+    }
+    
+    TR_TEAM_MAP = {
+        'Atlanta': 'ATL', 'Boston': 'BOS', 'Brooklyn': 'BKN', 'Charlotte': 'CHA',
+        'Chicago': 'CHI', 'Cleveland': 'CLE', 'Dallas': 'DAL', 'Denver': 'DEN',
+        'Detroit': 'DET', 'Golden State': 'GSW', 'Houston': 'HOU', 'Indiana': 'IND',
+        'Clippers': 'LAC', 'Lakers': 'LAL', 'Memphis': 'MEM', 'Miami': 'MIA',
+        'Milwaukee': 'MIL', 'Minnesota': 'MIN', 'New Orleans': 'NOP', 'New York': 'NYK',
+        'Okla': 'OKC', 'Orlando': 'ORL', 'Philadelphia': 'PHI', 'Phoenix': 'PHO',
+        'Portland': 'POR', 'Sacramento': 'SAC', 'San Antonio': 'SAS', 'Toronto': 'TOR',
+        'Utah': 'UTA', 'Washington': 'WAS'
+    }
+    
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    ratings = {}
+    
+    try:
+        from bs4 import BeautifulSoup
+        
+        # Scrape Live Offensive Ratings
+        html_off = requests.get("https://www.teamrankings.com/nba/stat/offensive-efficiency", headers=headers, timeout=5).text
+        soup_off = BeautifulSoup(html_off, 'html.parser')
+        for tr in soup_off.find('table').find('tbody').find_all('tr'):
+            cols = tr.find_all('td')
+            if len(cols) >= 3:
+                name = cols[1].get_text(strip=True)
+                val = float(cols[2].get_text(strip=True))
+                
+                abbr = None
+                for k, v in TR_TEAM_MAP.items():
+                    if k in name:
+                        abbr = v; break
+                        
+                if abbr:
+                    ratings[abbr] = {'off_rtg': val, 'def_rtg': 115.0} # Placeholder def_rtg
+        
+        # Scrape Live Defensive Ratings
+        html_def = requests.get("https://www.teamrankings.com/nba/stat/defensive-efficiency", headers=headers, timeout=5).text
+        soup_def = BeautifulSoup(html_def, 'html.parser')
+        for tr in soup_def.find('table').find('tbody').find_all('tr'):
+            cols = tr.find_all('td')
+            if len(cols) >= 3:
+                name = cols[1].get_text(strip=True)
+                val = float(cols[2].get_text(strip=True))
+                
+                abbr = None
+                for k, v in TR_TEAM_MAP.items():
+                    if k in name:
+                        abbr = v; break
+                        
+                if abbr and abbr in ratings:
+                    ratings[abbr]['def_rtg'] = val
+        
+        # Only return the scraped data if we successfully mapped all 30 teams
+        if len(ratings) == 30:
+            return ratings
+        return fallback
+        
+    except:
+        return fallback
+
 @st.cache_data(ttl=300)
 def get_daily_slate():
     today_str = (datetime.utcnow() - timedelta(hours=5)).strftime('%Y%m%d')
@@ -274,9 +335,9 @@ def get_back_to_back():
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. PREDICTION ENGINE 
 # ─────────────────────────────────────────────────────────────────────────────
-def predict_game(h, a, standings, injuries, b2b_set, use_l10=False):
-    h_td = TEAM_DATA.get(h, {'off_rtg': 112, 'def_rtg': 115})
-    a_td = TEAM_DATA.get(a, {'off_rtg': 112, 'def_rtg': 115})
+def predict_game(h, a, standings, injuries, b2b_set, team_ratings, use_l10=False):
+    h_td = team_ratings.get(h, {'off_rtg': 112, 'def_rtg': 115})
+    a_td = team_ratings.get(a, {'off_rtg': 112, 'def_rtg': 115})
     h_std = standings.get(h, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
     a_std = standings.get(a, {'wins': 0, 'losses': 0, 'record': '0-0', 'win_pct': 0.5})
     
@@ -415,7 +476,8 @@ current_market_date = (datetime.utcnow() - timedelta(hours=5)).strftime('%B %d, 
 st.markdown(f"**Market Date:** {current_market_date}")
 st.divider()
 
-slate, standings, injuries, b2b = get_daily_slate(), get_standings(), get_injuries(), get_back_to_back()
+# 🚨 Pass the automated team_ratings into the UI loader 🚨
+slate, standings, injuries, b2b, team_ratings = get_daily_slate(), get_standings(), get_injuries(), get_back_to_back(), get_team_ratings()
 
 # Sidebar Debugger for Fatigue
 st.sidebar.subheader("📊 Fatigue Status")
@@ -432,7 +494,8 @@ with tab1:
     else:
         for game in slate:
             h, a = game['h'], game['a']
-            pred = predict_game(h, a, standings, injuries, b2b, use_l10=False)
+            # Pass team_ratings directly to the prediction engine
+            pred = predict_game(h, a, standings, injuries, b2b, team_ratings, use_l10=False)
             with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
                 st.markdown(f"### 🏆 {pred['winner']} Wins")
                 for f in pred['factors']:
@@ -455,7 +518,8 @@ with tab2:
     else:
         for game in slate:
             h, a = game['h'], game['a']
-            pred = predict_game(h, a, standings, injuries, b2b, use_l10=True)
+            # Pass team_ratings directly to the prediction engine
+            pred = predict_game(h, a, standings, injuries, b2b, team_ratings, use_l10=True)
             with st.expander(f"{game['h_name']} vs {game['a_name']} | Winner: {pred['winner']} ({pred['conf']:.1f}%)"):
                 st.markdown(f"### 🏆 {pred['winner']} Wins")
                 for f in pred['factors']:
